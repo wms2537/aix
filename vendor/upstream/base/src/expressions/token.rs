@@ -80,6 +80,10 @@ impl fmt::Display for OpProduct {
 ///  * "#ERROR!" means there was an error processing the formula (for instance "=A1+")
 ///  * "#N/IMPL!" means the formula or feature in Excel but has not been implemented in IronCalc
 ///    Note that they are serialized/deserialized by index
+///
+/// "#BLOCKED!" and "#CONNECT!" are modern Excel errors (they postdate ECMA-376):
+///  * "#BLOCKED!" means something is blocking the formula, e.g. XLM macro evaluation is disabled
+///  * "#CONNECT!" means a connection to an external service failed or is unavailable
 #[derive(Serialize, Deserialize, Encode, Decode, Debug, PartialEq, Eq, Clone)]
 pub enum Error {
     REF,
@@ -94,6 +98,8 @@ pub enum Error {
     CALC,
     CIRC,
     NULL,
+    BLOCKED,
+    CONNECT,
 }
 
 impl fmt::Display for Error {
@@ -111,6 +117,8 @@ impl fmt::Display for Error {
             Error::SPILL => write!(fmt, "#SPILL!"),
             Error::CALC => write!(fmt, "#CALC!"),
             Error::CIRC => write!(fmt, "#CIRC!"),
+            Error::BLOCKED => write!(fmt, "#BLOCKED!"),
+            Error::CONNECT => write!(fmt, "#CONNECT!"),
         }
     }
 }
@@ -129,6 +137,8 @@ impl Error {
             Error::SPILL => language.errors.spill.to_string(),
             Error::CALC => language.errors.calc.to_string(),
             Error::CIRC => language.errors.circ.to_string(),
+            Error::BLOCKED => language.errors.blocked.to_string(),
+            Error::CONNECT => language.errors.connect.to_string(),
         }
     }
 }
@@ -159,6 +169,10 @@ pub fn get_error_by_name(name: &str, language: &Language) -> Option<Error> {
         return Some(Error::CIRC);
     } else if name == errors.null {
         return Some(Error::NULL);
+    } else if name == errors.blocked {
+        return Some(Error::BLOCKED);
+    } else if name == errors.connect {
+        return Some(Error::CONNECT);
     }
     None
 }
@@ -188,14 +202,30 @@ pub fn get_error_by_english_name(name: &str) -> Option<Error> {
         return Some(Error::CIRC);
     } else if name == "#NULL!" {
         return Some(Error::NULL);
+    } else if name == "#BLOCKED!" {
+        return Some(Error::BLOCKED);
+    } else if name == "#CONNECT!" {
+        return Some(Error::CONNECT);
     }
     None
 }
 
 pub fn is_english_error_string(name: &str) -> bool {
     let names = [
-        "#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#N/A", "#NUM!", "#ERROR!", "#N/IMPL!", "#SPILL!",
-        "#CALC!", "#CIRC!", "#NULL!",
+        "#REF!",
+        "#NAME?",
+        "#VALUE!",
+        "#DIV/0!",
+        "#N/A",
+        "#NUM!",
+        "#ERROR!",
+        "#N/IMPL!",
+        "#SPILL!",
+        "#CALC!",
+        "#CIRC!",
+        "#NULL!",
+        "#BLOCKED!",
+        "#CONNECT!",
     ];
     names.contains(&name)
 }

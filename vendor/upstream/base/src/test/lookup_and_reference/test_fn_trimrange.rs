@@ -86,6 +86,48 @@ fn test_trimrange_preserves_interior_blank_rows() {
     assert_eq!(model._get_text("C3"), "end");
 }
 
+// ── empty-string formula results are values, not blanks ───────────────────────
+
+#[test]
+fn test_trimrange_empty_string_formula_result_is_retained() {
+    let mut model = new_empty_model();
+    // A1 contains a formula that evaluates to "" — a value, so it must not be
+    // trimmed. Only the truly blank row 3 is trimmed.
+    model._set("A1", "=\"\"");
+    model._set("A2", "x");
+    model._set("C1", "=TRIMRANGE(A1:A3)");
+    model.evaluate();
+    assert_eq!(model._get_text("C1"), "");
+    assert_eq!(model._get_text("C2"), "x");
+    assert_eq!(model._get_text("C3"), "");
+}
+
+// ── single-cell result ────────────────────────────────────────────────────────
+
+#[test]
+fn test_trimrange_single_cell_result() {
+    let mut model = new_empty_model();
+    // Only A2 has data → result is a single cell
+    model._set("A2", "9");
+    model._set("C1", "=TRIMRANGE(A1:A3)");
+    model.evaluate();
+    assert_eq!(model._get_text("C1"), "9");
+    assert_eq!(model._get_text("C2"), "");
+}
+
+// ── array literal input ───────────────────────────────────────────────────────
+
+#[test]
+fn test_trimrange_array_literal_passes_through() {
+    let mut model = new_empty_model();
+    model._set("A1", "=TRIMRANGE({1,2;3,4})");
+    model.evaluate();
+    assert_eq!(model._get_text("A1"), "1");
+    assert_eq!(model._get_text("B1"), "2");
+    assert_eq!(model._get_text("A2"), "3");
+    assert_eq!(model._get_text("B2"), "4");
+}
+
 // ── fully blank range → #REF! ─────────────────────────────────────────────────
 
 #[test]
@@ -93,6 +135,15 @@ fn test_trimrange_all_blank_returns_ref_error() {
     let mut model = new_empty_model();
     // A1:A3 all blank
     model._set("C1", "=TRIMRANGE(A1:A3)");
+    model.evaluate();
+    assert_eq!(model._get_text("C1"), "#REF!");
+}
+
+#[test]
+fn test_trimrange_single_blank_cell_returns_ref_error() {
+    let mut model = new_empty_model();
+    // A single blank cell is an all-blank input
+    model._set("C1", "=TRIMRANGE(A1)");
     model.evaluate();
     assert_eq!(model._get_text("C1"), "#REF!");
 }
@@ -113,4 +164,27 @@ fn test_trimrange_2d_trims_rows_and_cols() {
     assert_eq!(model._get_text("F1"), "2");
     assert_eq!(model._get_text("E2"), "3");
     assert_eq!(model._get_text("F2"), "4");
+}
+
+#[test]
+fn test_trimrange_all_blank_no_trim_still_returns_ref_error() {
+    let mut model = new_empty_model();
+    // All-blank input -> #REF! is unconditional (spec), even with trimming
+    // disabled — not merely a byproduct of trimming everything away.
+    model._set("C1", "=TRIMRANGE(A1:A2,0,0)");
+    model.evaluate();
+    assert_eq!(model._get_text("C1"), "#REF!");
+}
+
+#[test]
+fn test_trimrange_explicit_empty_arg_keeps_default_3() {
+    let mut model = new_empty_model();
+    // A1:A2 blank, A3 = 9, A4 blank. An explicitly empty trim_rows
+    // (=TRIMRANGE(range,,2)) keeps the documented default 3 (trim both),
+    // it does not coerce to 0 (no trim).
+    model._set("A3", "9");
+    model._set("C1", "=TRIMRANGE(A1:A4,,2)");
+    model.evaluate();
+    assert_eq!(model._get_text("C1"), "9");
+    assert_eq!(model._get_text("C2"), "");
 }

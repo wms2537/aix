@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-07-02T15:31:31Z",
+  "generated_utc": "2026-07-02T18:29:06Z",
   "machine": {
     "cpu_model": "Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz",
     "logical_cores": 12,
@@ -25,22 +25,22 @@
       {
         "tool": "xlq calc (ironcalc)",
         "operation": "load + full recalc + stored-vs-recomputed compare",
-        "median_s": 1.277
+        "median_s": 1.264
       },
       {
         "tool": "ironcalc load only (load-only bin)",
         "operation": "load_from_xlsx and exit; isolates parse/load from census, hashing, recalc",
-        "median_s": 0.611
+        "median_s": 0.599
       },
       {
         "tool": "libreoffice --convert-to xlsx",
         "operation": "process spawn + load + save (closest CLI recalc analog; NOT an isolated recalc — see caveats)",
-        "median_s": 1.702
+        "median_s": 1.494
       },
       {
         "tool": "openpyxl load_workbook(data_only=False)",
         "operation": "load only",
-        "median_s": 0.900,
+        "median_s": 0.875,
         "calc": "n/a (cannot)"
       }
     ],
@@ -54,46 +54,46 @@
     {
       "fixture": "branch-consolidation.xlsx",
       "fixture_bytes": 20553,
-      "median_s": 0.007,
-      "output_bytes": 1766
+      "median_s": 0.012,
+      "output_bytes": 1800
     },
     {
       "fixture": "claims.xlsx",
       "fixture_bytes": 27475,
-      "median_s": 0.024,
-      "output_bytes": 1126
+      "median_s": 0.020,
+      "output_bytes": 1160
     },
     {
       "fixture": "payroll.xlsx",
       "fixture_bytes": 15311,
-      "median_s": 0.010,
-      "output_bytes": 1321
+      "median_s": 0.007,
+      "output_bytes": 1355
     },
     {
       "fixture": "perf-large.xlsx",
       "fixture_bytes": 1648490,
-      "median_s": 0.941,
-      "output_bytes": 965
+      "median_s": 0.908,
+      "output_bytes": 999
     },
     {
       "fixture": "stock-reconciliation.xlsx",
       "fixture_bytes": 34599,
       "median_s": 0.011,
-      "output_bytes": 1458
+      "output_bytes": 1492
     }
   ],
   "C_token_efficiency": [
     {
       "fixture": "branch-consolidation.xlsx",
-      "census_bytes": 1766,
+      "census_bytes": 1800,
       "naive_dump_bytes": 51107,
-      "naive_over_census_ratio": 28.9
+      "naive_over_census_ratio": 28.4
     },
     {
       "fixture": "perf-large.xlsx",
-      "census_bytes": 965,
+      "census_bytes": 999,
       "naive_dump_bytes": 7239303,
-      "naive_over_census_ratio": 7501.9
+      "naive_over_census_ratio": 7246.5
     }
   ],
   "D_preservation": [
@@ -101,7 +101,7 @@
       "fixture": "branch-consolidation.xlsx",
       "tool": "openpyxl",
       "resave_ok": true,
-      "output_bytes": 17695,
+      "output_bytes": 17696,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
@@ -204,7 +204,7 @@
       "fixture": "branch-consolidation.xlsx",
       "tool": "ironcalc",
       "resave_ok": true,
-      "output_bytes": 20566,
+      "output_bytes": 20567,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
@@ -347,7 +347,7 @@
       "fixture": "claims.xlsx",
       "tool": "ironcalc",
       "resave_ok": true,
-      "output_bytes": 27488,
+      "output_bytes": 27487,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
@@ -670,7 +670,7 @@
       "fixture": "stock-reconciliation.xlsx",
       "tool": "openpyxl",
       "resave_ok": true,
-      "output_bytes": 37330,
+      "output_bytes": 37331,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
@@ -769,7 +769,7 @@
       "fixture": "stock-reconciliation.xlsx",
       "tool": "ironcalc",
       "resave_ok": true,
-      "output_bytes": 34611,
+      "output_bytes": 34613,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {

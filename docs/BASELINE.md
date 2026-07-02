@@ -148,6 +148,10 @@ The strongest new entrant (~8,299 stars, Apache-2.0, C#, actively pushed as of 2
   function names (66.1%); master @ `e50ccea8` — the commit xlq vendors, plus a
   3-function local patch — recognizes **497/522 (95.2%)**, with all 25 missing
   names requiring external services, OLAP, a pivot model, or a DBCS locale.
+  (Update 2026-07-03, after this baseline's date: the vendored tree's
+  full-catalog milestone brings the xlq-linked engine to 522/522 recognized —
+  505 locally evaluable + 17 policy-limited; see [COVERAGE.md](COVERAGE.md).
+  The upstream 0.7.1/master numbers in this row are unchanged.)
 - Writes from its own internal model; features outside that model (VBA, most chart/pivot
   richness) do not round-trip (inference from architecture; the write path is model → xlsx).
 
@@ -207,7 +211,7 @@ The strongest new entrant (~8,299 stars, Apache-2.0, C#, actively pushed as of 2
 | LibreOffice headless | Yes (Calc engine; xlsx **not recalculated by default on load**) | Mostly; VBA via save-original option; fidelity drift on complex files | No | No | No | Yes | No (full suite, ~100s MB) | MPL-2.0 |
 | excel-mcp-server | No (openpyxl inside) | No — drops VBA (no `keep_vba`), inherits openpyxl losses | No | No | No | Yes | No (Python + MCP host) | MIT |
 | OfficeCLI | Yes (350+ fns, own engine) | Charts/pivots it creates: yes; VBA/edit-preservation: undocumented | No | No | No | Yes | **Yes** | Apache-2.0 |
-| IronCalc | Yes (497/522 fns measured on master @ e50ccea8; 345 on the 0.7.1 release; pre-1.0) | No (writes from own model) | No | No | No | Yes | Lib/crate | MIT / Apache-2.0 |
+| IronCalc | Yes (494/522 fns measured on bare master @ e50ccea8 — 497 only with xlq's 3-function local patch, see §7; 345 on the 0.7.1 release; pre-1.0) | No (writes from own model) | No | No | No | Yes | Lib/crate | MIT / Apache-2.0 |
 | HyperFormula | Yes (418 fns) | N/A — no file I/O | No | No | No (in-memory undo only) | Yes | No (JS lib) | GPLv3 or commercial |
 | GRID engine | Yes (~400 fns) | Unknown; calc-focused | No | No | No | Yes | No (npm lib) | Proprietary |
 | formulas | Yes (subset) | No | N/A (compute-oriented) | No | No | Yes | No (Python pkg) | EUPL 1.1+ |

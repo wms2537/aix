@@ -13,6 +13,9 @@
 //!   "defined_names": <count only by default; names array only when !redact>,
 //!   "functions": {"SUM": 120, ...}   (Excel vocabulary only; see census.rs),
 //!   "unsupported_functions": [...],
+//!   "policy_limited_functions": {"CUBEVALUE": "#NAME?", ...}  (recognized
+//!                                but externally-dependent functions -> the
+//!                                documented no-connection literal),
 //!   "volatile_functions": [...],
 //!   "user_defined_calls": {"count": n, "call_sites": n,
 //!                          "names": [...] only when !redact} — UDFs, add-in
@@ -42,8 +45,9 @@
 //!   IronCalc drops parts it does not model, so the zip is the ground
 //!   truth, not the Model.
 //! - "coverage.reliable" is false when unsupported_functions is non-empty,
-//!   when user-defined callables are present (the engine cannot evaluate
-//!   them), or when unsupported_features is non-empty.
+//!   when policy_limited_functions is non-empty (their values cannot be
+//!   verified locally), when user-defined callables are present (the engine
+//!   cannot evaluate them), or when unsupported_features is non-empty.
 //! - PRIVACY INVARIANT: no cell values, no formula bodies, no full paths in
 //!   the output. Sheet/defined names and user-defined callable names are
 //!   structural metadata; `--redact` anonymizes/omits them for stricter
@@ -153,7 +157,13 @@ pub fn run(path: &str, redact: bool) -> Result<serde_json::Value> {
     };
 
     let census = crate::census::function_census(&model);
+    // Policy-limited functions keep reliable=false: their stored values
+    // depend on external services/connections xlq never contacts, so they
+    // cannot be verified locally — but they get their own bucket (with the
+    // documented refusal literal), not "unsupported": the engine recognizes
+    // them and returns the Excel-exact no-connection error.
     let reliable = census.unsupported.is_empty()
+        && census.policy_limited.is_empty()
         && census.user_defined.is_empty()
         && unsupported_features.is_empty();
 
@@ -171,7 +181,8 @@ pub fn run(path: &str, redact: bool) -> Result<serde_json::Value> {
         })
     };
 
-    let mut coverage = json!({"engine": "ironcalc 0.7.1+e50ccea8 (vendored master)", "reliable": reliable});
+    let mut coverage =
+        json!({"engine": "ironcalc 0.7.1+e50ccea8 (vendored master)", "reliable": reliable});
     if !unsupported_features.is_empty() {
         coverage["unsupported_features"] = json!(unsupported_features);
     }
@@ -183,6 +194,7 @@ pub fn run(path: &str, redact: bool) -> Result<serde_json::Value> {
         "defined_names": defined_names,
         "functions": census.tallies,
         "unsupported_functions": census.unsupported,
+        "policy_limited_functions": census.policy_limited,
         "volatile_functions": census.volatile_present,
         "user_defined_calls": user_defined_calls,
         "ooxml_parts": ooxml_parts(path)?,
@@ -237,7 +249,9 @@ fn load_with_cse_normalized(path: &str) -> Result<Model<'static>> {
             }
             let entry_name = entry.name().to_string();
             let mut data = Vec::with_capacity(entry.size() as usize);
-            entry.read_to_end(&mut data).context("read zip entry data")?;
+            entry
+                .read_to_end(&mut data)
+                .context("read zip entry data")?;
             if entry_name.starts_with("xl/worksheets/") && entry_name.ends_with(".xml") {
                 let xml = String::from_utf8_lossy(&data).into_owned();
                 data = strip_cse_array_attrs(&xml).into_bytes();
@@ -298,7 +312,8 @@ fn ooxml_parts(path: &str) -> Result<serde_json::Value> {
         has_charts |= entry.starts_with("xl/charts/");
         // Legacy notes (xl/commentsN.xml) and modern threaded comments
         // (xl/threadedComments/…) both count as comment parts.
-        has_comments |= entry.starts_with("xl/comments") || entry.starts_with("xl/threadedComments/");
+        has_comments |=
+            entry.starts_with("xl/comments") || entry.starts_with("xl/threadedComments/");
     }
 
     Ok(json!({
@@ -332,7 +347,12 @@ mod tests {
             .set_user_input(0, 1, 1, "SECRET_VALUE_XYZ".to_string())
             .expect("set value");
         model
-            .set_user_input(0, 2, 1, "=CONCATENATE(\"SECRET_FORMULA_LIT\",A1)".to_string())
+            .set_user_input(
+                0,
+                2,
+                1,
+                "=CONCATENATE(\"SECRET_FORMULA_LIT\",A1)".to_string(),
+            )
             .expect("set formula");
         model
             .set_user_input(1, 3, 2, "=1/0".to_string())
@@ -357,8 +377,14 @@ mod tests {
         for redact in [false, true] {
             let report = run(&path, redact).expect("inspect");
             let text = serde_json::to_string(&report).expect("serialize");
-            assert!(!text.contains("SECRET_VALUE_XYZ"), "cell value leaked: {text}");
-            assert!(!text.contains("SECRET_FORMULA_LIT"), "formula body leaked: {text}");
+            assert!(
+                !text.contains("SECRET_VALUE_XYZ"),
+                "cell value leaked: {text}"
+            );
+            assert!(
+                !text.contains("SECRET_FORMULA_LIT"),
+                "formula body leaked: {text}"
+            );
             assert!(!text.contains(&parent), "full path leaked: {text}");
         }
         let _ = std::fs::remove_file(&path);
@@ -386,7 +412,10 @@ mod tests {
         assert_eq!(report["defined_names"]["names"], json!(["SecretRegion"]));
         assert_eq!(report["ooxml_parts"]["has_vba"], json!(false));
         assert!(report["ooxml_parts"]["part_count"].as_u64().unwrap() > 0);
-        assert_eq!(report["coverage"]["engine"], json!("ironcalc 0.7.1+e50ccea8 (vendored master)"));
+        assert_eq!(
+            report["coverage"]["engine"],
+            json!("ironcalc 0.7.1+e50ccea8 (vendored master)")
+        );
         assert_eq!(report["xlq"]["command"], json!("inspect"));
 
         let redacted = run(&path, true).expect("inspect redacted");
@@ -469,23 +498,62 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_function_inside_defined_name_breaks_reliable() {
+    fn policy_limited_function_inside_defined_name_breaks_reliable() {
         let mut model = Model::new_empty("book", "en", "UTC", "en").expect("new model");
         // Function-bearing defined names arrive via import; push directly.
-        model.workbook.defined_names.push(ironcalc::base::types::DefinedName {
-            name: "HiddenCalc".to_string(),
-            formula: "CUBEVALUE(Sheet1!$A$1:$A$2)".to_string(),
-            sheet_id: None,
-        });
+        model
+            .workbook
+            .defined_names
+            .push(ironcalc::base::types::DefinedName {
+                name: "HiddenCalc".to_string(),
+                formula: "CUBEVALUE(Sheet1!$A$1:$A$2)".to_string(),
+                sheet_id: None,
+            });
         model
             .set_user_input(0, 1, 1, "=MIN(1,160)".to_string())
             .expect("set formula");
         model.evaluate();
-        let path = save_temp(&model, "dn-unsupported");
+        let path = save_temp(&model, "dn-policy-limited");
 
         let report = run(&path, false).expect("inspect");
-        assert_eq!(report["unsupported_functions"], json!(["CUBEVALUE"]));
+        // CUBEVALUE is recognized (documented no-connection answer #NAME?)
+        // but OLAP-dependent: distinct bucket, still reliable=false because
+        // its stored values cannot be verified locally.
+        assert_eq!(report["unsupported_functions"], json!([]));
+        assert_eq!(
+            report["policy_limited_functions"],
+            json!({"CUBEVALUE": "#NAME?"})
+        );
         assert_eq!(report["coverage"]["reliable"], json!(false));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn policy_limited_cell_functions_get_their_own_bucket() {
+        let mut model = Model::new_empty("book", "en", "UTC", "en").expect("new model");
+        model
+            .set_user_input(
+                0,
+                1,
+                1,
+                "=WEBSERVICE(\"https://example.com/api\")".to_string(),
+            )
+            .expect("set formula");
+        model
+            .set_user_input(0, 2, 1, "=SUM(1,2)".to_string())
+            .expect("set formula");
+        model.evaluate();
+        let path = save_temp(&model, "policy-limited-cells");
+
+        let report = run(&path, false).expect("inspect");
+        assert_eq!(report["unsupported_functions"], json!([]));
+        assert_eq!(
+            report["policy_limited_functions"],
+            json!({"WEBSERVICE": "#VALUE!"})
+        );
+        assert_eq!(report["coverage"]["reliable"], json!(false));
+        assert_eq!(report["functions"]["WEBSERVICE"], json!(1));
 
         let _ = std::fs::remove_file(&path);
     }
@@ -493,8 +561,7 @@ mod tests {
     /// Rewrite one part of a saved xlsx (or add a new one) and re-zip it.
     fn patch_zip_part(path: &str, part: &str, transform: impl Fn(Option<String>) -> String) {
         let bytes = std::fs::read(path).expect("read xlsx");
-        let mut archive =
-            zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("open xlsx zip");
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("open xlsx zip");
         let out = std::fs::File::create(path).expect("rewrite xlsx");
         let mut writer = zip::ZipWriter::new(out);
         let mut found = false;
@@ -529,7 +596,9 @@ mod tests {
     #[test]
     fn legacy_cse_array_formula_still_gets_a_census() {
         let mut model = Model::new_empty("book", "en", "UTC", "en").expect("new model");
-        model.set_user_input(0, 1, 1, "42".to_string()).expect("set value");
+        model
+            .set_user_input(0, 1, 1, "42".to_string())
+            .expect("set value");
         model
             .set_user_input(0, 1, 2, "=MIN(A1,160)".to_string())
             .expect("set formula");
@@ -577,7 +646,10 @@ mod tests {
             "<f ref='B1'>MIN(A1,1)</f>"
         );
         // A plain <f> tag (no attributes) is untouched.
-        assert_eq!(strip_cse_array_attrs("<v>1</v><f>A1+1</f>"), "<v>1</v><f>A1+1</f>");
+        assert_eq!(
+            strip_cse_array_attrs("<v>1</v><f>A1+1</f>"),
+            "<v>1</v><f>A1+1</f>"
+        );
         // Tags that merely start with "<f" (e.g. <font>) are untouched.
         assert_eq!(
             strip_cse_array_attrs("<font t=\"array\"/>"),
@@ -589,13 +661,18 @@ mod tests {
             "<is><t>see t=\"array\" docs</t></is>"
         );
         // Malformed XML: "<f " never closed — passed through unchanged.
-        assert_eq!(strip_cse_array_attrs("tail <f t=\"array\""), "tail <f t=\"array\"");
+        assert_eq!(
+            strip_cse_array_attrs("tail <f t=\"array\""),
+            "tail <f t=\"array\""
+        );
     }
 
     #[test]
     fn load_with_cse_normalized_loads_a_stripped_copy() {
         let mut model = Model::new_empty("book", "en", "UTC", "en").expect("new model");
-        model.set_user_input(0, 1, 1, "7".to_string()).expect("set value");
+        model
+            .set_user_input(0, 1, 1, "7".to_string())
+            .expect("set value");
         model
             .set_user_input(0, 1, 2, "=MIN(A1,160)".to_string())
             .expect("set formula");
@@ -611,7 +688,10 @@ mod tests {
             .get_cell_formula(0, 1, 2)
             .expect("read formula")
             .expect("formula present");
-        assert!(formula.contains("MIN"), "formula lost in normalization: {formula}");
+        assert!(
+            formula.contains("MIN"),
+            "formula lost in normalization: {formula}"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -675,8 +755,17 @@ mod tests {
         let path = save_temp(&model, "ooxml-flags");
 
         let before = run(&path, false).expect("inspect");
-        for flag in ["has_vba", "has_pivot_cache", "has_external_links", "has_charts"] {
-            assert_eq!(before["ooxml_parts"][flag], json!(false), "{flag} should start false");
+        for flag in [
+            "has_vba",
+            "has_pivot_cache",
+            "has_external_links",
+            "has_charts",
+        ] {
+            assert_eq!(
+                before["ooxml_parts"][flag],
+                json!(false),
+                "{flag} should start false"
+            );
         }
 
         patch_zip_part(&path, "xl/vbaProject.bin", |_| "vba".to_string());
@@ -686,7 +775,9 @@ mod tests {
         patch_zip_part(&path, "xl/externalLinks/externalLink1.xml", |_| {
             "<externalLink/>".to_string()
         });
-        patch_zip_part(&path, "xl/charts/chart1.xml", |_| "<chartSpace/>".to_string());
+        patch_zip_part(&path, "xl/charts/chart1.xml", |_| {
+            "<chartSpace/>".to_string()
+        });
 
         let parts = ooxml_parts(&path).expect("ooxml_parts");
         assert_eq!(parts["has_vba"], json!(true));

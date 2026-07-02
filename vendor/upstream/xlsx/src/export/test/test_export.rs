@@ -218,3 +218,51 @@ fn test_existing_file() {
 
     fs::remove_file(file_name).unwrap();
 }
+
+#[test]
+fn test_blocked_and_connect_errors_roundtrip() {
+    // #BLOCKED! and #CONNECT! are the two error variants added for the
+    // policy-limited functions (docs/specs/full-catalog-semantics.md,
+    // "Tier II"); they postdate ECMA-376 and must survive an xlsx
+    // save/load cycle both as cached formula results and as plain error
+    // values.
+    let mut model = new_empty_model();
+    // formula results: CALL -> #BLOCKED!, STOCKHISTORY -> #CONNECT!
+    model.set_user_input(0, 1, 1, "=CALL(1)".to_string()).unwrap();
+    model
+        .set_user_input(0, 2, 1, "=STOCKHISTORY(\"MSFT\", 45000)".to_string())
+        .unwrap();
+    // plain error values entered as user input
+    model
+        .set_user_input(0, 3, 1, "#BLOCKED!".to_string())
+        .unwrap();
+    model
+        .set_user_input(0, 4, 1, "#CONNECT!".to_string())
+        .unwrap();
+
+    model.evaluate();
+    assert_eq!(model.get_formatted_cell_value(0, 1, 1).unwrap(), "#BLOCKED!");
+    assert_eq!(model.get_formatted_cell_value(0, 2, 1).unwrap(), "#CONNECT!");
+    assert_eq!(model.get_formatted_cell_value(0, 3, 1).unwrap(), "#BLOCKED!");
+    assert_eq!(model.get_formatted_cell_value(0, 4, 1).unwrap(), "#CONNECT!");
+
+    let temp_file_name = "temp_file_test_blocked_connect.xlsx";
+    save_to_xlsx(&model, temp_file_name).unwrap();
+
+    // Cached values must read back without re-evaluation.
+    let mut model = load_from_xlsx(temp_file_name, "en", "UTC", "en").unwrap();
+    assert_eq!(model.get_formatted_cell_value(0, 1, 1).unwrap(), "#BLOCKED!");
+    assert_eq!(model.get_formatted_cell_value(0, 2, 1).unwrap(), "#CONNECT!");
+    assert_eq!(model.get_formatted_cell_value(0, 3, 1).unwrap(), "#BLOCKED!");
+    assert_eq!(model.get_formatted_cell_value(0, 4, 1).unwrap(), "#CONNECT!");
+
+    // Re-evaluating the reloaded formulas must reproduce the same literals
+    // (the round-tripped formula text still parses and dispatches).
+    model.evaluate();
+    assert_eq!(model.get_formatted_cell_value(0, 1, 1).unwrap(), "#BLOCKED!");
+    assert_eq!(model.get_formatted_cell_value(0, 2, 1).unwrap(), "#CONNECT!");
+    assert_eq!(model.get_formatted_cell_value(0, 3, 1).unwrap(), "#BLOCKED!");
+    assert_eq!(model.get_formatted_cell_value(0, 4, 1).unwrap(), "#CONNECT!");
+
+    fs::remove_file(temp_file_name).unwrap();
+}

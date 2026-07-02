@@ -12,7 +12,12 @@ use ironcalc::base::Model;
 /// The raw stored value of a cell as JSON: null | string | number | bool.
 /// Numbers are compared and serialized as their exact f64 payloads
 /// (non-finite values fall back to their string rendering).
-pub fn raw_cell_value(model: &Model, sheet: u32, row: i32, column: i32) -> Result<serde_json::Value> {
+pub fn raw_cell_value(
+    model: &Model,
+    sheet: u32,
+    row: i32,
+    column: i32,
+) -> Result<serde_json::Value> {
     let value = model
         .get_cell_value_by_index(sheet, row, column)
         .map_err(|e| anyhow!(e))?;
@@ -60,7 +65,8 @@ mod tests {
         let mut model = model();
         let ws = model.workbook.worksheet_mut(0).unwrap();
         ws.set_cell_with_number(10, 1, f64::INFINITY, 0).unwrap();
-        ws.set_cell_with_number(11, 1, f64::NEG_INFINITY, 0).unwrap();
+        ws.set_cell_with_number(11, 1, f64::NEG_INFINITY, 0)
+            .unwrap();
         ws.set_cell_with_number(12, 1, f64::NAN, 0).unwrap();
         assert_eq!(raw_cell_value(&model, 0, 10, 1).unwrap(), json!("inf"));
         assert_eq!(raw_cell_value(&model, 0, 11, 1).unwrap(), json!("-inf"));

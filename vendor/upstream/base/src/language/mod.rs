@@ -22,6 +22,8 @@ pub struct Errors {
     pub circ: String,
     pub error: String,
     pub null: String,
+    pub blocked: String,
+    pub connect: String,
 }
 
 #[derive(Encode, Decode)]
@@ -523,6 +525,31 @@ pub struct Functions {
     pub encodeurl: String,
     pub hyperlink: String,
     pub aggregate: String,
+    pub filterxml: String,
+    pub webservice: String,
+    pub bahttext: String,
+    pub dbcs: String,
+    pub jis: String,
+    pub phonetic: String,
+    pub euroconvert: String,
+    pub groupby: String,
+    pub pivotby: String,
+    pub call: String,
+    pub copilot: String,
+    pub cubekpimember: String,
+    pub cubemember: String,
+    pub cubememberproperty: String,
+    pub cuberankedmember: String,
+    pub cubeset: String,
+    pub cubesetcount: String,
+    pub cubevalue: String,
+    pub detectlanguage: String,
+    pub getpivotdata: String,
+    pub image: String,
+    pub registerid: String,
+    pub rtd: String,
+    pub stockhistory: String,
+    pub translate: String,
 }
 
 #[derive(Encode, Decode)]

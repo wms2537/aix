@@ -40,7 +40,11 @@ fn fixtures_dir() -> &'static Path {
 }
 
 fn fixture(name: &str) -> String {
-    fixtures_dir().join(name).to_str().expect("utf8 path").to_owned()
+    fixtures_dir()
+        .join(name)
+        .to_str()
+        .expect("utf8 path")
+        .to_owned()
 }
 
 /// Run the xlq binary; assert success; return (parsed JSON, raw stdout).
@@ -72,12 +76,18 @@ fn failing_command_exits_one_with_json_error_payload_and_no_full_paths() {
     assert_eq!(out.status.code(), Some(1), "failure must exit 1");
 
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("xlq error:"), "stderr diagnostic missing: {stderr}");
+    assert!(
+        stderr.contains("xlq error:"),
+        "stderr diagnostic missing: {stderr}"
+    );
 
     let stdout = String::from_utf8(out.stdout).expect("stdout is utf8");
     let json: Value = serde_json::from_str(&stdout).expect("error payload parses as JSON");
     let message = json["error"].as_str().expect("error key present");
-    assert!(message.contains("missing.xlsx"), "basename missing: {message}");
+    assert!(
+        message.contains("missing.xlsx"),
+        "basename missing: {message}"
+    );
     assert!(
         !stdout.contains("xlq-secret-client-dir"),
         "directory leaked into stdout payload: {stdout}"
@@ -108,9 +118,11 @@ fn fixtures_generate_all_files_and_defect_manifest() {
     }
     // The planted #DIV/0! from the spec must be in the manifest.
     assert!(
-        defects.iter().any(|d| d["file"] == "branch-consolidation.xlsx"
-            && d["sheet"] == "Branch3"
-            && d["kind"].as_str().unwrap_or("").contains("div0")),
+        defects
+            .iter()
+            .any(|d| d["file"] == "branch-consolidation.xlsx"
+                && d["sheet"] == "Branch3"
+                && d["kind"].as_str().unwrap_or("").contains("div0")),
         "Branch3 div0 defect missing from manifest"
     );
 }
@@ -132,15 +144,20 @@ fn inspect_reports_functions_and_planted_div0_without_leaking_values() {
         .iter()
         .find(|s| s["name"] == "Branch3")
         .expect("Branch3 sheet present");
-    assert_eq!(branch3["errors"]["#DIV/0!"], 1, "planted #DIV/0! not reported");
+    assert_eq!(
+        branch3["errors"]["#DIV/0!"], 1,
+        "planted #DIV/0! not reported"
+    );
 
     // Privacy: inspect output must never contain cell values. Read known
     // values straight out of the workbook and grep the raw output for them.
-    let model = ironcalc::import::load_from_xlsx(&path, "en", "UTC", "en")
-        .expect("load fixture");
+    let model = ironcalc::import::load_from_xlsx(&path, "en", "UTC", "en").expect("load fixture");
     let b2 = model.get_formatted_cell_value(0, 2, 2).expect("Branch1!B2");
     let a2 = model.get_formatted_cell_value(0, 2, 1).expect("Branch1!A2");
-    assert!(!b2.is_empty() && !a2.is_empty(), "sentinel cells unexpectedly empty");
+    assert!(
+        !b2.is_empty() && !a2.is_empty(),
+        "sentinel cells unexpectedly empty"
+    );
     for leaked in [&b2, &a2] {
         assert!(
             !stdout.contains(leaked.as_str()),
@@ -164,9 +181,14 @@ fn inspect_redact_anonymizes_sheet_and_defined_names() {
         ["sheet_1", "sheet_2", "sheet_3", "sheet_4", "sheet_5", "sheet_6"],
         "sheet names not anonymized"
     );
-    let dn = json["defined_names"].as_object().expect("defined_names object");
+    let dn = json["defined_names"]
+        .as_object()
+        .expect("defined_names object");
     assert!(dn.contains_key("count"));
-    assert!(!dn.contains_key("names"), "redacted output must omit defined-name list");
+    assert!(
+        !dn.contains_key("names"),
+        "redacted output must omit defined-name list"
+    );
 }
 
 #[test]
@@ -192,8 +214,8 @@ fn diff_detects_exactly_one_edited_cell() {
         .to_owned();
 
     // Edit one plain-value cell (Claims!B5, a branch label) and save a copy.
-    let mut model = ironcalc::import::load_from_xlsx(&original, "en", "UTC", "en")
-        .expect("load claims.xlsx");
+    let mut model =
+        ironcalc::import::load_from_xlsx(&original, "en", "UTC", "en").expect("load claims.xlsx");
     let claims_idx = model
         .get_worksheets_properties()
         .iter()
@@ -206,7 +228,11 @@ fn diff_detects_exactly_one_edited_cell() {
 
     let (json, _) = xlq(&["diff", &original, &modified]);
     let changes = json["changes"].as_array().expect("changes array");
-    assert_eq!(changes.len(), 1, "expected exactly one change, got: {changes:?}");
+    assert_eq!(
+        changes.len(),
+        1,
+        "expected exactly one change, got: {changes:?}"
+    );
     let change = &changes[0];
     assert_eq!(change["sheet"], "Claims");
     assert_eq!(change["cell"], "B5");
@@ -221,10 +247,18 @@ fn calc_payroll_reports_coverage_and_zero_recalc_drift() {
     let (json, _) = xlq(&["calc", &path]);
     assert_eq!(json["xlq"]["command"], "calc");
 
-    let coverage = json["coverage"].as_object().expect("coverage block present");
-    assert_eq!(coverage["engine"], "ironcalc 0.7.1+e50ccea8 (vendored master)");
+    let coverage = json["coverage"]
+        .as_object()
+        .expect("coverage block present");
+    assert_eq!(
+        coverage["engine"],
+        "ironcalc 0.7.1+e50ccea8 (vendored master)"
+    );
     // Fixtures must only use functions the engine supports.
-    assert_eq!(coverage["reliable"], true, "fixture uses unsupported functions");
+    assert_eq!(
+        coverage["reliable"], true,
+        "fixture uses unsupported functions"
+    );
     assert_eq!(coverage["unsupported_functions"], serde_json::json!([]));
 
     assert!(json["summary"]["formulas"].as_u64().expect("formulas") > 0);

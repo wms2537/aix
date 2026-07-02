@@ -36,31 +36,47 @@ impl<'a> Model<'a> {
             return CalcResult::new_args_number_error(cell);
         }
 
-        let data = match self.eval_to_array(&args[0], cell) {
-            Ok(d) => d,
-            Err(e) => return e,
+        // Note: `eval_to_array` is not used here because it converts a single
+        // blank cell into `0`, while TRIMRANGE must keep it blank so that an
+        // all-blank input returns #REF!.
+        let data = match self.evaluate_node_in_context(&args[0], cell) {
+            CalcResult::Range { left, right } => self.evaluate_range(left, right),
+            CalcResult::Array(arr) => arr,
+            CalcResult::Number(n) => vec![vec![ArrayNode::Number(n)]],
+            CalcResult::Boolean(b) => vec![vec![ArrayNode::Boolean(b)]],
+            CalcResult::String(s) => vec![vec![ArrayNode::String(s)]],
+            CalcResult::EmptyCell | CalcResult::EmptyArg => vec![vec![ArrayNode::Empty]],
+            err @ CalcResult::Error { .. } => return err,
+            CalcResult::Lambda(_) => {
+                return CalcResult::new_error(
+                    Error::VALUE,
+                    cell,
+                    "LAMBDA cannot be used as an array".to_string(),
+                )
+            }
         };
 
         if data.is_empty() || data[0].is_empty() {
             return CalcResult::new_error(Error::REF, cell, "Range is empty".to_string());
         }
 
-        let trim_rows = if args.len() >= 2 {
-            match self.get_number(&args[1], cell) {
+        // An explicitly empty argument (`=TRIMRANGE(range,,2)`) keeps the
+        // documented default 3, like an omitted one — it must not coerce to
+        // 0 ("no trim").
+        let trim_rows = match args.get(1) {
+            None | Some(Node::EmptyArgKind) => 3,
+            Some(node) => match self.get_number(node, cell) {
                 Ok(n) => n as i32,
                 Err(e) => return e,
-            }
-        } else {
-            3
+            },
         };
 
-        let trim_cols = if args.len() == 3 {
-            match self.get_number(&args[2], cell) {
+        let trim_cols = match args.get(2) {
+            None | Some(Node::EmptyArgKind) => 3,
+            Some(node) => match self.get_number(node, cell) {
                 Ok(n) => n as i32,
                 Err(e) => return e,
-            }
-        } else {
-            3
+            },
         };
 
         if !matches!(trim_rows, 0..=3) {
@@ -75,6 +91,17 @@ impl<'a> Model<'a> {
                 Error::VALUE,
                 cell,
                 "trim_cols must be 0, 1, 2, or 3".to_string(),
+            );
+        }
+
+        // All-blank input -> #REF!, unconditionally (spec: "All-blank input
+        // → #REF!") — even with trimming disabled (trim_rows/cols 0), where
+        // the slice bounds below would otherwise keep the blank grid.
+        if data.iter().all(|row| row.iter().all(is_blank)) {
+            return CalcResult::new_error(
+                Error::REF,
+                cell,
+                "TRIMRANGE input is all blank".to_string(),
             );
         }
 

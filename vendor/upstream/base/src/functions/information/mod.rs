@@ -212,6 +212,8 @@ impl<'a> Model<'a> {
                     Error::NUM => CalcResult::Number(6.0),
                     Error::NA => CalcResult::Number(7.0),
                     Error::SPILL => CalcResult::Number(9.0),
+                    Error::CONNECT => CalcResult::Number(10.0),
+                    Error::BLOCKED => CalcResult::Number(11.0),
                     Error::CALC => CalcResult::Number(14.0),
                     // IronCalc specific
                     Error::ERROR => CalcResult::Number(101.0),
@@ -219,8 +221,6 @@ impl<'a> Model<'a> {
                     Error::CIRC => CalcResult::Number(104.0),
                     // Missing from Excel
                     // #GETTING_DATA => 8
-                    // #CONNECT => 10
-                    // #BLOCKED => 11
                     // #UNKNOWN => 12
                     // #FIELD => 13
                     // #EXTERNAL => 19

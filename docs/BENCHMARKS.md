@@ -1,33 +1,44 @@
 # xlq Benchmarks: Performance + Preservation
 
-Date: 2026-07-02, regenerated after the engine upgrade from the ironcalc 0.7.1
-release to the vendored master pin (`ironcalc 0.7.1+e50ccea8 (vendored master)`,
-plus the local ENCODEURL/HYPERLINK/AGGREGATE patch). Produced by
+Part of **AXLE-bench** (suite front page:
+[benchmarks/README.md](../benchmarks/README.md)) — this document is the
+narrative for axes 2–4 (Fidelity, Efficiency, Agent-ergonomics).
+
+Date: 2026-07-03 (run recorded in `results.json` → `generated_utc`,
+2026-07-02T18:29Z), regenerated with the full-catalog-milestone engine
+(`ironcalc 0.7.1+e50ccea8 (vendored master)` plus the local patches described
+in [COVERAGE.md](COVERAGE.md): the ENCODEURL/HYPERLINK/AGGREGATE residual
+patch and the Tier I / Tier II milestone). Produced by
 `benchmarks/run_bench.sh` (rerun it to regenerate everything, including
 `benchmarks/results.json`; it requires python3+openpyxl and soffice on PATH,
 overridable via `PY`/`SOFFICE`). All raw **current-run** numbers in this
 document — including the cell-level `xlq diff` results, the uncompressed
 worksheet-XML sizes, and the `docProps/core.xml` timestamp check in section D —
 come from that `results.json`; the harness computes each of them. The
-exception is every number labeled "(0.7.1 run)" (section A's historical
+exceptions are (a) every number labeled "(0.7.1 run)" (section A's historical
 column, the "same 620 cells" claim, and the "zero stored-value changes under
-the 0.7.1 fixtures" baseline in the flagged subsection): those come from the
-previous run's `results.json`, which this refresh **overwrote** and which is
-not otherwise preserved in the repo, so the historical column and the deltas
-derived from it are quoted from a superseded artifact and cannot be re-audited
+the 0.7.1 fixtures" baseline in the flagged subsection), quoted from the
+0.7.1-era `results.json`, and (b) section B's census-size delta vs the
+previous (2026-07-02, pre-milestone) run: each rerun **overwrites** the prior
+`results.json`, which is not otherwise preserved in the repo, so those
+cross-run deltas are quoted from superseded artifacts and cannot be re-audited
 here — only the current-run numbers can.
 
 Machine: Intel Core i7-8700K @ 3.70GHz, 12 logical cores, Linux.
 Tools: xlq 0.1.0 (engine ironcalc 0.7.1+e50ccea8 vendored master, release build),
 openpyxl 3.1.5 (CPython), LibreOffice 24.8.7.2 headless.
 
-**Because the engine changed, the fixtures changed too** — they are authored by
+**Fixture provenance across runs:** the fixtures were regenerated when the
+engine moved from the 0.7.1 release to the master pin — they are authored by
 the engine's own writer (`xlq-fixtures`), and master's writer emits two OOXML
 parts 0.7.1's did not (`xl/theme/theme1.xml`, `xl/metadata.xml`) and serializes
 cached formula values at full float precision. Section D's part-level and
-cell-level numbers therefore moved for reasons that have nothing to do with
-openpyxl or LibreOffice changing; the deltas are called out inline and the one
-dramatic mover is flagged in its own subsection.
+cell-level numbers therefore moved vs the 0.7.1 run for reasons that have
+nothing to do with openpyxl or LibreOffice changing; the deltas are called out
+inline and the one dramatic mover is flagged in its own subsection. The
+milestone rerun did **not** regenerate the fixtures (the harness reads them
+as-is), and every section-D count reproduced identically; its only non-noise
+change vs the 2026-07-02 run is census output size (section B).
 
 ---
 
@@ -88,50 +99,53 @@ best-case interactive latency, not cold-start.
 
 | Tool | Operation actually measured | Median wall time | (0.7.1 run) |
 |---|---|---|---|
-| **xlq calc** (ironcalc) | load + full recalc + raw stored-vs-recomputed compare + volatile taint + report | **1.277 s** | 1.262 s |
-| ironcalc load only (`load-only` bin) | `load_from_xlsx` and exit | 0.611 s | 0.589 s |
-| LibreOffice `--convert-to xlsx` | process spawn + load + save (recalc not guaranteed; caveat 1) | 1.702 s | 1.588 s |
-| openpyxl `load_workbook(data_only=False)` | load only | 0.900 s — calc: **n/a (cannot)** | 0.927 s |
+| **xlq calc** (ironcalc) | load + full recalc + raw stored-vs-recomputed compare + volatile taint + report | **1.264 s** | 1.262 s |
+| ironcalc load only (`load-only` bin) | `load_from_xlsx` and exit | 0.599 s | 0.589 s |
+| LibreOffice `--convert-to xlsx` | process spawn + load + save (recalc not guaranteed; caveat 1) | 1.494 s | 1.588 s |
+| openpyxl `load_workbook(data_only=False)` | load only | 0.875 s — calc: **n/a (cannot)** | 0.927 s |
 
-The engine upgrade is performance-neutral on this workload: every delta vs the
-0.7.1 run (+1% xlq calc, +4% load-only, +7% LibreOffice, −3% openpyxl) is inside
+The engine changes are performance-neutral on this workload: every delta vs the
+0.7.1 run (+0% xlq calc, +2% load-only, −6% LibreOffice, −6% openpyxl) is inside
 caveat 9's noise band. xlq recalculates ~99,800 formulas, raw-diffs every stored
 value, and runs the volatile-dependency analysis in ~1.4× the time openpyxl needs
 just to *parse* the same file — and openpyxl then still cannot calculate anything.
 LibreOffice, despite spawning an entire office process and writing the 1.6 MB
-result back out, lands only ~1.33× behind xlq. That is closer than a "Rust vs
+result back out, lands only ~1.2× behind xlq. That is closer than a "Rust vs
 office suite" framing would suggest; see Interpretation.
 
 ## B. INSPECT — census latency and size per fixture
 
 | Fixture | File size | `xlq inspect` median | Census output |
 |---|---:|---:|---:|
-| branch-consolidation.xlsx | 20,553 B | 0.007 s | 1,766 B |
-| claims.xlsx | 27,475 B | 0.024 s | 1,126 B |
-| payroll.xlsx | 15,311 B | 0.010 s | 1,321 B |
-| perf-large.xlsx | 1,648,490 B | 0.941 s | 965 B |
-| stock-reconciliation.xlsx | 34,599 B | 0.011 s | 1,458 B |
+| branch-consolidation.xlsx | 20,553 B | 0.012 s | 1,800 B |
+| claims.xlsx | 27,475 B | 0.020 s | 1,160 B |
+| payroll.xlsx | 15,311 B | 0.007 s | 1,355 B |
+| perf-large.xlsx | 1,648,490 B | 0.908 s | 999 B |
+| stock-reconciliation.xlsx | 34,599 B | 0.011 s | 1,492 B |
 
-(Fixture files are 2–3 KB larger than the 0.7.1-generated ones — master's writer
-adds `xl/theme/theme1.xml` and `xl/metadata.xml`; census outputs are exactly 27 B
-larger each because the engine identifier string in the `coverage` object is
-longer.) Census size is governed by structural diversity (distinct functions,
-sheets, error kinds), not workbook size: the 100k-cell fixture produces the
-*smallest* census. On perf-large, the measured ironcalc load (0.611 s, section A's
-`load-only` row) accounts for ~65% of the 0.941 s inspect time; the remainder is
-SHA-256 hashing, the function tally, and the support probe.
+(Census outputs are exactly 34 B larger each than in the previous —
+2026-07-02, pre-milestone — run, because the milestone engine now emits the
+`policy_limited_functions` key in every census; the fixture files themselves
+are unchanged, since the harness reads them without regenerating. That
+cross-run delta is quoted against the superseded `results.json` noted in the
+header's exception (b) and cannot be re-audited here.) Census size is governed
+by structural diversity (distinct functions, sheets, error kinds), not
+workbook size: the 100k-cell fixture produces the *smallest* census. On
+perf-large, the measured ironcalc load (0.599 s, section A's `load-only` row)
+accounts for ~66% of the 0.908 s inspect time; the remainder is SHA-256
+hashing, the function tally, and the support probe.
 
 ## C. TOKEN EFFICIENCY — census vs naive full-sheet dump
 
 | Fixture | xlq census | Naive openpyxl dump (all cells, value+formula) | Ratio |
 |---|---:|---:|---:|
-| branch-consolidation.xlsx | 1,766 B | 51,107 B | **28.9×** |
-| perf-large.xlsx | 965 B | 7,239,303 B | **7,502×** |
+| branch-consolidation.xlsx | 1,800 B | 51,107 B | **28.4×** |
+| perf-large.xlsx | 999 B | 7,239,303 B | **7,246×** |
 
 This quantifies the "agent reads the census, not the whole sheet" claim: on the
 large fixture the naive dump is ~7.2 MB — far beyond any LLM context window — while
-the census is 965 bytes (roughly a couple hundred tokens). The honest reading of the
-28.9× small-fixture number: for small sheets an agent *could* afford the full dump;
+the census is 999 bytes (roughly a couple hundred tokens). The honest reading of the
+28.4× small-fixture number: for small sheets an agent *could* afford the full dump;
 the census becomes load-bearing as workbooks grow, and the ratio scales with cell
 count because census size does not.
 
@@ -265,31 +279,33 @@ writer re-serializes the world.)
   formulas in ~1.3 s — ~1.4× the time openpyxl spends merely parsing the file — and
   openpyxl cannot recalculate at any speed. For an agent that needs to know "are the
   stored values actually what the formulas produce?", the openpyxl column is not
-  slower, it is empty. And with the master engine's 497/522 function coverage (see
+  slower, it is empty. And with the engine's full-catalog coverage (522/522
+  recognized: 505 locally evaluable + 17 policy-limited; see
   `docs/COVERAGE.md`), "recalculate" now extends to dynamic-array and LAMBDA
   workbooks the 0.7.1 engine had to flag as unreliable.
-- **Token economy (section C) is the standout result:** 965 bytes of census versus a
-  7.2 MB dump (7,502×) on the 100k-cell fixture. This is the difference between "the
+- **Token economy (section C) is the standout result:** 999 bytes of census versus a
+  7.2 MB dump (7,246×) on the 100k-cell fixture. This is the difference between "the
   agent can hold the workbook's structure in context" and "the workbook cannot be
   read at all". This claim needs no asterisks.
-- **Interactive-grade inspect latency:** 7–24 ms on realistic small workbooks, 0.94 s
+- **Interactive-grade inspect latency:** 7–20 ms on realistic small workbooks, 0.91 s
   on the 100k-cell one — cheap enough to run before and after every operation, which
   is what the receipt/journal design assumes.
 - **Raw parsing speed:** the dedicated `load-only` binary puts ironcalc's parse/load
-  of perf-large at 0.611 s vs openpyxl's 0.900 s — roughly 1.5× faster. (An earlier
+  of perf-large at 0.599 s vs openpyxl's 0.875 s — roughly 1.5× faster. (An earlier
   revision called this "a tie" based on inferring the load time from `xlq inspect`,
   which also hashes and censuses; the isolated measurement shows the load is faster
   than that inference suggested.)
-- **The engine upgrade cost nothing measurable:** despite adding ~150 functions,
-  spill semantics, and richer output parts, every section-A timing is within noise
+- **The engine upgrade and the full-catalog milestone cost nothing measurable:**
+  despite adding ~150 functions, spill semantics, richer output parts, and the
+  milestone's Tier I implementations, every section-A timing is within noise
   of the 0.7.1 run.
 
 **Where it does not win — reported straight.**
 
 - **LibreOffice is genuinely fast.** A full process spawn + load + write of the
-  1.6 MB file in 1.70 s is only ~1.33× xlq's in-process calc, and LibreOffice ships
+  1.6 MB file in 1.49 s is only ~1.2× xlq's in-process calc, and LibreOffice ships
   a battle-tested engine with broad function and feature coverage. If a workflow can
-  tolerate ~1.7 s and LibreOffice's fidelity drift, raw speed alone is not a reason
+  tolerate ~1.5 s and LibreOffice's fidelity drift, raw speed alone is not a reason
   to choose xlq. (Caveat: per caveat 1 the LO number likely excludes real
   recalculation — Calc does not recalculate xlsx on load by default — so it is NOT
   an upper bound on LO's load+recalc cost; an honest engine-vs-engine comparison

@@ -15,7 +15,7 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let mut model = match load_from_xlsx(&input, "en", "UTC", "en") {
+    let model = match load_from_xlsx(&input, "en", "UTC", "en") {
         Ok(m) => m,
         Err(e) => {
             eprintln!("roundtrip: load {input}: {e:?}");
@@ -25,7 +25,7 @@ fn main() {
     match std::fs::remove_file(&output) {
         Ok(()) | Err(_) => {}
     }
-    if let Err(e) = save_to_xlsx(&mut model, &output) {
+    if let Err(e) = save_to_xlsx(&model, &output) {
         eprintln!("roundtrip: save {output}: {e:?}");
         std::process::exit(1);
     }

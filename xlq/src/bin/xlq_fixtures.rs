@@ -73,8 +73,7 @@ fn col_name(col: i32) -> String {
 }
 
 fn new_model(first_sheet: &str, extra_sheets: &[&str]) -> Result<Model<'static>> {
-    let mut model =
-        Model::new_empty("fixture", "en", "UTC", "en").map_err(anyhow::Error::msg)?;
+    let mut model = Model::new_empty("fixture", "en", "UTC", "en").map_err(anyhow::Error::msg)?;
     model
         .rename_sheet("Sheet1", first_sheet)
         .map_err(anyhow::Error::msg)?;
@@ -252,7 +251,9 @@ fn build_branch_consolidation(dir: &str, defects: &mut Vec<Value>) -> Result<()>
 
     finish(&mut m, dir, file)?;
     defects.push(json!({"file": file, "sheet": "Branch3", "row": 16, "col": 8, "kind": "div0_zero_revenue_margin"}));
-    defects.push(json!({"file": file, "sheet": "Branch2", "row": 14, "col": 3, "kind": "sum_range_short"}));
+    defects.push(
+        json!({"file": file, "sheet": "Branch2", "row": 14, "col": 3, "kind": "sum_range_short"}),
+    );
     defects.push(json!({"file": file, "sheet": "Consolidated", "row": 5, "col": 5, "kind": "hardcoded_over_formula"}));
     Ok(())
 }
@@ -277,7 +278,7 @@ fn build_stock_reconciliation(dir: &str, defects: &mut Vec<Value>) -> Result<()>
         let sku = rng.range(0, 9) as usize;
         let branch = rng.range(0, 2) as usize;
         let qty = rng.range(1, 50);
-        let inbound = rng.next() % 2 == 0;
+        let inbound = rng.next().is_multiple_of(2);
         movements.push(Mv {
             date,
             sku,
@@ -316,7 +317,10 @@ fn build_stock_reconciliation(dir: &str, defects: &mut Vec<Value>) -> Result<()>
         }
     }
 
-    for (h, header) in ["date", "sku", "branch", "qty_in", "qty_out"].iter().enumerate() {
+    for (h, header) in ["date", "sku", "branch", "qty_in", "qty_out"]
+        .iter()
+        .enumerate()
+    {
         set(&mut m, 0, 1, h as i32 + 1, *header)?;
     }
     for (i, mv) in movements.iter().enumerate() {
@@ -342,7 +346,15 @@ fn build_stock_reconciliation(dir: &str, defects: &mut Vec<Value>) -> Result<()>
 
     let recon: u32 = 3;
     let headers = [
-        "sku", "branch", "mov_in", "mov_out", "purchases", "sales", "diff_in", "diff_out", "name",
+        "sku",
+        "branch",
+        "mov_in",
+        "mov_out",
+        "purchases",
+        "sales",
+        "diff_in",
+        "diff_out",
+        "name",
     ];
     for (h, header) in headers.iter().enumerate() {
         set(&mut m, recon, 1, h as i32 + 1, *header)?;
@@ -362,7 +374,13 @@ fn build_stock_reconciliation(dir: &str, defects: &mut Vec<Value>) -> Result<()>
         set(m, recon, r, 6, format!("=SUMIFS(Sales!$D$2:$D${sales_last},Sales!$B$2:$B${sales_last},$A{r},Sales!$C$2:$C${sales_last},$B{r})"))?;
         set(m, recon, r, 7, format!("=C{r}-E{r}"))?;
         set(m, recon, r, 8, format!("=D{r}-F{r}"))?;
-        set(m, recon, r, 9, format!("=VLOOKUP($A{r},$K$2:$L$11,2,FALSE)"))?;
+        set(
+            m,
+            recon,
+            r,
+            9,
+            format!("=VLOOKUP($A{r},$K$2:$L$11,2,FALSE)"),
+        )?;
         Ok(())
     };
     for (si, sku) in skus.iter().enumerate() {
@@ -380,8 +398,12 @@ fn build_stock_reconciliation(dir: &str, defects: &mut Vec<Value>) -> Result<()>
 
     finish(&mut m, dir, file)?;
     defects.push(json!({"file": file, "sheet": "Recon", "row": 20, "col": 7, "kind": "purchases_qty_mismatch"}));
-    defects.push(json!({"file": file, "sheet": "Recon", "row": 9, "col": 8, "kind": "sales_qty_mismatch"}));
-    defects.push(json!({"file": file, "sheet": "Recon", "row": 32, "col": 9, "kind": "na_missing_sku"}));
+    defects.push(
+        json!({"file": file, "sheet": "Recon", "row": 9, "col": 8, "kind": "sales_qty_mismatch"}),
+    );
+    defects.push(
+        json!({"file": file, "sheet": "Recon", "row": 32, "col": 9, "kind": "na_missing_sku"}),
+    );
     Ok(())
 }
 
@@ -441,7 +463,13 @@ fn build_payroll(dir: &str, defects: &mut Vec<Value>) -> Result<()> {
         set(&mut m, 2, r, 2, format!("=SUM(Attendance!B{r}:AF{r})"))?;
         set(&mut m, 2, r, 3, format!("=MIN(B{r},160)"))?;
         set(&mut m, 2, r, 4, format!("=MAX(B{r}-160,0)"))?;
-        set(&mut m, 2, r, 5, format!("=VLOOKUP(A{r},Rates!$A$2:$B$40,2,FALSE)"))?;
+        set(
+            &mut m,
+            2,
+            r,
+            5,
+            format!("=VLOOKUP(A{r},Rates!$A$2:$B$40,2,FALSE)"),
+        )?;
         set(&mut m, 2, r, 6, format!("=C{r}*E{r}"))?;
         set(&mut m, 2, r, 7, format!("=IF(D{r}>0,D{r}*E{r}*1.5,0)"))?;
         set(&mut m, 2, r, 8, format!("=F{r}+G{r}"))?;
@@ -449,7 +477,9 @@ fn build_payroll(dir: &str, defects: &mut Vec<Value>) -> Result<()> {
 
     finish(&mut m, dir, file)?;
     defects.push(json!({"file": file, "sheet": "Attendance", "row": 14, "col": 18, "kind": "negative_hours"}));
-    defects.push(json!({"file": file, "sheet": "Payroll", "row": 28, "col": 5, "kind": "na_missing_rate"}));
+    defects.push(
+        json!({"file": file, "sheet": "Payroll", "row": 28, "col": 5, "kind": "na_missing_rate"}),
+    );
     Ok(())
 }
 
@@ -485,7 +515,7 @@ fn build_claims(dir: &str, defects: &mut Vec<Value>) -> Result<()> {
         set(&mut m, 0, 1, h as i32 + 1, *header)?;
     }
     for i in 0..300 {
-        let r = i as i32 + 2;
+        let r = i + 2;
         set(&mut m, 0, r, 1, format!("CLM-{:04}", i + 1))?;
         set(&mut m, 0, r, 2, branches[rng.range(0, 4) as usize])?;
         set(&mut m, 0, r, 3, categories[rng.range(0, 4) as usize])?;
@@ -504,10 +534,22 @@ fn build_claims(dir: &str, defects: &mut Vec<Value>) -> Result<()> {
             if status == "Approved" || status == "Paid" {
                 let delta = rng.range(1, 30);
                 // Excel DATE normalizes day overflow into the next month.
-                set(&mut m, 0, r, 7, format!("=DATE(2026,{month},{})", day + delta))?;
+                set(
+                    &mut m,
+                    0,
+                    r,
+                    7,
+                    format!("=DATE(2026,{month},{})", day + delta),
+                )?;
             }
         }
-        set(&mut m, 0, r, 8, format!("=VLOOKUP($C{r},Limits!$A$2:$B$6,2,FALSE)"))?;
+        set(
+            &mut m,
+            0,
+            r,
+            8,
+            format!("=VLOOKUP($C{r},Limits!$A$2:$B$6,2,FALSE)"),
+        )?;
         set(&mut m, 0, r, 9, format!("=IF(D{r}>H{r},\"OVER\",\"OK\")"))?;
         set(
             &mut m,

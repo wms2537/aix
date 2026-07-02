@@ -1639,6 +1639,64 @@ fn get_function_args_signature(kind: &Function, arg_count: usize) -> Vec<Signatu
         Function::Skew => vec![Signature::Vector; arg_count],
         Function::SkewP => vec![Signature::Vector; arg_count],
         Function::Small => vec![Signature::Vector, Signature::Scalar],
+        Function::Filterxml => args_signature_scalars(arg_count, 2, 0),
+        Function::Webservice => args_signature_scalars(arg_count, 1, 0),
+        Function::Bahttext => args_signature_scalars(arg_count, 1, 0),
+        Function::Dbcs => args_signature_scalars(arg_count, 1, 0),
+        Function::Jis => args_signature_scalars(arg_count, 1, 0),
+        Function::Phonetic => args_signature_one_vector(arg_count),
+        Function::Euroconvert => args_signature_scalars(arg_count, 3, 2),
+        Function::Groupby => {
+            if (3..=8).contains(&arg_count) {
+                let mut result = vec![Signature::Scalar; arg_count];
+                result[0] = Signature::Vector;
+                result[1] = Signature::Vector;
+                if arg_count > 6 {
+                    result[6] = Signature::Vector;
+                }
+                result
+            } else {
+                vec![Signature::Error; arg_count]
+            }
+        }
+        Function::Pivotby => {
+            if (4..=11).contains(&arg_count) {
+                let mut result = vec![Signature::Scalar; arg_count];
+                result[0] = Signature::Vector;
+                result[1] = Signature::Vector;
+                result[2] = Signature::Vector;
+                if arg_count > 9 {
+                    result[9] = Signature::Vector;
+                }
+                result
+            } else {
+                vec![Signature::Error; arg_count]
+            }
+        }
+        Function::Call => vec![Signature::Scalar; arg_count],
+        Function::Copilot => vec![Signature::Scalar; arg_count],
+        Function::Cubekpimember => args_signature_scalars(arg_count, 3, 1),
+        Function::Cubemember => args_signature_scalars(arg_count, 2, 1),
+        Function::Cubememberproperty => args_signature_scalars(arg_count, 3, 0),
+        Function::Cuberankedmember => args_signature_scalars(arg_count, 3, 1),
+        Function::Cubeset => args_signature_scalars(arg_count, 2, 3),
+        Function::Cubesetcount => args_signature_scalars(arg_count, 1, 0),
+        Function::Cubevalue => vec![Signature::Scalar; arg_count],
+        Function::Detectlanguage => args_signature_scalars(arg_count, 1, 0),
+        Function::Getpivotdata => {
+            if arg_count >= 2 {
+                let mut result = vec![Signature::Scalar; arg_count];
+                result[1] = Signature::Vector;
+                result
+            } else {
+                vec![Signature::Error; arg_count]
+            }
+        }
+        Function::Image => args_signature_scalars(arg_count, 1, 4),
+        Function::RegisterId => args_signature_scalars(arg_count, 2, 1),
+        Function::Rtd => vec![Signature::Scalar; arg_count],
+        Function::Stockhistory => args_signature_scalars(arg_count, 2, 9),
+        Function::Translate => args_signature_scalars(arg_count, 1, 2),
     }
 }
 
@@ -2153,5 +2211,32 @@ fn static_analysis_on_function(kind: &Function, args: &[Node]) -> StaticResult {
         Function::Skew => StaticResult::Scalar,
         Function::SkewP => StaticResult::Scalar,
         Function::Small => StaticResult::Scalar,
+        // FILTERXML spills its matches vertically
+        Function::Filterxml => StaticResult::Unknown,
+        Function::Webservice => StaticResult::Scalar,
+        Function::Bahttext => StaticResult::Scalar,
+        Function::Dbcs => StaticResult::Scalar,
+        Function::Jis => StaticResult::Scalar,
+        Function::Phonetic => StaticResult::Scalar,
+        Function::Euroconvert => StaticResult::Scalar,
+        Function::Groupby => StaticResult::Unknown,
+        Function::Pivotby => StaticResult::Unknown,
+        Function::Call => StaticResult::Scalar,
+        Function::Copilot => StaticResult::Scalar,
+        Function::Cubekpimember => StaticResult::Scalar,
+        Function::Cubemember => StaticResult::Scalar,
+        Function::Cubememberproperty => StaticResult::Scalar,
+        Function::Cuberankedmember => StaticResult::Scalar,
+        Function::Cubeset => StaticResult::Scalar,
+        Function::Cubesetcount => StaticResult::Scalar,
+        Function::Cubevalue => StaticResult::Scalar,
+        Function::Detectlanguage => StaticResult::Scalar,
+        Function::Getpivotdata => StaticResult::Scalar,
+        Function::Image => StaticResult::Scalar,
+        Function::RegisterId => StaticResult::Scalar,
+        Function::Rtd => StaticResult::Scalar,
+        // STOCKHISTORY spills the requested history table
+        Function::Stockhistory => StaticResult::Unknown,
+        Function::Translate => StaticResult::Scalar,
     }
 }

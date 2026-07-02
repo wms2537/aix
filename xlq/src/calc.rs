@@ -14,7 +14,7 @@
 //!   "no change". Each change record carries both the raw values (the
 //!   comparison basis) and the formatted strings (human display).
 //! - Coverage honesty ("no silent incorrectness"): run the function census;
-//!   when unsupported functions or user-defined callables exist, set
+//!   when unsupported, policy-limited, or user-defined callables exist, set
 //!   coverage.reliable=false and list them; when volatile functions exist,
 //!   list them and mark changes "volatile": true when the cell's formula
 //!   calls one OR the cell transitively depends on a cell that does
@@ -33,6 +33,7 @@
 //!   "summary": {"cells": n, "formulas": n, "changed": n},
 //!   "coverage": {"engine": "ironcalc <ver>", "reliable": bool,
 //!                "unsupported_functions": [...],
+//!                "policy_limited_functions": {"NAME": "<literal>", ...},
 //!                "volatile_functions": [...],
 //!                "user_defined_functions": [...]}
 //! }
@@ -142,7 +143,9 @@ fn formula_deps(
         match lexer.next_token() {
             TokenType::EOF | TokenType::Illegal(_) => break,
             TokenType::Ident(name) => idents.push(name.to_uppercase()),
-            TokenType::Reference { sheet, row, column, .. } => {
+            TokenType::Reference {
+                sheet, row, column, ..
+            } => {
                 if let Some(s) = resolve(sheet) {
                     areas.push(RefArea {
                         sheet: s,
@@ -199,8 +202,8 @@ fn volatile_taint(
     for (pos, formula) in cells.iter().zip(formulas) {
         let Some(formula) = formula else { continue };
         let (areas, idents) = formula_deps(formula, pos.0, &sheet_ids);
-        let volatile_self = formula_is_volatile(formula)
-            || idents.iter().any(|i| volatile_defined.contains(i));
+        let volatile_self =
+            formula_is_volatile(formula) || idents.iter().any(|i| volatile_defined.contains(i));
         if volatile_self {
             tainted.insert(*pos);
         } else {
@@ -211,9 +214,7 @@ fn volatile_taint(
     loop {
         let mut grew = false;
         dependents.retain(|(pos, areas)| {
-            let hit = areas
-                .iter()
-                .any(|a| tainted.iter().any(|t| a.contains(t)));
+            let hit = areas.iter().any(|a| tainted.iter().any(|t| a.contains(t)));
             if hit {
                 tainted.insert(*pos);
                 grew = true;
@@ -245,9 +246,19 @@ fn compute_changes(model: &mut Model) -> Result<(Vec<Change>, usize, usize)> {
         let stored = model
             .get_formatted_cell_value(c.index, c.row, c.column)
             .map_err(|e| anyhow!(e))
-            .with_context(|| format!("read stored value sheet {} r{} c{}", c.index, c.row, c.column))?;
+            .with_context(|| {
+                format!(
+                    "read stored value sheet {} r{} c{}",
+                    c.index, c.row, c.column
+                )
+            })?;
         let stored_raw = crate::value::raw_cell_value(model, c.index, c.row, c.column)
-            .with_context(|| format!("read stored raw value sheet {} r{} c{}", c.index, c.row, c.column))?;
+            .with_context(|| {
+                format!(
+                    "read stored raw value sheet {} r{} c{}",
+                    c.index, c.row, c.column
+                )
+            })?;
         let formula = model
             .get_cell_formula(c.index, c.row, c.column)
             .map_err(|e| anyhow!(e))
@@ -266,7 +277,12 @@ fn compute_changes(model: &mut Model) -> Result<(Vec<Change>, usize, usize)> {
     let mut changes = Vec::new();
     for (c, (stored, stored_raw, formula)) in cells.iter().zip(before) {
         let recomputed_raw = crate::value::raw_cell_value(model, c.index, c.row, c.column)
-            .with_context(|| format!("read recomputed raw value sheet {} r{} c{}", c.index, c.row, c.column))?;
+            .with_context(|| {
+                format!(
+                    "read recomputed raw value sheet {} r{} c{}",
+                    c.index, c.row, c.column
+                )
+            })?;
         // Compare RAW values: formatted strings hide drift below the number
         // format's resolution (e.g. 100.41 vs 100.44 both render "100.4").
         if recomputed_raw == stored_raw {
@@ -275,7 +291,12 @@ fn compute_changes(model: &mut Model) -> Result<(Vec<Change>, usize, usize)> {
         let recomputed = model
             .get_formatted_cell_value(c.index, c.row, c.column)
             .map_err(|e| anyhow!(e))
-            .with_context(|| format!("read recomputed value sheet {} r{} c{}", c.index, c.row, c.column))?;
+            .with_context(|| {
+                format!(
+                    "read recomputed value sheet {} r{} c{}",
+                    c.index, c.row, c.column
+                )
+            })?;
         let volatile = tainted.contains(&(c.index, c.row, c.column));
         let sheet = sheet_names
             .get(c.index as usize)
@@ -333,8 +354,14 @@ pub fn run(path: &str) -> Result<serde_json::Value> {
         },
         "coverage": {
             "engine": ENGINE,
-            "reliable": census.unsupported.is_empty() && census.user_defined.is_empty(),
+            // Policy-limited functions keep reliable=false: their values
+            // depend on external services/connections xlq never contacts,
+            // so the recomputation cannot be verified locally.
+            "reliable": census.unsupported.is_empty()
+                && census.policy_limited.is_empty()
+                && census.user_defined.is_empty(),
             "unsupported_functions": census.unsupported,
+            "policy_limited_functions": census.policy_limited,
             "volatile_functions": census.volatile_present,
             "user_defined_functions": census.user_defined.keys().collect::<Vec<_>>(),
         },
@@ -396,7 +423,10 @@ mod tests {
         let mut model = empty_model();
         model.set_user_input(0, 1, 1, "=1/3".to_string()).unwrap();
         model.evaluate();
-        assert_eq!(model.get_formatted_cell_value(0, 1, 1).unwrap(), "0.333333333");
+        assert_eq!(
+            model.get_formatted_cell_value(0, 1, 1).unwrap(),
+            "0.333333333"
+        );
 
         // Make the cached value stale by less than the display resolution:
         // both 1/3 and this value render as "0.333333333".
@@ -408,10 +438,17 @@ mod tests {
             }) => *v = FormulaValue::Number(0.333_333_333_4),
             other => panic!("expected a formula-number cell, got {other:?}"),
         }
-        assert_eq!(model.get_formatted_cell_value(0, 1, 1).unwrap(), "0.333333333");
+        assert_eq!(
+            model.get_formatted_cell_value(0, 1, 1).unwrap(),
+            "0.333333333"
+        );
 
         let (changes, _, _) = compute_changes(&mut model).unwrap();
-        assert_eq!(changes.len(), 1, "sub-display-precision drift must be reported");
+        assert_eq!(
+            changes.len(),
+            1,
+            "sub-display-precision drift must be reported"
+        );
         let change = &changes[0];
         assert_eq!(change.cell, "A1");
         assert_eq!(
@@ -425,10 +462,14 @@ mod tests {
     #[test]
     fn volatility_propagates_to_dependent_cells() {
         let mut model = empty_model();
-        model.set_user_input(0, 1, 1, "=RAND()".to_string()).unwrap();
+        model
+            .set_user_input(0, 1, 1, "=RAND()".to_string())
+            .unwrap();
         model.set_user_input(0, 1, 2, "=A1*2".to_string()).unwrap();
         model.set_user_input(0, 2, 2, "=B1+1".to_string()).unwrap();
-        model.set_user_input(0, 3, 1, "=SUM(10,20)".to_string()).unwrap();
+        model
+            .set_user_input(0, 3, 1, "=SUM(10,20)".to_string())
+            .unwrap();
         model.evaluate();
 
         let (changes, _, _) = compute_changes(&mut model).unwrap();
@@ -451,11 +492,14 @@ mod tests {
         let mut model = empty_model();
         // new_defined_name only accepts plain references; function-bearing
         // defined names arrive via xlsx import, which this mirrors.
-        model.workbook.defined_names.push(ironcalc::base::types::DefinedName {
-            name: "MovingWindow".to_string(),
-            formula: "OFFSET(Sheet1!$A$1,1,0)".to_string(),
-            sheet_id: None,
-        });
+        model
+            .workbook
+            .defined_names
+            .push(ironcalc::base::types::DefinedName {
+                name: "MovingWindow".to_string(),
+                formula: "OFFSET(Sheet1!$A$1,1,0)".to_string(),
+                sheet_id: None,
+            });
         model.set_user_input(0, 2, 1, "7".to_string()).unwrap();
         model
             .set_user_input(0, 1, 2, "=SUM(MovingWindow)".to_string())
@@ -463,7 +507,10 @@ mod tests {
         // Not evaluated: the recompute produces a change we can inspect.
         let (changes, _, _) = compute_changes(&mut model).unwrap();
         let b1 = changes.iter().find(|c| c.cell == "B1").expect("B1 changed");
-        assert!(b1.volatile, "reference to a volatile defined name must taint the cell");
+        assert!(
+            b1.volatile,
+            "reference to a volatile defined name must taint the cell"
+        );
     }
 
     #[test]
@@ -501,7 +548,10 @@ mod tests {
         let err = run("/tmp/xlq-calc-secret-dir/payroll.xlsx").expect_err("missing file");
         let text = format!("{err:#}");
         assert!(text.contains("payroll.xlsx"), "basename missing: {text}");
-        assert!(!text.contains("xlq-calc-secret-dir"), "directory leaked: {text}");
+        assert!(
+            !text.contains("xlq-calc-secret-dir"),
+            "directory leaked: {text}"
+        );
 
         // Present but not an xlsx: fails at the load step with the basename.
         let dir = std::env::temp_dir().join("xlq-calc-secret-dir-2");
@@ -510,8 +560,14 @@ mod tests {
         std::fs::write(&path, b"not a zip").unwrap();
         let err = run(path.to_str().unwrap()).expect_err("corrupt file");
         let text = format!("{err:#}");
-        assert!(text.contains("load workbook"), "load context missing: {text}");
-        assert!(!text.contains("xlq-calc-secret-dir-2"), "directory leaked: {text}");
+        assert!(
+            text.contains("load workbook"),
+            "load context missing: {text}"
+        );
+        assert!(
+            !text.contains("xlq-calc-secret-dir-2"),
+            "directory leaked: {text}"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -550,6 +606,37 @@ mod tests {
         assert_eq!(report["summary"]["cells"], json!(n as u64 + 1));
         assert_eq!(report["summary"]["formulas"], json!(n));
         assert_eq!(report["coverage"]["reliable"], json!(true));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn policy_limited_functions_break_reliable_with_their_own_bucket() {
+        let mut model = empty_model();
+        model
+            .set_user_input(0, 1, 1, "=CUBEVALUE(\"Sales\")".to_string())
+            .unwrap();
+        model
+            .set_user_input(0, 2, 1, "=SUM(1,2)".to_string())
+            .unwrap();
+        model.evaluate();
+
+        let dir = std::env::temp_dir().join("xlq-calc-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("policy-limited-{}.xlsx", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let path = path.to_string_lossy().into_owned();
+        ironcalc::export::save_to_xlsx(&model, &path).unwrap();
+
+        let report = run(&path).expect("calc runs");
+        // Recognized but OLAP-dependent: distinct bucket, values unverifiable
+        // locally, so the run is not reliable — yet nothing is "unsupported".
+        assert_eq!(report["coverage"]["unsupported_functions"], json!([]));
+        assert_eq!(
+            report["coverage"]["policy_limited_functions"],
+            json!({"CUBEVALUE": "#NAME?"})
+        );
+        assert_eq!(report["coverage"]["reliable"], json!(false));
 
         let _ = std::fs::remove_file(&path);
     }

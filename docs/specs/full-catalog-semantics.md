@@ -29,7 +29,7 @@ FRF 6.55957 (2/2), IEP 0.787564 (2/2), ITL 1936.27 (0/0), NLG 2.20371 (2/2),
 ATS 13.7603 (2/2), PTE 200.482 (0/2), FIM 5.94573 (2/2), GRD 340.750 (0/2),
 SIT 239.640 (2/2), EUR 1 (2/2).
 
-## Tier II — recognized, policy/context-limited with exact Excel literals (19)
+## Tier II — recognized, policy/context-limited with exact Excel literals (17)
 
 These functions are RECOGNIZED (never #NAME? for the name itself) and return
 precisely what desktop Excel returns when the external work cannot happen.
@@ -59,10 +59,17 @@ Report three honest numbers:
    and dispatch (any error but a parser unknown-name rejection), and the
    probe's #NAME?-based heuristic gets a carve-out list for the 7 CUBE
    functions with a code comment).
-2. locally evaluable: Tier-supported count (494 + 9 Tier I + AGGREGATE/
-   ENCODEURL/HYPERLINK from the residual phase = 506 expected).
-3. policy/context-limited: 16 remaining (Tier II minus the 3 CUBE arg-error
-   nuances), each with its documented literal and a one-line reason.
+2. locally evaluable: Tier-supported count (497 on the master pin plus the
+   residual phase — AGGREGATE/ENCODEURL/HYPERLINK — which already included
+   PERCENTOF and TRIMRANGE, + the 8 remaining Tier I names = 505 expected).
+3. policy/context-limited: the 17 Tier II functions, each with its
+   documented literal and a one-line reason.
+
+(Correction, 2026-07-03: the research-time draft said "(19)" over the Tier II
+heading and predicted 506/16 here; the Tier II table has always listed 17
+functions, and the shipped accounting — 522 recognized = 505 locally
+evaluable + 17 policy-limited — is what `benchmarks/coverage.json` and
+docs/COVERAGE.md report.)
 
 ## AGGREGATE hidden-row note (feeds the residual implementation)
 

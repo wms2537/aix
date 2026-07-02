@@ -53,7 +53,10 @@ fn main() {
     };
     match result {
         Ok(value) => {
-            println!("{}", serde_json::to_string_pretty(&value).expect("serialize report"));
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&value).expect("serialize report")
+            );
         }
         Err(err) => {
             eprintln!("xlq error: {err:#}");

@@ -56,6 +56,7 @@ xlq inspect payroll.xlsx
   "defined_names": { "count": 0 },
   "functions": { "IF": 40, "MAX": 40, "MIN": 40, "SUM": 40, "VLOOKUP": 40 },
   "unsupported_functions": [],
+  "policy_limited_functions": {},
   "volatile_functions": [],
   "ooxml_parts": { "has_vba": false, "has_pivot_cache": false,
                    "has_external_links": false, "has_charts": false,
@@ -127,8 +128,8 @@ xlq calc branch-consolidation.xlsx
   "summary": { "cells": 1274, "formulas": 443, "changed": 0 },
   "truncated": false,
   "coverage": { "engine": "ironcalc 0.7.1+e50ccea8 (vendored master)", "reliable": true,
-                "unsupported_functions": [], "user_defined_functions": [],
-                "volatile_functions": [] }
+                "unsupported_functions": [], "policy_limited_functions": {},
+                "user_defined_functions": [], "volatile_functions": [] }
 }
 ```
 
@@ -149,11 +150,18 @@ from real staleness. It never writes the file.
 ## Reading `coverage`
 
 Every report carries a `coverage` object. `reliable` is `false` whenever the
-workbook uses a function the engine cannot evaluate; the functions are listed
-in `unsupported_functions`. When `reliable` is `false`, treat value-level
-results (calc's changed list, future dry-run predictions) as unverified.
-This is the "no silent incorrectness" rule made mechanical: the tool reports
-its own blind spots instead of papering over them.
+workbook uses a function the engine cannot evaluate (listed in
+`unsupported_functions` — empty for every catalog name today) or a
+**policy-limited** function (listed in `policy_limited_functions`, mapping
+the name to the documented Excel error literal it returns): WEBSERVICE, RTD,
+STOCKHISTORY, DETECTLANGUAGE, TRANSLATE, COPILOT, IMAGE, CALL, REGISTER.ID,
+the CUBE family, and GETPIVOTDATA depend on external services or connections
+that xlq never contacts, so their stored values cannot be *verified* locally
+even though the engine recognizes them and reproduces Excel's offline
+behavior exactly. When `reliable` is `false`, treat value-level results
+(calc's changed list, future dry-run predictions) as unverified. This is the
+"no silent incorrectness" rule made mechanical: the tool reports its own
+blind spots instead of papering over them.
 
 ## Roadmap
 
@@ -206,16 +214,21 @@ carries a small local patch implementing ENCODEURL, HYPERLINK, and AGGREGATE
 (offered upstream; see
 [docs/upstream/residual-functions-patch.md](docs/upstream/residual-functions-patch.md)).
 
-Function coverage on this pin: **497 of 522 Excel functions (95.2%)** — and
-all 25 unsupported names require an external service, an OLAP cube, a
-pivot-table model, or a DBCS locale, so effectively 100% of locally-evaluable
-functions resolve. Breakdown and taxonomy: [docs/COVERAGE.md](docs/COVERAGE.md).
+Function coverage on this pin, in the three-number form (never quote one
+number alone): **522/522 catalog names recognized (100%), of which 505 are
+locally evaluable and 17 are policy-limited** — recognized and
+argument-checked, but their values depend on an external service, OLAP
+connection, PivotTable model, or native code that xlq refuses to execute by
+design, so they return the documented desktop-Excel refusal literal
+(`#VALUE!`/`#N/A`/`#CONNECT!`/`#BLOCKED!`/`#NAME?`/`#REF!`) and are reported
+per-workbook in the census. The per-function table and probe method:
+[docs/COVERAGE.md](docs/COVERAGE.md).
 Name recognition is not numerical fidelity: for value-level confidence, see
-the 1,634-case differential comparison against LibreOffice in
-[docs/AGREEMENT.md](docs/AGREEMENT.md) (97.2% agreement where both engines
-produce a value — 88.8% counting the one-side-error cases, which are
-dominated by LibreOffice's missing functions — with every disagreement
-triaged).
+the 1,659-case differential comparison against LibreOffice in
+[docs/AGREEMENT.md](docs/AGREEMENT.md) (97.1% agreement where both engines
+produce a value — 93.7% counting the one-side-error cases on functions both
+engines implement; rows where LibreOffice does not know the function are
+classed `lo_unsupported`, no oracle — with every disagreement triaged).
 
 ## Build
 
@@ -253,7 +266,14 @@ are deterministic and their hashes are stable across runs.
 
 ## Benchmarks
 
-See [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+The consolidated suite is **AXLE-bench** (Agent-safe eXcel Layer Evaluation):
+five axes — correctness, fidelity, efficiency, agent-ergonomics, catalog —
+with a comparison matrix against openpyxl, LibreOffice, excel-mcp-server, and
+OfficeCLI. Front page: [benchmarks/README.md](benchmarks/README.md); run it
+with `bash benchmarks/run_all.sh`. Narrative reports:
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md) (perf/preservation/tokens),
+[docs/AGREEMENT.md](docs/AGREEMENT.md) (correctness oracle),
+[docs/COVERAGE.md](docs/COVERAGE.md) (catalog).
 
 ## License
 

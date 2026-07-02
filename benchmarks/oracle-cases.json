@@ -137,6 +137,12 @@
     "=AVERAGEIFS(A1:A5,C1:C5,\"<>3\")",
     "=AVERAGEIFS(D1:D5,C1:C5,\">10\")"
   ],
+  "BAHTTEXT": [
+    "=BAHTTEXT(0)",
+    "=BAHTTEXT(1234.56)",
+    "=BAHTTEXT(0.25)",
+    "=BAHTTEXT(A6)"
+  ],
   "BASE": [
     "=BASE(255,16)",
     "=BASE(7,2)",
@@ -577,6 +583,11 @@
     "=DB(10000,1000,6,3)",
     "=DB(10000,1000,6,1,7)"
   ],
+  "DBCS": [
+    "=DBCS(\"Abc123\")",
+    "=DBCS(B1)",
+    "=DBCS(\"ｱｲｳ\")"
+  ],
   "DCOUNT": [
     "=DCOUNT(C1:D5,2,C1:C3)",
     "=DCOUNT(C1:D5,1,C1:C2)",
@@ -736,6 +747,12 @@
     "=ERROR.TYPE(NA())",
     "=ERROR.TYPE(A1)"
   ],
+  "EUROCONVERT": [
+    "=EUROCONVERT(1,\"FRF\",\"DEM\",TRUE,3)",
+    "=EUROCONVERT(1,\"FRF\",\"DEM\",FALSE,3)",
+    "=EUROCONVERT(100,\"DEM\",\"EUR\")",
+    "=EUROCONVERT(1,\"XYZ\",\"EUR\")"
+  ],
   "EVEN": [
     "=EVEN(3)",
     "=EVEN(-2.5)",
@@ -823,6 +840,12 @@
     "=COUNT(FILTER(C1:C5,D1:D5>25))",
     "=INDEX(FILTER(B1:B10,A1:A10>5),1)",
     "=SUM(FILTER(A1:A10,A1:A10>1000,-1))"
+  ],
+  "FILTERXML": [
+    "=FILTERXML(\"<a><b>5</b><b>7</b></a>\",\"//b[1]\")",
+    "=FILTERXML(\"<a><b>5</b><b>7</b></a>\",\"//b[last()]\")",
+    "=FILTERXML(\"<r><x>hello</x></r>\",\"//x\")",
+    "=FILTERXML(\"not xml\",\"//a\")"
   ],
   "FIND": [
     "=FIND(\"DELTA\",B3)",
@@ -969,6 +992,11 @@
     "=GESTEP(A6, 0)",
     "=GESTEP(A7)",
     "=GESTEP(4.9, 5)"
+  ],
+  "GROUPBY": [
+    "=INDEX(GROUPBY(C1:C5,D1:D5,SUM,0,0),2,2)",
+    "=SUM(GROUPBY(C1:C5,D1:D5,SUM,0,0))",
+    "=INDEX(GROUPBY(B1:B3,C1:C3,COUNT,0,0),1,2)"
   ],
   "GROWTH": [
     "=INDEX(GROWTH({2,4,8,16,32}, {1,2,3,4,5}, 6), 1, 1)",
@@ -1311,6 +1339,11 @@
     "=ISTEXT(A1)",
     "=ISTEXT(B9)",
     "=ISTEXT(E1)"
+  ],
+  "JIS": [
+    "=JIS(\"Abc 123\")",
+    "=JIS(\"ｶﾞｷﾞｸﾞ\")",
+    "=JIS(B8)"
   ],
   "KURT": [
     "=KURT(A1:A10)",
@@ -1790,9 +1823,17 @@
     "=PHI(1.5)",
     "=PHI(A6)"
   ],
+  "PHONETIC": [
+    "=PHONETIC(B1)",
+    "=PHONETIC(B3)"
+  ],
   "PI": [
     "=PI()",
     "=PI()*2"
+  ],
+  "PIVOTBY": [
+    "=INDEX(PIVOTBY(C1:C3,C1:C3,D1:D3,SUM,0,0,1,0,1),2,2)",
+    "=INDEX(PIVOTBY(C1:C2,C1:C2,D1:D2,SUM,0,2,1,2,1),3,3)"
   ],
   "PMT": [
     "=PMT(0.05,10,-1000)",

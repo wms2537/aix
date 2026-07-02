@@ -745,6 +745,12 @@ impl<'a> Lexer<'a> {
         } else if rest_of_formula.starts_with(&errors.circ) {
             self.position += errors.circ.chars().count() - 1;
             return TokenType::Error(Error::CIRC);
+        } else if rest_of_formula.starts_with(&errors.blocked) {
+            self.position += errors.blocked.chars().count() - 1;
+            return TokenType::Error(Error::BLOCKED);
+        } else if rest_of_formula.starts_with(&errors.connect) {
+            self.position += errors.connect.chars().count() - 1;
+            return TokenType::Error(Error::CONNECT);
         }
         // If it is not an error it _might_ be a spill operator.
         TokenType::Spill

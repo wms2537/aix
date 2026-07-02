@@ -585,6 +585,7 @@ dependencies = [
  "rand",
  "regex",
  "regex-lite",
+ "roxmltree",
  "ryu",
  "serde",
  "statrs",

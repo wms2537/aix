@@ -1,7 +1,19 @@
-# Workbook Census Format — Open Spec v0.2
+# Workbook Census Format — Open Spec v0.3
 
-Status: **v0.2, stable.** Produced by `xlq inspect` (see `xlq/src/inspect.rs`;
+Status: **v0.3, stable.** Produced by `xlq inspect` (see `xlq/src/inspect.rs`;
 the implementation and this document must stay in sync).
+
+Changes from v0.2 (additive):
+
+- New `policy_limited_functions` member: functions the engine *recognizes*
+  and argument-checks but whose true value depends on an external service,
+  OLAP connection, PivotTable model, or native code the producing tool
+  refuses to execute (e.g. WEBSERVICE, the CUBE family, GETPIVOTDATA). In
+  v0.2 these were reported in `unsupported_functions`, which sent the wrong
+  message — "the engine does not know this name" — and asked tool authors to
+  "add" functions that cannot honestly be computed locally. They still force
+  `coverage.reliable: false`: their stored values cannot be *verified*
+  locally.
 
 Changes from v0.1 (additive, plus one privacy correction):
 
@@ -46,6 +58,7 @@ unless marked optional.
   "defined_names": { "count": 2, "names": ["TaxRate", "PayPeriod"] },
   "functions": { "IF": 80, "SUM": 3, "VLOOKUP": 40 },
   "unsupported_functions": [],
+  "policy_limited_functions": {},
   "volatile_functions": [],
   "user_defined_calls": { "count": 0, "call_sites": 0, "names": [] },
   "ooxml_parts": { … },
@@ -122,11 +135,38 @@ literals, and references MUST NOT appear.
 ### `unsupported_functions` (array of strings)
 
 Excel functions present in the workbook that the producing engine cannot
-evaluate. Empty array when the engine covers everything the workbook uses.
-This field is the census's core compatibility payload: it tells the
-recipient exactly which functions a tool must add for this workbook to be
-fully supported. User-defined callables never appear here (see
-`user_defined_calls`); their presence is signaled by `coverage.reliable`.
+evaluate — the name is *unknown* to it. Empty array when the engine covers
+everything the workbook uses. This field is the census's core compatibility
+payload: it tells the recipient exactly which functions a tool must add for
+this workbook to be fully supported. User-defined callables never appear
+here (see `user_defined_calls`); their presence is signaled by
+`coverage.reliable`. Functions the engine recognizes but refuses to execute
+for policy reasons belong in `policy_limited_functions`, not here.
+
+### `policy_limited_functions` (object)
+
+Map from canonical uppercase function name to the **documented Excel error
+literal** the engine returns for it, e.g.
+`{"CUBEVALUE": "#NAME?", "WEBSERVICE": "#VALUE!"}`. Empty object when the
+workbook uses none.
+
+These functions are *recognized* — the engine parses them, validates their
+arguments, and reproduces exactly the error desktop Excel produces when the
+external work cannot happen — but their true values depend on something a
+local, hermetic engine deliberately does not do: an HTTP fetch (WEBSERVICE,
+IMAGE), a Microsoft online service (STOCKHISTORY, DETECTLANGUAGE, TRANSLATE,
+COPILOT), a real-time COM feed (RTD), native DLL/XLM invocation (CALL,
+REGISTER.ID), an OLAP cube connection (CUBEVALUE, CUBEMEMBER, CUBESET,
+CUBESETCOUNT, CUBERANKEDMEMBER, CUBEKPIMEMBER, CUBEMEMBERPROPERTY), or a
+rendered PivotTable (GETPIVOTDATA).
+
+Consumers MUST treat the presence of any entry as "stored values cannot be
+verified locally" (it forces `coverage.reliable: false`), and SHOULD NOT
+present these as missing engine features: recalculating such a workbook
+locally reproduces Excel's own offline behavior, but cannot confirm values
+that were computed with a live connection. Producers MUST NOT duplicate
+these names in `unsupported_functions`. Only Excel-vocabulary names and
+error literals may appear — no user data.
 
 ### `volatile_functions` (array of strings)
 
@@ -177,7 +217,7 @@ text MUST NOT appear in a census.
 | Field | Type | Meaning |
 |---|---|---|
 | `engine` | string | Engine name and version as reported by the linked engine, e.g. `"ironcalc 0.7.1+e50ccea8 (vendored master)"`. |
-| `reliable` | boolean | MUST be `false` when `unsupported_functions` is non-empty, when `user_defined_calls.count` is non-zero, or when `unsupported_features` is non-empty; `true` otherwise. |
+| `reliable` | boolean | MUST be `false` when `unsupported_functions` is non-empty, when `policy_limited_functions` is non-empty, when `user_defined_calls.count` is non-zero, or when `unsupported_features` is non-empty; `true` otherwise. |
 | `unsupported_features` | array of strings (optional) | Engine-level feature gaps that prevent faithful evaluation of this workbook, e.g. `"legacy array formulas (CSE)"`. MAY be omitted when empty. |
 
 `reliable: false` means value-level claims by this engine about this workbook
@@ -240,7 +280,7 @@ clients, defined names encoding deal terms. Redaction mode (`xlq inspect
 
 ## Versioning policy
 
-- This is spec **v0.2**. The version applies to the format, independent of
+- This is spec **v0.3**. The version applies to the format, independent of
   any producing tool's version string.
 - **Minor versions** (0.1 → 0.2) are strictly additive: new optional fields
   may appear; existing fields never change type or meaning. Consumers MUST

@@ -1,123 +1,133 @@
 # IronCalc Excel Function Coverage
 
-**497 of 522 Excel functions supported — 95.2%**
-(engine: `ironcalc 0.7.1+e50ccea8 (vendored master)` plus the residual-functions
-patch — ENCODEURL, HYPERLINK, AGGREGATE — in `vendor/upstream`; see
-[docs/upstream/residual-functions-patch.md](upstream/residual-functions-patch.md)).
+Part of **AXLE-bench** (suite front page:
+[benchmarks/README.md](../benchmarks/README.md)) — this document is the
+narrative for axis 5 (Catalog).
 
-**Every one of the 25 remaining unsupported functions requires an external
-service, an OLAP connection, a pivot-table model, or a DBCS locale — none is
-locally evaluable from cell values alone. Effective coverage of
-locally-evaluable functions: 497/497 (100%).** The taxonomy below is the
-evidence for that claim; check it, don't trust it.
+Three numbers, per the coverage accounting rule in
+[docs/specs/full-catalog-semantics.md](specs/full-catalog-semantics.md) —
+never quote one of them alone:
 
-- Probe date: 2026-07-02.
+| # | Measure | Count | % |
+|---|---|---:|---:|
+| 1 | **Catalog recognized** (parses and dispatches; never an unknown-name error) | **522 / 522** | **100%** |
+| 2 | **Locally evaluable** (full semantics computed from workbook data alone) | **505 / 522** | **96.7%** |
+| 3 | **Policy-limited** (recognized + argument-checked, then the documented desktop-Excel refusal literal; the true value depends on an external service the tool never contacts) | **17 / 522** | **3.3%** |
+
+505 + 17 = 522. Engine: `ironcalc 0.7.1+e50ccea8 (vendored master)` plus the
+local patches in `vendor/upstream`: the residual-functions patch (ENCODEURL,
+HYPERLINK, AGGREGATE; see
+[docs/upstream/residual-functions-patch.md](upstream/residual-functions-patch.md))
+and the 100%-catalog milestone (Tier I implementations — FILTERXML,
+EUROCONVERT, DBCS/JIS, BAHTTEXT, PHONETIC, GROUPBY, PIVOTBY — plus the
+17 Tier II policy-limited functions with Excel-exact refusal literals).
+
+- Probe date: 2026-07-03.
 - Function universe: Microsoft's canonical "[Excel functions (alphabetical)](https://support.microsoft.com/en-us/office/excel-functions-alphabetical-b3944572-255d-4efb-bb96-c6d90033e188)" list, fetched 2026-07-02 (522 names; see `benchmarks/excel-functions.txt`).
-- Probe method: `cargo run --bin coverage-probe -- benchmarks/excel-functions.txt`. For each name, set `=NAME(1)` in a scratch model, evaluate, and treat `#NAME?` as unsupported — the same `census::probe_support` code path `xlq inspect` uses. A name whose probe formula the engine's parser rejects outright (`set_user_input` error) is also counted as unsupported: the failure default must not inflate the coverage number (no such name exists in the current 522, so this rule does not change the totals today). Excel semantics: unknown names error before argument validation, so a non-`#NAME?` result (even `#VALUE!`) means the engine recognizes the function.
-- Caveat: "recognized" is not "bit-perfect". This measures name resolution, not numerical fidelity or full argument-signature coverage. xlq's `calc` command (stored-vs-recomputed comparison) is the fidelity check, and [docs/AGREEMENT.md](AGREEMENT.md) is the value-level differential check against LibreOffice; this matrix is the breadth check.
-- Raw data: `benchmarks/coverage.json` (`{"FUNCTION": supported_bool}`).
+- Probe method: `cargo run --bin coverage-probe -- benchmarks/excel-functions.txt`.
+  For each name, set `=NAME(1)` in a scratch model, evaluate, and treat
+  `#NAME?` as unrecognized — the same `census::probe_support` code path
+  `xlq inspect` uses. A name whose probe formula the engine's parser rejects
+  outright (`set_user_input` error) is also counted as unrecognized: the
+  failure default must not inflate the coverage number. Excel semantics:
+  unknown names error before argument validation, so a non-`#NAME?` result
+  (even `#VALUE!`) means the engine recognizes the function.
+- **CUBE carve-out** (spec, "Coverage accounting rule"): the seven CUBE
+  functions answer `#NAME?` *by design* when evaluated without an OLAP
+  connection — Microsoft documents "if the connection name is not a valid
+  workbook connection… #NAME?", and with no OLAP connectivity every
+  connection string is invalid, so `#NAME?` is the Excel-exact *result*, not
+  a recognition failure. The probe therefore probes exactly these seven
+  names with **zero arguments** instead: a recognized cube function fails
+  argument-count validation first (`#ERROR!`, never `#NAME?`), while a name
+  the engine truly does not know still answers `#NAME?`. Recognition stays
+  measured, not asserted (`CUBE_NAME_CARVE_OUT` in `xlq/src/census.rs`).
+- Caveat: "recognized" is not "bit-perfect". Number 1 measures name
+  resolution; number 2 is the honest evaluability claim; neither measures
+  numerical fidelity or full argument-signature coverage. xlq's `calc`
+  command (stored-vs-recomputed comparison) is the fidelity check, and
+  [docs/AGREEMENT.md](AGREEMENT.md) is the value-level differential check
+  against LibreOffice (1,659 cases); this matrix is the breadth check.
+- Raw data: `benchmarks/coverage.json` — the three counts, a per-name
+  classification (`locally_evaluable` / `policy_limited` / `unrecognized`),
+  and the per-function literal + reason for the policy set.
 
 ## History
 
-| Date | Engine | Supported | % |
-|---|---|---:|---:|
-| 2026-07-02 | ironcalc 0.7.1 (release) | 345 / 522 | 66.1% |
-| 2026-07-02 | ironcalc master @ e50ccea8 (vendored) + residual patch | 497 / 522 | 95.2% |
+| Date | Engine | Recognized | Locally evaluable | Policy-limited |
+|---|---|---:|---:|---:|
+| 2026-07-02 | ironcalc 0.7.1 (release) | 345 / 522 (66.1%) | — (not yet measured separately) | — |
+| 2026-07-02 | ironcalc master @ e50ccea8 (vendored) + residual patch | 497 / 522 (95.2%) | 497 (the 25 unrecognized were taxonomized as not-locally-evaluable) | 0 (concept not yet implemented) |
+| 2026-07-03 | + full-catalog milestone (Tier I + Tier II) | **522 / 522 (100%)** | **505** | **17** |
 
-The jump is upstream's work, not ours: between the 0.7.1 release and master
-@ e50ccea8, IronCalc closed essentially the entire gap we measured against
-0.7.1 — the dynamic-array/LAMBDA family, the legacy statistical aliases,
-SUMPRODUCT, XMATCH, the bond-financial set, the text stragglers, and the
-matrix/CSE functions all landed upstream. Our residual patch contributes
-exactly 3 of the 152 newly supported names (ENCODEURL, HYPERLINK, AGGREGATE).
+The 0.7.1 → master jump was upstream's work (the dynamic-array/LAMBDA
+family, legacy statistical aliases, SUMPRODUCT, XMATCH, the bond-financial
+set, the text stragglers, and the matrix/CSE functions), plus 3 residual
+names from the local patch. The 497 → 522 close-out is this repo's
+full-catalog milestone: 8 catalog names genuinely implemented (FILTERXML,
+EUROCONVERT, DBCS, JIS, BAHTTEXT, PHONETIC, GROUPBY, PIVOTBY; PERCENTOF and
+TRIMRANGE — the other two Tier I names — had already landed with the master
+pin, inside the 497) and 17 recognized as policy-limited with Excel-exact
+refusal literals: 497 + 8 + 17 = 522.
 
-## Breakdown by category
+## The 17 policy-limited functions, one by one
 
-**Provenance caveat:** the category assignments below are hand-classified
-from Microsoft's function list; no per-function category mapping exists as a
-machine-readable artifact in this repo, so the per-category rows cannot be
-regenerated or verified from `benchmarks/coverage.json` — only the aggregate
-total (497/522) and the name lists below can. Treat the category rows as an
-editorial reading aid, not as measured data.
+These are **not missing formulas**: the engine recognizes each name,
+validates its arguments per the documented rules (wrong argument counts,
+over-long CUBE expressions, bad enums, and malformed URLs all error exactly
+as documented, *before* the refusal), and then returns precisely the error
+literal desktop Excel produces when the external work cannot happen. What
+the engine never does is the external work itself — xlq's design memo §16
+treats external execution as hostile by default, which surfaces in the
+README's design principles as **Local-only** ("no network calls, no
+telemetry") and **Preserve, never execute**. The table is generated from
+the same source of truth the tool uses at runtime
+(`POLICY_LIMITED_FUNCTIONS` in `xlq/src/census.rs`, mirrored in
+`benchmarks/coverage.json` under `policy_limited_detail`).
 
-| Category | Supported | Total | % |
-|---|---:|---:|---:|
-| date & time | 25 | 25 | 100% |
-| engineering | 54 | 54 | 100% |
-| logical | 11 | 11 | 100% |
-| information | 20 | 20 | 100% |
-| database (D-functions) | 12 | 12 | 100% |
-| math & trig | 79 | 79 | 100% |
-| statistical | 149 | 149 | 100% |
-| financial | 55 | 56 | 98.2% |
-| dynamic-array & lambda | 28 | 30 | 93.3% |
-| text | 44 | 50 | 88.0% |
-| lookup & reference | 19 | 22 | 86.4% |
-| web / legacy / other | 1 | 7 | 14.3% |
-| cube | 0 | 7 | 0% |
-| **Total** | **497** | **522** | **95.2%** |
+| Function | Returns | Why it cannot be computed locally |
+|---|---|---|
+| WEBSERVICE | `#VALUE!` | external HTTP fetch; `#VALUE!` is Excel's literal for every failure to fetch, including offline (after >2048-char / non-http(s) URL validation) |
+| RTD | `#N/A` | real-time COM data feed; documented result when no RTD server is installed |
+| STOCKHISTORY | `#CONNECT!` | Microsoft market-data service; offline/service literal after argument validation (`#VALUE!` for bad enums first) |
+| DETECTLANGUAGE | `#CONNECT!` | Microsoft language-detection service; offline literal after text coercion |
+| TRANSLATE | `#CONNECT!` | Microsoft translation service; offline literal after language-code validation (`#VALUE!` for invalid codes first) |
+| COPILOT | `#CONNECT!` | Copilot AI service; timeout/no-service literal after prompt-argument validation |
+| IMAGE | `#CONNECT!` | remote image fetch; cannot-retrieve literal after the documented `#VALUE!` sizing/dimension validation |
+| CALL | `#BLOCKED!` | XLM/DLL procedure invocation, disabled in worksheets since MS98-018; never executed |
+| REGISTER.ID | `#BLOCKED!` | XLM/DLL procedure registration; same blocked-XLM policy basis as CALL |
+| CUBEVALUE | `#NAME?` | OLAP cube query; with no OLAP connectivity every connection name is invalid → documented `#NAME?` (NOT name-unknown) |
+| CUBEMEMBER | `#NAME?` | OLAP cube member lookup; documented `#NAME?` for an invalid workbook connection (`#VALUE!` for >255-char expressions first) |
+| CUBESET | `#NAME?` | OLAP cube set definition; documented `#NAME?` for an invalid workbook connection |
+| CUBESETCOUNT | `#NAME?` | counts a CUBESET set; without OLAP the set argument is itself `#NAME?` and propagates (a non-set value → `#VALUE!`) |
+| CUBERANKEDMEMBER | `#NAME?` | OLAP cube ranked member; documented `#NAME?` for an invalid workbook connection |
+| CUBEKPIMEMBER | `#NAME?` | OLAP cube KPI member; documented `#NAME?` for an invalid workbook connection |
+| CUBEMEMBERPROPERTY | `#NAME?` | OLAP cube member property; documented `#NAME?` for an invalid workbook connection |
+| GETPIVOTDATA | `#REF!` | reads a rendered PivotTable; the engine has no pivot model, so the reference never contains one → documented `#REF!` |
 
-Seven categories are now complete, including the two that were the biggest
-0.7.1 gaps (statistical: 88→149; math & trig: 71→79). Every remaining
-sub-100% row is explained entirely by the four buckets below.
+By kind: 7 external services (WEBSERVICE, RTD, STOCKHISTORY,
+DETECTLANGUAGE, TRANSLATE, COPILOT, IMAGE), 2 blocked native-code entry
+points (CALL, REGISTER.ID), 7 OLAP-connection functions (the CUBE family),
+1 pivot-model function (GETPIVOTDATA).
 
-## The remaining 25, honestly taxonomized
+If a workbook uses one of these names, `xlq inspect` and `xlq calc` report
+it in the census's `policy_limited_functions` bucket (name → literal) and
+set `coverage.reliable: false` — the stored values genuinely cannot be
+*verified* locally — while `unsupported_functions` stays empty: "the engine
+does not know this name" would be false. See
+[docs/census-spec.md](census-spec.md).
 
-None of these is a "missing formula" in the ordinary sense. Each requires
-something a local, hermetic calculation engine does not have: a network
-service, a COM/add-in runtime, an OLAP cube connection, a pivot-table data
-model, or a DBCS locale subsystem. They are listed with the reason, so the
-claim "497/497 of locally-evaluable functions" is checkable name by name.
+## What became locally evaluable in the milestone
 
-### (a) External-service / security-policy-excluded (11)
-
-`WEBSERVICE`, `FILTERXML`, `RTD`, `STOCKHISTORY`, `DETECTLANGUAGE`,
-`TRANSLATE`, `COPILOT`, `IMAGE`, `CALL`, `REGISTER.ID`, `EUROCONVERT`
-
-These reach outside the workbook: HTTP fetches (WEBSERVICE, and FILTERXML as
-its parsing companion), real-time COM data feeds (RTD), Microsoft's market
-data and AI services (STOCKHISTORY, DETECTLANGUAGE, TRANSLATE, COPILOT),
-remote image fetch (IMAGE), and DLL/add-in invocation (CALL, REGISTER.ID,
-EUROCONVERT — the last requires the Euro Currency Tools add-in). For xlq
-these are excluded by policy, not just by engine maturity: the design memo's
-§16 stance is that the workspace treats external execution as hostile by
-default, which surfaces in the README's design principles as **Local-only**
-("no network calls, no telemetry") and **Preserve, never execute** (macros
-and external connections are cargo to carry, never code to run). An engine
-that phoned home or executed add-in code inside `xlq calc` would break the
-tool's core guarantee. If a workbook uses one of these names, `xlq inspect`
-reports it in `unsupported_functions` and sets `coverage.reliable: false` —
-which is the correct behavior, since the stored values genuinely cannot be
-verified locally.
-
-### (b) Requires an OLAP connection (7)
-
-`CUBEKPIMEMBER`, `CUBEMEMBER`, `CUBEMEMBERPROPERTY`, `CUBERANKEDMEMBER`,
-`CUBESET`, `CUBESETCOUNT`, `CUBEVALUE`
-
-The CUBE family evaluates MDX queries against an external Analysis Services
-/ Power Pivot cube. There is no cube, so there is nothing to compute; any
-local "implementation" would be fabrication.
-
-### (c) Requires a pivot-table data model (3)
-
-`GETPIVOTDATA`, `GROUPBY`, `PIVOTBY`
-
-GETPIVOTDATA reads from a rendered pivot table; GROUPBY/PIVOTBY are the
-dynamic-array pivot builders. IronCalc does not yet model pivot tables
-(xlq's `inspect` reports `has_pivot_cache` so their presence is at least
-visible). These are the most plausible future candidates to move out of
-this taxonomy, since a pivot model is local data, not an external service.
-
-### (d) DBCS-locale (4)
-
-`BAHTTEXT`, `DBCS`, `JIS`, `PHONETIC`
-
-Thai text rendering of numbers, double-byte character conversion, and
-furigana extraction. These need locale/IME data that the engine does not
-carry. Note the *byte-counting* DBCS variants (ASC, FINDB, LEFTB, LENB,
-MIDB, REPLACEB, RIGHTB, SEARCHB) **are** supported on master — only the four
-that need actual locale subsystems remain.
+| Function | Semantics now computed locally |
+|---|---|
+| FILTERXML | XPath-1.0 subset over an XML string (`//`, `/`, `@attr`, `[n]`, `last()`, `text()`, `contains()`, `starts-with()`, `not()`, namespace prefixes); multiple matches spill vertically; numeric-looking matches return as numbers. LibreOffice cross-checks in AGREEMENT.md |
+| EUROCONVERT | the 14 irrevocably-fixed EU conversion rates with per-currency rounding and EUR triangulation — offline by definition since 1999/2001; the add-in dependency was packaging, not data. LibreOffice agrees on all value cases, including the spec's worked example |
+| DBCS / JIS | half-width → full-width conversion (ASCII `U+0021–U+007E`, half-width katakana with voiced-mark composition); same built-in under two names. LibreOffice (JIS) agrees 3/3 |
+| BAHTTEXT | Thai text money algorithm (2dp rounding, 6-digit ล้าน block stacking, เอ็ด/ยี่ rules, สตางค์/ถ้วน) |
+| PHONETIC | furigana `rPh` runs from sharedStrings; cells without runs return their own text unchanged |
+| GROUPBY / PIVOTBY | pure dynamic-array grouping/pivoting: eta-reduced and LAMBDA aggregations, field headers, total depths, signed sort indices, filtering, `field_relationship` / `relative_to` |
+| PERCENTOF / TRIMRANGE | already present on the master pin; TRIMRANGE's all-blank input now returns the documented `#REF!` |
 
 ## What this means for the four target workloads
 
@@ -126,30 +136,25 @@ Function inventory measured from the fixture corpus with `xlq inspect`
 generator source (`xlq/src/bin/xlq_fixtures.rs`) and
 `fixtures/planted-defects.json`:
 
-| Workload | Functions used (call sites) | All supported? |
+| Workload | Functions used (call sites) | All locally evaluable? |
 |---|---|---|
 | branch consolidation | SUM (203) | Yes |
 | stock reconciliation | SUMIFS (124), VLOOKUP (31) | Yes |
 | payroll | IF (40), MAX (40), MIN (40), SUM (40), VLOOKUP (40) | Yes |
 | claims | IF (900), DATE (438), VLOOKUP (300), COUNTIF (4) | Yes |
 
-All four target workloads were already safe under 0.7.1 and remain so;
-`xlq inspect` reports `unsupported_functions: []` for every fixture, and the
-planted defects (#DIV/0!, #N/A from missing lookup keys, range-short SUMs,
-date-order violations) all reproduce under recalculation.
+All four report `unsupported_functions: []` and
+`policy_limited_functions: {}`, and the planted defects (#DIV/0!, #N/A from
+missing lookup keys, range-short SUMs, date-order violations) all reproduce
+under recalculation.
 
-What changed is the *wild cousins* of these workbooks. The 0.7.1 risk list —
-`SUMPRODUCT`-style stock recons authored before Excel 2007, claims/payroll
-books using `PERCENTILE`/`QUARTILE`/`FREQUENCY`/legacy `STDEV`/`VAR`, and
-any Microsoft 365 workbook carrying `FILTER`/`UNIQUE`/`SORT`/`LET`/`XMATCH`
-spills — is now fully covered on master. The one survivor from that list:
-consolidation books built on pivot tables still hit `GETPIVOTDATA`
-(bucket c above).
-
-Because `xlq inspect` runs this same probe per-workbook, an unsupported
-function in a real customer file is detected up front
-(`unsupported_functions` + `coverage.reliable: false`) rather than silently
-miscalculated.
+For workbooks in the wild the remaining honest boundary is the policy set:
+a consolidation book built on pivot tables still hits GETPIVOTDATA and a
+market-data book still hits STOCKHISTORY — those books get the documented
+Excel error value and a census that says exactly why
+(`policy_limited_functions` + `coverage.reliable: false`) rather than a
+guess. Because `xlq inspect` runs this same probe per-workbook, the
+distinction is made up front, never silently.
 
 ## Reproducing
 
@@ -157,3 +162,8 @@ miscalculated.
 cd xlq
 cargo run --bin coverage-probe -- ../benchmarks/excel-functions.txt > ../benchmarks/coverage.json
 ```
+
+Output: `catalog_size` / `catalog_recognized` / `locally_evaluable` /
+`policy_limited` counts, the `unrecognized` list (empty today), per-name
+classifications under `functions`, and the policy table under
+`policy_limited_detail`.

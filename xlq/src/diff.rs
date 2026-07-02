@@ -136,17 +136,25 @@ fn snapshot(model: &Model) -> Result<WorkbookSnap> {
             .map_err(anyhow::Error::msg)
             .with_context(|| format!("read value at {}!({},{})", name, cell.row, cell.column))?;
         let raw = crate::value::raw_cell_value(model, cell.index, cell.row, cell.column)
-            .with_context(|| format!("read raw value at {}!({},{})", name, cell.row, cell.column))?;
+            .with_context(|| {
+                format!("read raw value at {}!({},{})", name, cell.row, cell.column)
+            })?;
         snap.get_mut(name)
             .expect("sheet key inserted above")
-            .insert((cell.row, cell.column), CellSnap { formula, value, raw });
+            .insert(
+                (cell.row, cell.column),
+                CellSnap {
+                    formula,
+                    value,
+                    raw,
+                },
+            );
     }
     Ok(snap)
 }
 
 fn a1(row: i32, col: i32) -> Result<String> {
-    let letters =
-        number_to_column(col).ok_or_else(|| anyhow!("column {col} out of A1 range"))?;
+    let letters = number_to_column(col).ok_or_else(|| anyhow!("column {col} out of A1 range"))?;
     Ok(format!("{letters}{row}"))
 }
 
@@ -178,11 +186,8 @@ fn diff_snapshots(old: &WorkbookSnap, new: &WorkbookSnap) -> Result<DiffReport> 
         };
         let (mut s_changed, mut s_added, mut s_removed) = (0u64, 0u64, 0u64);
         let mut s_cached = 0u64;
-        let coords: BTreeSet<(i32, i32)> = old_cells
-            .keys()
-            .chain(new_cells.keys())
-            .copied()
-            .collect();
+        let coords: BTreeSet<(i32, i32)> =
+            old_cells.keys().chain(new_cells.keys()).copied().collect();
         for (row, col) in coords {
             let old_snap = old_cells.get(&(row, col));
             let new_snap = new_cells.get(&(row, col));
@@ -337,15 +342,22 @@ mod tests {
         let old_model = model_with(&[(1, 1, "x")]);
         let mut new_model = model_with(&[(1, 1, "x")]);
         new_model.add_sheet("Extra").unwrap();
-        new_model.set_user_input(1, 1, 1, "secret".to_string()).unwrap();
-        new_model.set_user_input(1, 2, 1, "secret2".to_string()).unwrap();
+        new_model
+            .set_user_input(1, 1, 1, "secret".to_string())
+            .unwrap();
+        new_model
+            .set_user_input(1, 2, 1, "secret2".to_string())
+            .unwrap();
         new_model.evaluate();
 
         let old_snap = snapshot(&old_model).unwrap();
         let new_snap = snapshot(&new_model).unwrap();
         let report = diff_snapshots(&old_snap, &new_snap).unwrap();
 
-        assert_eq!(report.sheets_added, vec![json!({"name": "Extra", "cells": 2})]);
+        assert_eq!(
+            report.sheets_added,
+            vec![json!({"name": "Extra", "cells": 2})]
+        );
         assert!(report.sheets_removed.is_empty());
         assert!(report.changes.is_empty());
         assert_eq!(report.summary["changed"], 0);
@@ -357,7 +369,11 @@ mod tests {
         );
     }
 
-    fn single_cell_snap(formula: Option<&str>, value: &str, raw: serde_json::Value) -> WorkbookSnap {
+    fn single_cell_snap(
+        formula: Option<&str>,
+        value: &str,
+        raw: serde_json::Value,
+    ) -> WorkbookSnap {
         [(
             "Sheet1".to_string(),
             [(
@@ -495,11 +511,17 @@ mod tests {
     #[test]
     fn load_errors_carry_basenames_only() {
         // Missing OLD file.
-        let err = run("/tmp/xlq-diff-secret-dir/old.xlsx", "/tmp/xlq-diff-secret-dir/new.xlsx")
-            .expect_err("missing files must fail");
+        let err = run(
+            "/tmp/xlq-diff-secret-dir/old.xlsx",
+            "/tmp/xlq-diff-secret-dir/new.xlsx",
+        )
+        .expect_err("missing files must fail");
         let text = format!("{err:#}");
         assert!(text.contains("old.xlsx"), "old basename missing: {text}");
-        assert!(!text.contains("xlq-diff-secret-dir"), "directory leaked: {text}");
+        assert!(
+            !text.contains("xlq-diff-secret-dir"),
+            "directory leaked: {text}"
+        );
 
         // OLD loads fine, NEW is missing: the second load context is hit.
         let model = model_with(&[(1, 1, "x")]);
@@ -513,7 +535,10 @@ mod tests {
             .expect_err("missing new file must fail");
         let text = format!("{err:#}");
         assert!(text.contains("new.xlsx"), "new basename missing: {text}");
-        assert!(!text.contains("xlq-diff-secret-dir"), "directory leaked: {text}");
+        assert!(
+            !text.contains("xlq-diff-secret-dir"),
+            "directory leaked: {text}"
+        );
         let _ = std::fs::remove_file(&good);
     }
 

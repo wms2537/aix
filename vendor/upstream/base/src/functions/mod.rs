@@ -12,12 +12,16 @@ pub(crate) mod binary_search;
 mod database;
 mod date_and_time;
 mod engineering;
+mod euro_dbcs;
+mod filterxml;
 mod financial;
+mod groupby_pivotby;
 mod information;
 mod logical;
 mod lookup_and_reference;
 mod macros;
 mod math_and_trigonometry;
+mod policy_limited;
 mod spill_functions;
 mod statistical;
 mod subtotal;
@@ -561,6 +565,41 @@ pub enum Function {
     Intercept,
     Slope,
     Steyx,
+
+    // Web
+    Filterxml,
+    Webservice,
+
+    // Text — locale conversion
+    Bahttext,
+    Dbcs,
+    Jis,
+    Phonetic,
+
+    // Add-in: Euro Currency Tools
+    Euroconvert,
+
+    // Grouping and aggregation
+    Groupby,
+    Pivotby,
+
+    // External data and automation — recognized, not locally evaluable
+    Call,
+    Copilot,
+    Cubekpimember,
+    Cubemember,
+    Cubememberproperty,
+    Cuberankedmember,
+    Cubeset,
+    Cubesetcount,
+    Cubevalue,
+    Detectlanguage,
+    Getpivotdata,
+    Image,
+    RegisterId,
+    Rtd,
+    Stockhistory,
+    Translate,
 }
 
 macro_rules! impl_function_lookup {
@@ -1112,6 +1151,41 @@ impl_function_lookup! {
     quartileinc     => QuartileInc,
     trend           => Trend,
     trimmean        => Trimmean,
+
+    // Web
+    filterxml  => Filterxml,
+    webservice => Webservice,
+
+    // Text — locale conversion
+    bahttext => Bahttext,
+    dbcs     => Dbcs,
+    jis      => Jis,
+    phonetic => Phonetic,
+
+    // Add-in: Euro Currency Tools
+    euroconvert => Euroconvert,
+
+    // Grouping and aggregation
+    groupby => Groupby,
+    pivotby => Pivotby,
+
+    // External data and automation — recognized, not locally evaluable
+    call               => Call,
+    copilot            => Copilot,
+    cubekpimember      => Cubekpimember,
+    cubemember         => Cubemember,
+    cubememberproperty => Cubememberproperty,
+    cuberankedmember   => Cuberankedmember,
+    cubeset            => Cubeset,
+    cubesetcount       => Cubesetcount,
+    cubevalue          => Cubevalue,
+    detectlanguage     => Detectlanguage,
+    getpivotdata       => Getpivotdata,
+    image              => Image,
+    registerid         => RegisterId,
+    rtd                => Rtd,
+    stockhistory       => Stockhistory,
+    translate          => Translate,
 }
 
 impl Function {
@@ -1615,10 +1689,35 @@ impl Function {
             Function::QuartileInc => functions.quartileinc.clone(),
             Function::Trend => functions.trend.clone(),
             Function::Trimmean => functions.trimmean.clone(),
+            Function::Filterxml => functions.filterxml.clone(),
+            Function::Webservice => functions.webservice.clone(),
+            Function::Bahttext => functions.bahttext.clone(),
+            Function::Dbcs => functions.dbcs.clone(),
+            Function::Jis => functions.jis.clone(),
+            Function::Phonetic => functions.phonetic.clone(),
+            Function::Euroconvert => functions.euroconvert.clone(),
+            Function::Groupby => functions.groupby.clone(),
+            Function::Pivotby => functions.pivotby.clone(),
+            Function::Call => functions.call.clone(),
+            Function::Copilot => functions.copilot.clone(),
+            Function::Cubekpimember => functions.cubekpimember.clone(),
+            Function::Cubemember => functions.cubemember.clone(),
+            Function::Cubememberproperty => functions.cubememberproperty.clone(),
+            Function::Cuberankedmember => functions.cuberankedmember.clone(),
+            Function::Cubeset => functions.cubeset.clone(),
+            Function::Cubesetcount => functions.cubesetcount.clone(),
+            Function::Cubevalue => functions.cubevalue.clone(),
+            Function::Detectlanguage => functions.detectlanguage.clone(),
+            Function::Getpivotdata => functions.getpivotdata.clone(),
+            Function::Image => functions.image.clone(),
+            Function::RegisterId => functions.registerid.clone(),
+            Function::Rtd => functions.rtd.clone(),
+            Function::Stockhistory => functions.stockhistory.clone(),
+            Function::Translate => functions.translate.clone(),
         }
     }
 
-    pub fn into_iter() -> IntoIter<Function, 497> {
+    pub fn into_iter() -> IntoIter<Function, 522> {
         [
             Function::And,
             Function::False,
@@ -2117,6 +2216,31 @@ impl Function {
             Function::Kurt,
             Function::MaxA,
             Function::MinA,
+            Function::Filterxml,
+            Function::Webservice,
+            Function::Bahttext,
+            Function::Dbcs,
+            Function::Jis,
+            Function::Phonetic,
+            Function::Euroconvert,
+            Function::Groupby,
+            Function::Pivotby,
+            Function::Call,
+            Function::Copilot,
+            Function::Cubekpimember,
+            Function::Cubemember,
+            Function::Cubememberproperty,
+            Function::Cuberankedmember,
+            Function::Cubeset,
+            Function::Cubesetcount,
+            Function::Cubevalue,
+            Function::Detectlanguage,
+            Function::Getpivotdata,
+            Function::Image,
+            Function::RegisterId,
+            Function::Rtd,
+            Function::Stockhistory,
+            Function::Translate,
         ]
         .into_iter()
     }
@@ -2297,6 +2421,17 @@ impl Function {
             Function::ForecastEtsConfint => "_xlfn.FORECAST.ETS.CONFINT".to_string(),
             Function::ForecastEtsSeasonality => "_xlfn.FORECAST.ETS.SEASONALITY".to_string(),
             Function::ForecastEtsStat => "_xlfn.FORECAST.ETS.STAT".to_string(),
+
+            Function::Filterxml => "_xlfn.FILTERXML".to_string(),
+            Function::Webservice => "_xlfn.WEBSERVICE".to_string(),
+            Function::Dbcs => "_xlfn.DBCS".to_string(),
+            Function::Groupby => "_xlfn.GROUPBY".to_string(),
+            Function::Pivotby => "_xlfn.PIVOTBY".to_string(),
+            Function::Copilot => "_xlfn.COPILOT".to_string(),
+            Function::Detectlanguage => "_xlfn.DETECTLANGUAGE".to_string(),
+            Function::Image => "_xlfn.IMAGE".to_string(),
+            Function::Stockhistory => "_xlfn.STOCKHISTORY".to_string(),
+            Function::Translate => "_xlfn.TRANSLATE".to_string(),
 
             _ => {
                 let language = get_default_language();
@@ -2815,6 +2950,32 @@ impl<'a> Model<'a> {
             Function::Skew => self.fn_skew(args, cell),
             Function::SkewP => self.fn_skew_p(args, cell),
             Function::Small => self.fn_small(args, cell),
+            Function::Filterxml => self.fn_filterxml(args, cell),
+            Function::Webservice => self.fn_webservice(args, cell),
+            Function::Bahttext => self.fn_bahttext(args, cell),
+            // DBCS and JIS are two names for the same built-in (ECMA-376 §18.17.7 stores JIS)
+            Function::Dbcs => self.fn_dbcs(args, cell),
+            Function::Jis => self.fn_dbcs(args, cell),
+            Function::Phonetic => self.fn_phonetic(args, cell),
+            Function::Euroconvert => self.fn_euroconvert(args, cell),
+            Function::Groupby => self.fn_groupby(args, cell),
+            Function::Pivotby => self.fn_pivotby(args, cell),
+            Function::Call => self.fn_call(args, cell),
+            Function::Copilot => self.fn_copilot(args, cell),
+            Function::Cubekpimember => self.fn_cubekpimember(args, cell),
+            Function::Cubemember => self.fn_cubemember(args, cell),
+            Function::Cubememberproperty => self.fn_cubememberproperty(args, cell),
+            Function::Cuberankedmember => self.fn_cuberankedmember(args, cell),
+            Function::Cubeset => self.fn_cubeset(args, cell),
+            Function::Cubesetcount => self.fn_cubesetcount(args, cell),
+            Function::Cubevalue => self.fn_cubevalue(args, cell),
+            Function::Detectlanguage => self.fn_detectlanguage(args, cell),
+            Function::Getpivotdata => self.fn_getpivotdata(args, cell),
+            Function::Image => self.fn_image(args, cell),
+            Function::RegisterId => self.fn_register_id(args, cell),
+            Function::Rtd => self.fn_rtd(args, cell),
+            Function::Stockhistory => self.fn_stockhistory(args, cell),
+            Function::Translate => self.fn_translate(args, cell),
         }
     }
 }

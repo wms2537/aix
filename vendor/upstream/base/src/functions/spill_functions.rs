@@ -114,6 +114,8 @@ fn error_discriminant(e: &crate::expressions::token::Error) -> u8 {
         Error::CALC => 9,
         Error::CIRC => 10,
         Error::NULL => 11,
+        Error::BLOCKED => 12,
+        Error::CONNECT => 13,
     }
 }
 

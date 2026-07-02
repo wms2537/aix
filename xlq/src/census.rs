@@ -1,11 +1,13 @@
 //! Formula census: function tallies, support probing, volatile detection.
 //!
 //! CONTRACT (other modules depend on these signatures — do not change them):
-//!   pub struct FunctionCensus { pub tallies, pub unsupported, pub volatile_present,
-//!                               pub user_defined }
+//!   pub struct FunctionCensus { pub tallies, pub unsupported, pub policy_limited,
+//!                               pub volatile_present, pub user_defined }
 //!   pub fn function_census(model: &Model) -> FunctionCensus
 //!   pub fn extract_function_names(formula: &str) -> Vec<String>
 //!   pub fn probe_support(names: &[String]) -> Vec<String>   // returns UNSUPPORTED subset
+//!   pub fn policy_limited_literal(name: &str) -> Option<&'static str>
+//!   pub const POLICY_LIMITED_FUNCTIONS: &[(name, literal, reason)]
 //!
 //! Implementation notes for the implementer:
 //! - Tokenize formulas with ironcalc's public lexer
@@ -29,6 +31,9 @@
 //!   Verified experimentally against ironcalc 0.7.1. A name the engine's
 //!   parser rejects outright (set_user_input error) is also UNSUPPORTED —
 //!   the failure default must never inflate the coverage claim.
+//!   Exception: the seven CUBE functions are probed with ZERO arguments
+//!   (`=NAME()`), because their documented correct no-connection answer IS
+//!   `#NAME?` — see CUBE_NAME_CARVE_OUT.
 //! - Volatile set (Excel semantics): NOW, TODAY, RAND, RANDBETWEEN, OFFSET,
 //!   INDIRECT, CELL, INFO.
 //! - PRIVACY INVARIANT: nothing in this module's output may contain cell
@@ -45,6 +50,138 @@ use ironcalc::base::Model;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
+
+/// Tier II policy/context-limited functions
+/// (docs/specs/full-catalog-semantics.md, "Tier II"): the engine RECOGNIZES
+/// them and validates their arguments, but their real value depends on an
+/// external service, an OLAP connection, a PivotTable model, or native code —
+/// all of which xlq refuses to execute by design (local-only; preserve, never
+/// execute). Each returns exactly the error literal desktop Excel produces
+/// when that external work cannot happen. Their stored values can therefore
+/// never be VERIFIED locally: census consumers must keep
+/// `coverage.reliable: false` when any of these is present, but report them
+/// in the `policy_limited` bucket, not as `unsupported` — the message
+/// "the engine does not know this name" would be false.
+///
+/// (function name, documented no-connection literal, one-line reason)
+pub const POLICY_LIMITED_FUNCTIONS: &[(&str, &str, &str)] = &[
+    (
+        "WEBSERVICE",
+        "#VALUE!",
+        "external HTTP fetch; #VALUE! is Excel's literal for every failure to fetch, including offline (after >2048-char / non-http(s) URL validation)",
+    ),
+    (
+        "RTD",
+        "#N/A",
+        "real-time COM data feed; documented result when no RTD server is installed",
+    ),
+    (
+        "STOCKHISTORY",
+        "#CONNECT!",
+        "Microsoft market-data service; offline/service literal after argument validation (#VALUE! for bad enums first)",
+    ),
+    (
+        "DETECTLANGUAGE",
+        "#CONNECT!",
+        "Microsoft language-detection service; offline literal after text coercion",
+    ),
+    (
+        "TRANSLATE",
+        "#CONNECT!",
+        "Microsoft translation service; offline literal after language-code validation (#VALUE! for invalid codes first)",
+    ),
+    (
+        "COPILOT",
+        "#CONNECT!",
+        "Copilot AI service; timeout/no-service literal after prompt-argument validation",
+    ),
+    (
+        "IMAGE",
+        "#CONNECT!",
+        "remote image fetch; cannot-retrieve literal after the documented #VALUE! sizing/dimension validation",
+    ),
+    (
+        "CALL",
+        "#BLOCKED!",
+        "XLM/DLL procedure invocation, disabled in worksheets since MS98-018; never executed",
+    ),
+    (
+        "REGISTER.ID",
+        "#BLOCKED!",
+        "XLM/DLL procedure registration; same blocked-XLM policy basis as CALL",
+    ),
+    (
+        "CUBEVALUE",
+        "#NAME?",
+        "OLAP cube query; with no OLAP connectivity every connection name is invalid -> documented #NAME? (NOT name-unknown)",
+    ),
+    (
+        "CUBEMEMBER",
+        "#NAME?",
+        "OLAP cube member lookup; documented #NAME? for an invalid workbook connection (#VALUE! for >255-char expressions first)",
+    ),
+    (
+        "CUBESET",
+        "#NAME?",
+        "OLAP cube set definition; documented #NAME? for an invalid workbook connection",
+    ),
+    (
+        "CUBESETCOUNT",
+        "#NAME?",
+        "counts a CUBESET set; without OLAP the set argument is itself #NAME? and propagates (a non-set value -> #VALUE!)",
+    ),
+    (
+        "CUBERANKEDMEMBER",
+        "#NAME?",
+        "OLAP cube ranked member; documented #NAME? for an invalid workbook connection",
+    ),
+    (
+        "CUBEKPIMEMBER",
+        "#NAME?",
+        "OLAP cube KPI member; documented #NAME? for an invalid workbook connection",
+    ),
+    (
+        "CUBEMEMBERPROPERTY",
+        "#NAME?",
+        "OLAP cube member property; documented #NAME? for an invalid workbook connection",
+    ),
+    (
+        "GETPIVOTDATA",
+        "#REF!",
+        "reads a rendered PivotTable; the engine has no pivot model, so the reference never contains one -> documented #REF!",
+    ),
+];
+
+/// The documented no-connection literal for a policy-limited function,
+/// or `None` when the name is not policy-limited.
+pub fn policy_limited_literal(name: &str) -> Option<&'static str> {
+    POLICY_LIMITED_FUNCTIONS
+        .iter()
+        .find(|(n, _, _)| *n == name)
+        .map(|(_, literal, _)| *literal)
+}
+
+/// Probe carve-out (docs/specs/full-catalog-semantics.md, "Coverage
+/// accounting rule"): the seven CUBE functions answer `#NAME?` BY DESIGN when
+/// evaluated without an OLAP connection — Microsoft documents "if the
+/// connection name is not a valid workbook connection... #NAME?", and with no
+/// OLAP connectivity every connection string is invalid. A `#NAME?` result
+/// for `=CUBEVALUE(1)` therefore does NOT mean the name is unknown, and the
+/// probe's #NAME? heuristic would misreport recognized functions as
+/// unsupported. Instead these names are probed with ZERO arguments: a
+/// recognized cube function fails argument-count validation first (`#ERROR!`,
+/// never `#NAME?`; all seven require at least one argument), while a name the
+/// engine truly does not know still evaluates to `#NAME?`. Recognition stays
+/// measured, not asserted.
+const CUBE_NAME_CARVE_OUT: &[&str] = &[
+    "CUBEKPIMEMBER",
+    "CUBEMEMBER",
+    "CUBEMEMBERPROPERTY",
+    "CUBERANKEDMEMBER",
+    "CUBESET",
+    "CUBESETCOUNT",
+    "CUBEVALUE",
+];
 
 const VOLATILE_FUNCTIONS: &[&str] = &[
     "NOW",
@@ -64,6 +201,14 @@ pub struct FunctionCensus {
     pub tallies: BTreeMap<String, u64>,
     /// Excel functions present in the workbook that the engine cannot evaluate.
     pub unsupported: Vec<String>,
+    /// Policy/context-limited functions present in the workbook -> the
+    /// documented no-connection error literal each one returns (see
+    /// `POLICY_LIMITED_FUNCTIONS`). The engine recognizes them and validates
+    /// their arguments, but their true values depend on external
+    /// services/connections xlq never contacts — so stored values cannot be
+    /// verified locally (consumers must keep coverage "reliable" false), yet
+    /// they are NOT "unsupported": the refusal literal is Excel-exact.
+    pub policy_limited: BTreeMap<String, String>,
     /// Volatile functions present (determinism hazard for reproducible calc).
     pub volatile_present: Vec<String>,
     /// User-defined callables (VBA/XLL UDFs, add-in functions, called LAMBDA
@@ -122,6 +267,7 @@ pub fn function_census(model: &Model) -> FunctionCensus {
 
     let mut tallies: BTreeMap<String, u64> = BTreeMap::new();
     let mut unsupported: Vec<String> = Vec::new();
+    let mut policy_limited: BTreeMap<String, String> = BTreeMap::new();
     let mut user_defined: BTreeMap<String, u64> = BTreeMap::new();
     for (name, count) in called {
         if defined_upper.contains(&name) {
@@ -130,7 +276,15 @@ pub fn function_census(model: &Model) -> FunctionCensus {
         } else if excel_catalog().contains(&name) || !engine_unknown.contains(&name) {
             // Excel vocabulary (catalog) or engine-recognized function.
             if engine_unknown.contains(&name) {
+                // Truly unknown to the engine (the probe's CUBE carve-out
+                // already prevents documented-#NAME? functions landing here).
                 unsupported.push(name.clone());
+            } else if let Some(literal) = policy_limited_literal(&name) {
+                // Recognized, but the value depends on an external service /
+                // connection xlq never contacts: distinct bucket, so the
+                // consumer's message is accurate ("cannot verify locally"),
+                // not false ("engine does not know this name").
+                policy_limited.insert(name.clone(), literal.to_string());
             }
             tallies.insert(name, count);
         } else {
@@ -147,6 +301,7 @@ pub fn function_census(model: &Model) -> FunctionCensus {
     FunctionCensus {
         tallies,
         unsupported,
+        policy_limited,
         volatile_present,
         user_defined,
     }
@@ -190,10 +345,16 @@ pub fn probe_support(names: &[String]) -> Vec<String> {
     let mut unsupported = Vec::new();
     for (i, name) in unique.into_iter().enumerate() {
         let row = i as i32 + 1;
-        if model
-            .set_user_input(0, row, 1, format!("={name}(1)"))
-            .is_ok()
-        {
+        // CUBE carve-out: probe with zero arguments so a recognized cube
+        // function's argument-count validation (#ERROR!) fires before its
+        // documented-by-design #NAME? connection error; see
+        // CUBE_NAME_CARVE_OUT.
+        let probe_formula = if CUBE_NAME_CARVE_OUT.contains(&name.as_str()) {
+            format!("={name}()")
+        } else {
+            format!("={name}(1)")
+        };
+        if model.set_user_input(0, row, 1, probe_formula).is_ok() {
             probed.push((name, row));
         } else {
             // The engine's parser rejects the probe formula outright: it
@@ -209,7 +370,9 @@ pub fn probe_support(names: &[String]) -> Vec<String> {
     }
     model.evaluate();
     for (name, row) in probed {
-        let value = model.get_formatted_cell_value(0, row, 1).unwrap_or_default();
+        let value = model
+            .get_formatted_cell_value(0, row, 1)
+            .unwrap_or_default();
         if value == "#NAME?" {
             unsupported.push(name);
         }
@@ -259,7 +422,10 @@ mod tests {
 
     #[test]
     fn function_names_with_dots() {
-        assert_eq!(extract_function_names("=CEILING.MATH(4.3)"), vec!["CEILING.MATH"]);
+        assert_eq!(
+            extract_function_names("=CEILING.MATH(4.3)"),
+            vec!["CEILING.MATH"]
+        );
     }
 
     #[test]
@@ -290,17 +456,21 @@ mod tests {
     }
 
     #[test]
-    fn census_tallies_volatile_and_unsupported() {
+    fn census_tallies_volatile_and_policy_limited() {
         let mut model = Model::new_empty("t", "en", "UTC", "en").unwrap();
         model
             .set_user_input(0, 1, 1, "=SUM(1,2)+SUM(3,4)".to_string())
             .unwrap();
         model.set_user_input(0, 2, 1, "=NOW()".to_string()).unwrap();
-        // CUBEVALUE is Excel vocabulary but unsupported by the vendored engine.
+        // CUBEVALUE is recognized by the engine (documented no-connection
+        // answer #NAME?) but its value depends on an OLAP connection: it must
+        // land in policy_limited, NOT unsupported.
         model
             .set_user_input(0, 3, 1, "=CUBEVALUE(1)".to_string())
             .unwrap();
-        model.set_user_input(0, 4, 1, "plain text".to_string()).unwrap();
+        model
+            .set_user_input(0, 4, 1, "plain text".to_string())
+            .unwrap();
         model.evaluate();
 
         let census = function_census(&model);
@@ -308,9 +478,73 @@ mod tests {
         assert_eq!(census.tallies.get("NOW"), Some(&1));
         assert_eq!(census.tallies.get("CUBEVALUE"), Some(&1));
         assert_eq!(census.tallies.len(), 3);
-        assert_eq!(census.unsupported, vec!["CUBEVALUE"]);
+        assert!(census.unsupported.is_empty(), "{:?}", census.unsupported);
+        assert_eq!(
+            census.policy_limited.get("CUBEVALUE").map(String::as_str),
+            Some("#NAME?")
+        );
+        assert_eq!(census.policy_limited.len(), 1);
         assert_eq!(census.volatile_present, vec!["NOW"]);
         assert!(census.user_defined.is_empty());
+    }
+
+    #[test]
+    fn policy_limited_functions_carry_their_documented_literals() {
+        let mut model = Model::new_empty("t", "en", "UTC", "en").unwrap();
+        model
+            .set_user_input(0, 1, 1, "=WEBSERVICE(\"https://example.com\")".to_string())
+            .unwrap();
+        model
+            .set_user_input(0, 2, 1, "=GETPIVOTDATA(\"Sales\",A9)".to_string())
+            .unwrap();
+        model
+            .set_user_input(0, 3, 1, "=CALL(1)".to_string())
+            .unwrap();
+        model
+            .set_user_input(0, 4, 1, "=SUM(1,2)".to_string())
+            .unwrap();
+        model.evaluate();
+
+        let census = function_census(&model);
+        assert!(census.unsupported.is_empty(), "{:?}", census.unsupported);
+        assert_eq!(
+            census.policy_limited,
+            BTreeMap::from([
+                ("CALL".to_string(), "#BLOCKED!".to_string()),
+                ("GETPIVOTDATA".to_string(), "#REF!".to_string()),
+                ("WEBSERVICE".to_string(), "#VALUE!".to_string()),
+            ])
+        );
+        // Policy-limited functions still count as Excel vocabulary.
+        assert_eq!(census.tallies.get("WEBSERVICE"), Some(&1));
+        // SUM is plain locally-evaluable vocabulary: not policy-limited.
+        assert!(!census.policy_limited.contains_key("SUM"));
+    }
+
+    #[test]
+    fn probe_recognizes_all_policy_limited_functions() {
+        // Every Tier II function — including the seven CUBE functions whose
+        // documented no-connection answer is #NAME? — must probe as
+        // recognized via the zero-argument carve-out.
+        let names: Vec<String> = POLICY_LIMITED_FUNCTIONS
+            .iter()
+            .map(|(n, _, _)| n.to_string())
+            .collect();
+        assert_eq!(names.len(), 17);
+        assert_eq!(probe_support(&names), Vec::<String>::new());
+    }
+
+    #[test]
+    fn cube_carve_out_does_not_recognize_a_truly_unknown_name() {
+        // The carve-out changes the probe FORMULA, not the verdict: a name
+        // the engine does not know still answers #NAME? with zero args.
+        assert!(CUBE_NAME_CARVE_OUT.contains(&"CUBEVALUE"));
+        for cube in CUBE_NAME_CARVE_OUT {
+            assert_eq!(policy_limited_literal(cube), Some("#NAME?"));
+        }
+        // Sanity: an unknown name is unsupported regardless of probe shape.
+        let names = vec!["XLQNOTACUBEFUNCTION".to_string()];
+        assert_eq!(probe_support(&names), vec!["XLQNOTACUBEFUNCTION"]);
     }
 
     #[test]
@@ -322,8 +556,16 @@ mod tests {
         model.evaluate();
 
         let census = function_census(&model);
-        assert!(census.tallies.is_empty(), "UDF leaked into functions: {:?}", census.tallies);
-        assert!(census.unsupported.is_empty(), "UDF leaked into unsupported: {:?}", census.unsupported);
+        assert!(
+            census.tallies.is_empty(),
+            "UDF leaked into functions: {:?}",
+            census.tallies
+        );
+        assert!(
+            census.unsupported.is_empty(),
+            "UDF leaked into unsupported: {:?}",
+            census.unsupported
+        );
         assert_eq!(census.user_defined.get("DEALMARGIN_ACMECORP"), Some(&1));
     }
 
@@ -348,8 +590,8 @@ mod tests {
     fn functions_inside_defined_name_formulas_are_counted() {
         use ironcalc::base::types::DefinedName;
         let mut model = Model::new_empty("t", "en", "UTC", "en").unwrap();
-        // OFFSET (volatile, supported) and CUBEVALUE (unsupported) used ONLY
-        // inside defined names, never in a cell formula. new_defined_name
+        // OFFSET (volatile, supported) and CUBEVALUE (policy-limited) used
+        // ONLY inside defined names, never in a cell formula. new_defined_name
         // only accepts plain references, so push directly (as import does).
         model.workbook.defined_names.push(DefinedName {
             name: "MovingWindow".to_string(),
@@ -369,7 +611,11 @@ mod tests {
         let census = function_census(&model);
         assert_eq!(census.tallies.get("OFFSET"), Some(&1));
         assert_eq!(census.tallies.get("CUBEVALUE"), Some(&1));
-        assert_eq!(census.unsupported, vec!["CUBEVALUE"]);
+        assert!(census.unsupported.is_empty(), "{:?}", census.unsupported);
+        assert_eq!(
+            census.policy_limited.get("CUBEVALUE").map(String::as_str),
+            Some("#NAME?")
+        );
         assert_eq!(census.volatile_present, vec!["OFFSET"]);
     }
 }

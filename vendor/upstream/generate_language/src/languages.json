@@ -18,7 +18,9 @@
       "spill": "#SPILL!",
       "null": "#NULL!",
       "calc": "#CALC!",
-      "circ": "#CIRC!"
+      "circ": "#CIRC!",
+      "blocked": "#BLOCKED!",
+      "connect": "#CONNECT!"
     },
     "functions": {
       "and": "AND",
@@ -517,7 +519,32 @@
       "percentof": "PERCENTOF",
       "encodeurl": "ENCODEURL",
       "hyperlink": "HYPERLINK",
-      "aggregate": "AGGREGATE"
+      "aggregate": "AGGREGATE",
+      "filterxml": "FILTERXML",
+      "webservice": "WEBSERVICE",
+      "bahttext": "BAHTTEXT",
+      "dbcs": "DBCS",
+      "jis": "JIS",
+      "phonetic": "PHONETIC",
+      "euroconvert": "EUROCONVERT",
+      "groupby": "GROUPBY",
+      "pivotby": "PIVOTBY",
+      "call": "CALL",
+      "copilot": "COPILOT",
+      "cubekpimember": "CUBEKPIMEMBER",
+      "cubemember": "CUBEMEMBER",
+      "cubememberproperty": "CUBEMEMBERPROPERTY",
+      "cuberankedmember": "CUBERANKEDMEMBER",
+      "cubeset": "CUBESET",
+      "cubesetcount": "CUBESETCOUNT",
+      "cubevalue": "CUBEVALUE",
+      "detectlanguage": "DETECTLANGUAGE",
+      "getpivotdata": "GETPIVOTDATA",
+      "image": "IMAGE",
+      "registerid": "REGISTER.ID",
+      "rtd": "RTD",
+      "stockhistory": "STOCKHISTORY",
+      "translate": "TRANSLATE"
     }
   },
   "it": {
@@ -539,7 +566,9 @@
       "spill": "#SPILL!",
       "null": "#NULL!",
       "calc": "#CALC!",
-      "circ": "#CIRC!"
+      "circ": "#CIRC!",
+      "blocked": "#BLOCKED!",
+      "connect": "#CONNECT!"
     },
     "functions": {
       "and": "E",
@@ -1038,7 +1067,32 @@
       "percentof": "PERCENTUALE.DI",
       "encodeurl": "CODIFICA.URL",
       "hyperlink": "COLLEG.IPERTESTUALE",
-      "aggregate": "AGGREGA"
+      "aggregate": "AGGREGA",
+      "filterxml": "FILTERXML",
+      "webservice": "WEBSERVICE",
+      "bahttext": "BAHTTEXT",
+      "dbcs": "DBCS",
+      "jis": "JIS",
+      "phonetic": "PHONETIC",
+      "euroconvert": "EUROCONVERT",
+      "groupby": "GROUPBY",
+      "pivotby": "PIVOTBY",
+      "call": "CALL",
+      "copilot": "COPILOT",
+      "cubekpimember": "CUBEKPIMEMBER",
+      "cubemember": "CUBEMEMBER",
+      "cubememberproperty": "CUBEMEMBERPROPERTY",
+      "cuberankedmember": "CUBERANKEDMEMBER",
+      "cubeset": "CUBESET",
+      "cubesetcount": "CUBESETCOUNT",
+      "cubevalue": "CUBEVALUE",
+      "detectlanguage": "DETECTLANGUAGE",
+      "getpivotdata": "GETPIVOTDATA",
+      "image": "IMAGE",
+      "registerid": "REGISTER.ID",
+      "rtd": "RTD",
+      "stockhistory": "STOCKHISTORY",
+      "translate": "TRANSLATE"
     }
   },
   "fr": {
@@ -1060,7 +1114,9 @@
       "spill": "#SPILL!",
       "null": "#NULL!",
       "calc": "#CALC!",
-      "circ": "#CIRC!"
+      "circ": "#CIRC!",
+      "blocked": "#BLOCKED!",
+      "connect": "#CONNECT!"
     },
     "functions": {
       "and": "ET",
@@ -1559,7 +1615,32 @@
       "percentof": "POURCENTDE",
       "encodeurl": "URLENCODAGE",
       "hyperlink": "LIEN_HYPERTEXTE",
-      "aggregate": "AGREGAT"
+      "aggregate": "AGREGAT",
+      "filterxml": "FILTERXML",
+      "webservice": "WEBSERVICE",
+      "bahttext": "BAHTTEXT",
+      "dbcs": "DBCS",
+      "jis": "JIS",
+      "phonetic": "PHONETIC",
+      "euroconvert": "EUROCONVERT",
+      "groupby": "GROUPBY",
+      "pivotby": "PIVOTBY",
+      "call": "CALL",
+      "copilot": "COPILOT",
+      "cubekpimember": "CUBEKPIMEMBER",
+      "cubemember": "CUBEMEMBER",
+      "cubememberproperty": "CUBEMEMBERPROPERTY",
+      "cuberankedmember": "CUBERANKEDMEMBER",
+      "cubeset": "CUBESET",
+      "cubesetcount": "CUBESETCOUNT",
+      "cubevalue": "CUBEVALUE",
+      "detectlanguage": "DETECTLANGUAGE",
+      "getpivotdata": "GETPIVOTDATA",
+      "image": "IMAGE",
+      "registerid": "REGISTER.ID",
+      "rtd": "RTD",
+      "stockhistory": "STOCKHISTORY",
+      "translate": "TRANSLATE"
     }
   },
   "de": {
@@ -1581,7 +1662,9 @@
       "spill": "#ÜBERLAUF!",
       "null": "#NULL!",
       "calc": "#CALC!",
-      "circ": "#CIRC!"
+      "circ": "#CIRC!",
+      "blocked": "#BLOCKED!",
+      "connect": "#CONNECT!"
     },
     "functions": {
       "and": "UND",
@@ -2080,7 +2163,32 @@
       "percentof": "PROZENTVON",
       "encodeurl": "URLCODIEREN",
       "hyperlink": "HYPERLINK",
-      "aggregate": "AGGREGAT"
+      "aggregate": "AGGREGAT",
+      "filterxml": "FILTERXML",
+      "webservice": "WEBSERVICE",
+      "bahttext": "BAHTTEXT",
+      "dbcs": "DBCS",
+      "jis": "JIS",
+      "phonetic": "PHONETIC",
+      "euroconvert": "EUROCONVERT",
+      "groupby": "GROUPBY",
+      "pivotby": "PIVOTBY",
+      "call": "CALL",
+      "copilot": "COPILOT",
+      "cubekpimember": "CUBEKPIMEMBER",
+      "cubemember": "CUBEMEMBER",
+      "cubememberproperty": "CUBEMEMBERPROPERTY",
+      "cuberankedmember": "CUBERANKEDMEMBER",
+      "cubeset": "CUBESET",
+      "cubesetcount": "CUBESETCOUNT",
+      "cubevalue": "CUBEVALUE",
+      "detectlanguage": "DETECTLANGUAGE",
+      "getpivotdata": "GETPIVOTDATA",
+      "image": "IMAGE",
+      "registerid": "REGISTER.ID",
+      "rtd": "RTD",
+      "stockhistory": "STOCKHISTORY",
+      "translate": "TRANSLATE"
     }
   },
   "es": {
@@ -2102,7 +2210,9 @@
       "spill": "#SPILL!",
       "null": "#NULL!",
       "calc": "#CALC!",
-      "circ": "#CIRC!"
+      "circ": "#CIRC!",
+      "blocked": "#BLOCKED!",
+      "connect": "#CONNECT!"
     },
     "functions": {
       "and": "Y",
@@ -2601,7 +2711,32 @@
       "percentof": "PORCENTAJEDE",
       "encodeurl": "URLCODIF",
       "hyperlink": "HIPERVINCULO",
-      "aggregate": "AGREGAR"
+      "aggregate": "AGREGAR",
+      "filterxml": "FILTERXML",
+      "webservice": "WEBSERVICE",
+      "bahttext": "BAHTTEXT",
+      "dbcs": "DBCS",
+      "jis": "JIS",
+      "phonetic": "PHONETIC",
+      "euroconvert": "EUROCONVERT",
+      "groupby": "GROUPBY",
+      "pivotby": "PIVOTBY",
+      "call": "CALL",
+      "copilot": "COPILOT",
+      "cubekpimember": "CUBEKPIMEMBER",
+      "cubemember": "CUBEMEMBER",
+      "cubememberproperty": "CUBEMEMBERPROPERTY",
+      "cuberankedmember": "CUBERANKEDMEMBER",
+      "cubeset": "CUBESET",
+      "cubesetcount": "CUBESETCOUNT",
+      "cubevalue": "CUBEVALUE",
+      "detectlanguage": "DETECTLANGUAGE",
+      "getpivotdata": "GETPIVOTDATA",
+      "image": "IMAGE",
+      "registerid": "REGISTER.ID",
+      "rtd": "RTD",
+      "stockhistory": "STOCKHISTORY",
+      "translate": "TRANSLATE"
     }
   }
 }

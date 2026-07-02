@@ -18,10 +18,11 @@
 //!   (zero-vs-tiny is underflow or residue, a real signal for triage);
 //!   agreements that hold only under tolerance are counted separately
 //! - text / booleans: exact
+//! - LibreOffice `#NAME?` => verdict `lo_unsupported`: LO does not know the
+//!   function, so the row carries no oracle signal at all — neither a
+//!   disagreement nor corroboration, whatever ironcalc answered
 //! - errors: agree that "both are errors" => verdict `both_error`
-//!   (error-CODE equality is reported separately, never as a disagreement;
-//!   rows where LibreOffice's error is #NAME? — LO does not know the
-//!   function, so there is no oracle at all — are flagged and counted)
+//!   (error-CODE equality is reported separately, never as a disagreement)
 //! - LibreOffice empty string vs ironcalc empty cell => agree
 //! - verdict `engine_error` = ironcalc could not even accept/read the case
 //!
@@ -37,8 +38,22 @@ const FORMULA_COLUMN: i32 = 7; // column G
 /// Excel error literals (plus ironcalc/LibreOffice-specific ones). A cell
 /// value equal to one of these is an error value on either side.
 const ERROR_CODES: &[&str] = &[
-    "#DIV/0!", "#N/A", "#NAME?", "#NULL!", "#NUM!", "#REF!", "#VALUE!",
-    "#ERROR!", "#N/IMPL!", "#SPILL!", "#CALC!", "#CIRC!", "#GETTING_DATA",
+    "#DIV/0!",
+    "#N/A",
+    "#NAME?",
+    "#NULL!",
+    "#NUM!",
+    "#REF!",
+    "#VALUE!",
+    "#ERROR!",
+    "#N/IMPL!",
+    "#SPILL!",
+    "#CALC!",
+    "#CIRC!",
+    "#GETTING_DATA",
+    "#BLOCKED!",
+    "#CONNECT!",
+    "#BUSY!",
 ];
 
 fn is_error(v: &CellValue) -> bool {
@@ -81,7 +96,15 @@ fn write_data_block(model: &mut Model) -> Result<(), String> {
         model.update_cell_with_number(0, i as i32 + 1, 1, *v)?;
     }
     let b = [
-        "alpha", "Beta", "gamma DELTA", "2026-03-15", "x,y;z", " padded ", "", "MiXeD", "100",
+        "alpha",
+        "Beta",
+        "gamma DELTA",
+        "2026-03-15",
+        "x,y;z",
+        " padded ",
+        "",
+        "MiXeD",
+        "100",
         "-5",
     ];
     for (i, v) in b.iter().enumerate() {
@@ -115,10 +138,10 @@ struct Verdict {
     verdict: &'static str,
     /// `Some` only for `both_error`: whether the error codes are equal.
     codes_match: Option<bool>,
-    /// `both_error` where LibreOffice's side is `#NAME?`: LO does not know
-    /// the function at all, so the row carries no oracle signal — ironcalc's
-    /// own error (whatever it is) went entirely unchecked.
-    lo_name_error: bool,
+    /// `lo_unsupported` rows where ironcalc ALSO errored (before 2026-07-03
+    /// these were `both_error` + `lo_name_error`): ironcalc's own error is
+    /// entirely unchecked, exactly like an ironcalc value on such a row.
+    iron_errored_too: bool,
     /// `agree` on numbers that are NOT bit-identical: the agreement holds
     /// only under the comparison tolerance.
     within_tolerance: bool,
@@ -131,20 +154,33 @@ fn verdict(case: &CaseResult) -> Verdict {
             ..Default::default()
         };
     }
-    let iron = case.iron_value.as_ref().expect("value set when no setup error");
+    let iron = case
+        .iron_value
+        .as_ref()
+        .expect("value set when no setup error");
     let lo = &case.lo_value;
     let iron_err = is_error(iron);
     let lo_err = is_error(lo);
+    // LibreOffice answering #NAME? means LO does not know the function at
+    // all: it never evaluated the arguments, so the row carries NO oracle
+    // signal in either direction. Recorded as its own class — neither a
+    // disagreement (nothing was compared) nor corroboration (nothing was
+    // corroborated). Whatever ironcalc answered, value or error, went
+    // unchecked.
+    if matches!(lo, CellValue::String(s) if s == "#NAME?") {
+        return Verdict {
+            verdict: "lo_unsupported",
+            iron_errored_too: iron_err,
+            ..Default::default()
+        };
+    }
     if iron_err && lo_err {
         // Both engines say "error": that is agreement under the policy.
-        // Whether the error CODES match is reported separately, and rows
-        // where LibreOffice answers #NAME? are flagged: they have no oracle.
+        // Whether the error CODES match is reported separately.
         let codes_match = cell_value_to_json(iron) == cell_value_to_json(lo);
-        let lo_name_error = matches!(lo, CellValue::String(s) if s == "#NAME?");
         return Verdict {
             verdict: "both_error",
             codes_match: Some(codes_match),
-            lo_name_error,
             ..Default::default()
         };
     }
@@ -181,11 +217,13 @@ fn run() -> Result<Value, String> {
 
     // Case table, in the exact row order used by gen_oracle_workbook.py:
     // functions in sorted-key order, cases in listed order.
-    let text = std::fs::read_to_string(&cases_path)
-        .map_err(|e| format!("read {cases_path}: {e}"))?;
+    let text =
+        std::fs::read_to_string(&cases_path).map_err(|e| format!("read {cases_path}: {e}"))?;
     let table: Value =
         serde_json::from_str(&text).map_err(|e| format!("parse {cases_path}: {e}"))?;
-    let obj = table.as_object().ok_or("case table must be a JSON object")?;
+    let obj = table
+        .as_object()
+        .ok_or("case table must be a JSON object")?;
     let mut functions: Vec<&String> = obj.keys().filter(|k| *k != "_meta").collect();
     functions.sort(); // byte order == python sorted() for these ASCII names
     let mut cases: Vec<(String, String)> = Vec::new();
@@ -202,8 +240,8 @@ fn run() -> Result<Value, String> {
     }
 
     // ironcalc side: one in-memory model, same layout as the workbook.
-    let mut model = Model::new_empty("oracle", "en", "UTC", "en")
-        .map_err(|e| format!("new_empty: {e}"))?;
+    let mut model =
+        Model::new_empty("oracle", "en", "UTC", "en").map_err(|e| format!("new_empty: {e}"))?;
     write_data_block(&mut model).map_err(|e| format!("data block: {e}"))?;
     let mut results: Vec<CaseResult> = Vec::with_capacity(cases.len());
     for (i, (function, formula)) in cases.iter().enumerate() {
@@ -260,11 +298,12 @@ fn run() -> Result<Value, String> {
 
     // Report.
     let mut per_case = Vec::with_capacity(results.len());
-    let mut rollup: std::collections::BTreeMap<String, [u64; 5]> = Default::default();
-    let mut totals = [0u64; 5]; // cases, agree, disagree, both_error, engine_error
+    let mut rollup: std::collections::BTreeMap<String, [u64; 6]> = Default::default();
+    // cases, agree, disagree, both_error, lo_unsupported, engine_error
+    let mut totals = [0u64; 6];
     let mut error_code_matches = 0u64;
     let mut error_code_mismatches = 0u64;
-    let mut both_error_lo_name = 0u64;
+    let mut lo_unsupported_iron_error = 0u64;
     let mut agree_exact = 0u64;
     let mut agree_within_tolerance = 0u64;
     for case in &results {
@@ -275,7 +314,8 @@ fn run() -> Result<Value, String> {
             "agree" => 1,
             "disagree" => 2,
             "both_error" => 3,
-            _ => 4,
+            "lo_unsupported" => 4,
+            _ => 5,
         };
         let entry = rollup.entry(case.function.clone()).or_default();
         entry[0] += 1;
@@ -287,8 +327,8 @@ fn run() -> Result<Value, String> {
             Some(false) => error_code_mismatches += 1,
             None => {}
         }
-        if v_full.lo_name_error {
-            both_error_lo_name += 1;
+        if v_full.iron_errored_too {
+            lo_unsupported_iron_error += 1;
         }
         if v == "agree" {
             if v_full.within_tolerance {
@@ -322,9 +362,10 @@ fn run() -> Result<Value, String> {
         if let Some(m) = codes_match {
             row.insert("error_codes_match".into(), json!(m));
         }
-        if v_full.lo_name_error {
-            // LibreOffice does not know the function: no oracle for this row.
-            row.insert("lo_name_error".into(), json!(true));
+        if v_full.iron_errored_too {
+            // lo_unsupported row where ironcalc also errored; the error is
+            // just as unchecked as a value would be.
+            row.insert("iron_errored_too".into(), json!(true));
         }
         if v_full.within_tolerance {
             // Numeric agreement that holds only under the tolerance policy.
@@ -340,7 +381,8 @@ fn run() -> Result<Value, String> {
                 f,
                 json!({
                     "cases": c[0], "agree": c[1], "disagree": c[2],
-                    "both_error": c[3], "engine_error": c[4],
+                    "both_error": c[3], "lo_unsupported": c[4],
+                    "engine_error": c[5],
                 }),
             )
         })
@@ -356,19 +398,20 @@ fn run() -> Result<Value, String> {
             "policy": {
                 "numbers": "relative 1e-9, absolute 1e-12 near zero; exact zero only matches exact zero; non-bit-identical agreements counted as within_tolerance",
                 "text": "exact", "booleans": "exact",
-                "errors": "both-error = agreement class both_error; code equality reported separately; LO #NAME? rows flagged lo_name_error (no oracle)",
+                "errors": "both-error = agreement class both_error; code equality reported separately; LO #NAME? rows = class lo_unsupported (LO does not know the function: no oracle, neither disagreement nor corroboration)",
                 "empty": "LO empty string == ironcalc empty cell",
             },
             "lo_workbook": lo_path,
         },
         "totals": {
             "cases": totals[0], "agree": totals[1], "disagree": totals[2],
-            "both_error": totals[3], "engine_error": totals[4],
+            "both_error": totals[3], "lo_unsupported": totals[4],
+            "engine_error": totals[5],
             "agree_exact": agree_exact,
             "agree_within_tolerance": agree_within_tolerance,
             "both_error_code_matches": error_code_matches,
             "both_error_code_mismatches": error_code_mismatches,
-            "both_error_lo_name": both_error_lo_name,
+            "lo_unsupported_iron_error": lo_unsupported_iron_error,
         },
         "per_function": per_function,
         "cases": per_case,
