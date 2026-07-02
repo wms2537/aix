@@ -86,13 +86,20 @@ xlq diff close-2026-05.xlsx close-2026-06.xlsx
   "changes": [
     { "sheet": "Consolidated", "cell": "D14", "row": 14, "col": 4,
       "kind": "formula",
-      "old": { "formula": "=SUM(D2:D13)", "value": "412000" },
-      "new": { "formula": null, "value": "415000" } }
+      "old": { "formula": "=SUM(D2:D13)", "value": "412000", "raw": 412000.0 },
+      "new": { "formula": null, "value": "415000", "raw": 415000.0 } }
   ],
-  "summary": { "changed": 1, "added": 0, "removed": 0,
-               "by_sheet": { "Consolidated": 1 } }
+  "summary": { "changed": 1, "added": 0, "removed": 0, "cached_value": 0,
+               "by_sheet": { "Consolidated": { "changed": 1, "added": 0,
+                                               "removed": 0, "cached_value": 0 } } }
 }
 ```
+
+Change kinds: `formula` (formula text differs), `value` (non-formula raw value
+differs), `cached_value` (same formula, different stored result — a tool
+stripped or rewrote formula caches; openpyxl does this on every save, and the
+file shows those numbers in Excel until a recalc), `format` (same raw value,
+different rendering), `added`, `removed`.
 
 The example above is the classic close-process defect: someone pasted a
 constant over a formula. Sheets are matched by name; cells are compared

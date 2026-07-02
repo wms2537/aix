@@ -13,10 +13,15 @@
 //!   comparing formatted strings would both hide on-disk value differences
 //!   below display precision and misreport number-format-only edits as
 //!   data changes.
-//! - A cell differs if formula differs, OR (both non-formula and raw value
-//!   differs), OR (both non-formula, raw values equal, formatted rendering
-//!   differs — a formatting-only change). Report kind:
-//!   "value" | "formula" | "format" | "added" | "removed".
+//! - A cell differs if formula differs, OR (both have the SAME formula but
+//!   different cached raw results — kind "cached_value": a tool stripped or
+//!   rewrote the stored results without touching formulas; openpyxl does
+//!   this to every formula cell it saves, and Excel shows those numbers
+//!   until a recalc), OR (both non-formula and raw value differs), OR (both
+//!   non-formula, raw values equal, formatted rendering differs — a
+//!   formatting-only change). Report kind:
+//!   "value" | "formula" | "cached_value" | "format" | "added" | "removed".
+//!   cached_value counts in its own summary bucket, not in "changed".
 //! - An inserted row WILL report many changed cells; that is documented
 //!   v1 behavior (no alignment/move detection).
 //!
@@ -164,6 +169,7 @@ fn diff_snapshots(old: &WorkbookSnap, new: &WorkbookSnap) -> Result<DiffReport> 
     let mut changes = Vec::new();
     let mut truncated = false;
     let (mut total_changed, mut total_added, mut total_removed) = (0u64, 0u64, 0u64);
+    let mut total_cached = 0u64;
     let mut by_sheet = serde_json::Map::new();
 
     for (name, old_cells) in old {
@@ -171,6 +177,7 @@ fn diff_snapshots(old: &WorkbookSnap, new: &WorkbookSnap) -> Result<DiffReport> 
             continue;
         };
         let (mut s_changed, mut s_added, mut s_removed) = (0u64, 0u64, 0u64);
+        let mut s_cached = 0u64;
         let coords: BTreeSet<(i32, i32)> = old_cells
             .keys()
             .chain(new_cells.keys())
@@ -183,6 +190,14 @@ fn diff_snapshots(old: &WorkbookSnap, new: &WorkbookSnap) -> Result<DiffReport> 
                 (Some(o), Some(n)) => {
                     if o.formula != n.formula {
                         "formula"
+                    } else if o.formula.is_some() && o.raw != n.raw {
+                        // Equal formulas, different cached results: the
+                        // formula is intact but the stored value diverged —
+                        // typically a tool (openpyxl) stripping caches, or a
+                        // save from an engine that computed different values.
+                        // Excel users see these numbers until a recalc, so a
+                        // diff that ignores them under-reports the change.
+                        "cached_value"
                     } else if o.formula.is_none() && o.raw != n.raw {
                         // Raw values are the on-disk truth; formatted strings
                         // would hide drift below display precision.
@@ -208,6 +223,10 @@ fn diff_snapshots(old: &WorkbookSnap, new: &WorkbookSnap) -> Result<DiffReport> 
                     total_removed += 1;
                     s_removed += 1;
                 }
+                "cached_value" => {
+                    total_cached += 1;
+                    s_cached += 1;
+                }
                 _ => {
                     total_changed += 1;
                     s_changed += 1;
@@ -227,10 +246,11 @@ fn diff_snapshots(old: &WorkbookSnap, new: &WorkbookSnap) -> Result<DiffReport> 
                 truncated = true;
             }
         }
-        if s_changed + s_added + s_removed > 0 {
+        if s_changed + s_added + s_removed + s_cached > 0 {
             by_sheet.insert(
                 name.clone(),
-                json!({"changed": s_changed, "added": s_added, "removed": s_removed}),
+                json!({"changed": s_changed, "added": s_added, "removed": s_removed,
+                       "cached_value": s_cached}),
             );
         }
     }
@@ -239,6 +259,7 @@ fn diff_snapshots(old: &WorkbookSnap, new: &WorkbookSnap) -> Result<DiffReport> 
         "changed": total_changed,
         "added": total_added,
         "removed": total_removed,
+        "cached_value": total_cached,
         "by_sheet": by_sheet,
     });
 
@@ -355,13 +376,19 @@ mod tests {
     }
 
     #[test]
-    fn same_formula_with_stale_cached_value_is_not_a_change() {
+    fn same_formula_with_stale_cached_value_is_cached_value_not_changed() {
+        // Contract updated after surface verification: an openpyxl re-save
+        // strips every formula cache; reporting "no change" hid 442 stale
+        // cells in a real workbook. Same formula + different cached result
+        // is now kind "cached_value", bucketed apart from "changed".
         let old_snap = single_cell_snap(Some("=A2+1"), "3", json!(3.0));
         let new_snap = single_cell_snap(Some("=A2+1"), "99", json!(99.0));
 
         let report = diff_snapshots(&old_snap, &new_snap).unwrap();
-        assert!(report.changes.is_empty());
+        assert_eq!(report.changes.len(), 1);
+        assert_eq!(report.changes[0]["kind"], "cached_value");
         assert_eq!(report.summary["changed"], 0);
+        assert_eq!(report.summary["cached_value"], 1);
     }
 
     #[test]
@@ -389,6 +416,21 @@ mod tests {
         assert_eq!(report.changes.len(), 1);
         assert_eq!(report.changes[0]["kind"], "format");
         assert_eq!(report.summary["changed"], 1);
+    }
+
+    #[test]
+    fn stripped_formula_cache_is_kind_cached_value() {
+        // openpyxl-style save: formula intact, cached result replaced (it
+        // writes <v/> for every formula cell). The diff must surface this —
+        // Excel displays the cached numbers until a recalc.
+        let old_snap = single_cell_snap(Some("=A2-A3"), "101597", json!(101597.0));
+        let new_snap = single_cell_snap(Some("=A2-A3"), "0", json!(0.0));
+
+        let report = diff_snapshots(&old_snap, &new_snap).unwrap();
+        assert_eq!(report.changes.len(), 1);
+        assert_eq!(report.changes[0]["kind"], "cached_value");
+        assert_eq!(report.summary["cached_value"], 1);
+        assert_eq!(report.summary["changed"], 0);
     }
 
     #[test]

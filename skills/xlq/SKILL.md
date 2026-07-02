@@ -68,7 +68,10 @@ Use this after any edit (the user's, or your own once `apply` exists) to see
 exactly what changed, and to compare two versions of a workbook. Read the
 `summary` first (`changed`/`added`/`removed`, `by_sheet`), then the
 `changes[]` entries you actually need. Each change gives sheet, A1 cell
-ref, `kind` (`formula`, `value`, `format`, `added`, `removed`), and old/new
+ref, `kind` (`formula`, `value`, `cached_value`, `format`, `added`,
+`removed` — `cached_value` means the formula is intact but its stored result
+differs, e.g. a tool stripped the caches; treat a large `cached_value` count
+as "this file needs a recalc", not as data edits), and old/new
 formula + formatted value + raw stored value. `value` means the raw stored
 value on disk differs (compared exactly, so drift below the display
 precision is caught); `format` means the stored value is identical and only
