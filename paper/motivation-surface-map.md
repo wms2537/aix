@@ -1,0 +1,17 @@
+# Motivation Surface Map — where the reader meets the arc
+
+Highest-leverage touchpoints carry real draft sentences; section writers may
+not silently change these.
+
+| Touchpoint | Arc role | Draft wording / strategy | Venue constraint |
+|---|---|---|---|
+| **Title** | The reframe | "An Enforcement Boundary for LLM Agents Operating on Spreadsheet Artifacts" (subtitle option: "Format-Aware Safety, Coverage Honesty, and Differential Validation") | SE/systems track; descriptive not cute |
+| **Abstract opening** | The fire, concrete | "When an LLM agent edits a spreadsheet, its decisions do not sit in a separate log — they become the cells the file's owner is accountable for. Yet the substrate agents use today silently corrupts the file: a single re-save through the standard Python library strips 101,961 cached formula values from a five-workbook corpus, and no existing agent benchmark measures the damage." | 150–300 words |
+| **Abstract close** | Contribution + artifact | "We present xlq, a format-aware enforcement boundary... a differential oracle that validated the engine and surfaced real bugs in both it and LibreOffice, and AXLE-bench, whose fidelity axis measures the dimension current benchmarks omit. All artifacts are reproducible." | name the artifact |
+| **Intro P1 (catastrophic artifact)** | CSmith move | Open with issue #22044 (Anthropic's own agent corrupting financial models) OR the 101,961-value strip — eye-verifiable, from a shipped system, before any generality. | one concrete failure first |
+| **Intro final paragraph** | Contribution list + the tie | "This paper makes four contributions... We are explicit about what we did not invent: receipts, transactions, and differential testing are established; our contribution is making the enforcement boundary *format-aware and self-honest* for a legacy artifact class, and validating a formula engine where no mechanized specification exists." | numbered contributions; contribution fencing |
+| **§ headings** | Partition legibility | "The Fidelity Gap" / "A Format-Aware Enforcement Boundary" / "Coverage Honesty: Three Numbers, Not One" / "Documentation-Arbitered Differential Validation" / "AXLE-bench" / "What We Did Not Invent" (related work) | headings carry the arc |
+| **Fig. 1 callout** | Eye-verifiable evidence | The 4-cell before/after of a formula whose cache openpyxl silently zeroed, or the OOXML part-survival matrix across tools. | figure the reader verifies in 10s |
+| **Discussion opening** | Adversarial self-question | "Is a boundary that only reads, and only *predicts* writes, worth building? We answer with the failure we found in our own tool: diff reported one change while 442 formula results silently vanished — the exact damage the boundary exists to catch, hiding one abstraction below where we were looking." | CSmith self-questioning header |
+| **Discussion: load-bearing assumptions** | Honesty | State plainly: engine trust is *differential-earned* not assumed; census privacy is an invariant to probe; the prediction ledger is retrospective and says so. | state assumptions to be challenged |
+| **Discussion close** | Named primitives + successor door | "We name two primitives we hope outlast this system: *coverage honesty* — a runtime that reports its own per-artifact blind spots — and the *three-number coverage taxonomy*. And we answer the door Pista left open: the machine-checked enforcement its authors deferred to future work." | promote primitives; position vs Pista |
