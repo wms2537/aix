@@ -39,6 +39,10 @@ path = "src/bin/coverage_probe.rs"
 name = "load-only"
 path = "src/bin/load_only.rs"
 
+[[bin]]
+name = "oracle-compare"
+path = "src/bin/oracle_compare.rs"
+
 [profile.release]
 lto = true
 strip = true

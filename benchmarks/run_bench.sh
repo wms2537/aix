@@ -242,7 +242,8 @@ for f in "${FIXTURES[@]}"; do
     # Cell-level comparison: does the re-save preserve every cell's value and
     # formula as xlq diff sees them? (kind counts expose formula-text rewrites)
     cell_json=$("$XLQ" diff "$f" "$out" | jq '{
-      summary: {changed: .summary.changed, added: .summary.added, removed: .summary.removed},
+      summary: {changed: .summary.changed, added: .summary.added, removed: .summary.removed,
+                cached_value: (.summary.cached_value // 0)},
       kinds: (reduce .changes[].kind as $k ({}; .[$k] += 1)),
       sheets_added: (.sheets_added | length),
       sheets_removed: (.sheets_removed | length)}' \
@@ -303,7 +304,7 @@ jq -n \
   --slurpfile d2 "$WORK/d2.jsonl" '{
   generated_utc: $date,
   machine: {cpu_model: $model, logical_cores: $cores, os: "Linux"},
-  tools: {xlq: $xlq, engine: "ironcalc 0.7.1", openpyxl: $opxl, libreoffice: $lo},
+  tools: {xlq: $xlq, engine: "ironcalc 0.7.1+e50ccea8 (vendored master)", openpyxl: $opxl, libreoffice: $lo},
   methodology: {
     timing: "median of 3 warm runs (1 untimed warmup first), wall clock",
     preservation_basis: "zip central directory: part names, uncompressed sizes, and content CRC32s; zip directory placeholder entries excluded",

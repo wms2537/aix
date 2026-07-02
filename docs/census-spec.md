@@ -49,7 +49,7 @@ unless marked optional.
   "volatile_functions": [],
   "user_defined_calls": { "count": 0, "call_sites": 0, "names": [] },
   "ooxml_parts": { … },
-  "coverage": { "engine": "ironcalc 0.7.1", "reliable": true }
+  "coverage": { "engine": "ironcalc 0.7.1+e50ccea8 (vendored master)", "reliable": true }
 }
 ```
 
@@ -176,7 +176,7 @@ text MUST NOT appear in a census.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `engine` | string | Engine name and version, e.g. `"ironcalc 0.7.1"`. |
+| `engine` | string | Engine name and version as reported by the linked engine, e.g. `"ironcalc 0.7.1+e50ccea8 (vendored master)"`. |
 | `reliable` | boolean | MUST be `false` when `unsupported_functions` is non-empty, when `user_defined_calls.count` is non-zero, or when `unsupported_features` is non-empty; `true` otherwise. |
 | `unsupported_features` | array of strings (optional) | Engine-level feature gaps that prevent faithful evaluation of this workbook, e.g. `"legacy array formulas (CSE)"`. MAY be omitted when empty. |
 

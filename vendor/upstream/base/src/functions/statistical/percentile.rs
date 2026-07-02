@@ -107,23 +107,14 @@ impl<'a> Model<'a> {
             Err(e) => return e,
         };
 
-        let n = sorted.len() as f64;
-        if k <= 0.0 || k >= 1.0 || k < 1.0 / (n + 1.0) || k > n / (n + 1.0) {
-            return CalcResult::new_error(
+        match percentile_exc_impl(&sorted, k) {
+            Some(result) => CalcResult::Number(result),
+            None => CalcResult::new_error(
                 Error::NUM,
                 cell,
                 "PERCENTILE.EXC: k out of valid range".to_string(),
-            );
+            ),
         }
-
-        // 0-indexed rank = k*(n+1) - 1
-        let rank = k * (n + 1.0) - 1.0;
-        let low = rank.floor() as usize;
-        let high = (low + 1).min(sorted.len() - 1);
-        let frac = rank - rank.floor();
-        let result = sorted[low] + frac * (sorted[high] - sorted[low]);
-
-        CalcResult::Number(result)
     }
 
     // PERCENTRANK.INC(array, x, [significance]) — returns rank as fraction ∈ [0,1]
@@ -252,6 +243,20 @@ impl<'a> Model<'a> {
 
         CalcResult::Number(result)
     }
+}
+
+/// PERCENTILE.EXC interpolation: 0-indexed rank = k*(n+1) - 1.
+/// Returns `None` when k is out of the valid range for the sample size.
+pub(crate) fn percentile_exc_impl(sorted: &[f64], k: f64) -> Option<f64> {
+    let n = sorted.len() as f64;
+    if k <= 0.0 || k >= 1.0 || k < 1.0 / (n + 1.0) || k > n / (n + 1.0) {
+        return None;
+    }
+    let rank = k * (n + 1.0) - 1.0;
+    let low = rank.floor() as usize;
+    let high = (low + 1).min(sorted.len() - 1);
+    let frac = rank - rank.floor();
+    Some(sorted[low] + frac * (sorted[high] - sorted[low]))
 }
 
 /// PERCENTILE.INC interpolation: rank = k*(n-1) in 0-indexed sorted array.

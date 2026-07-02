@@ -87,6 +87,9 @@ pub fn run(path: &str, redact: bool) -> Result<serde_json::Value> {
     for cell in model.get_all_cells() {
         let sheet = cell.index as usize;
         if sheet >= sheet_count {
+            // Defensive: get_all_cells and get_worksheets_properties come
+            // from the same model, so an out-of-range sheet index cannot be
+            // produced through the public API. Not unit-testable.
             continue;
         }
         cell_counts[sheet] += 1;
@@ -195,6 +198,11 @@ pub fn run(path: &str, redact: bool) -> Result<serde_json::Value> {
 fn load_model(path: &str, name: &str) -> Result<(Model<'static>, Vec<String>)> {
     match ironcalc::import::load_from_xlsx(path, "en", "UTC", "en") {
         Ok(model) => Ok((model, Vec::new())),
+        // NOT COVERABLE in tests today: the vendored ironcalc master loads
+        // CSE array formulas natively, so no fixture makes load_from_xlsx
+        // fail with this message anymore. The arm stays as a guard for
+        // whatever the engine rejects next (see the CSE test below);
+        // `load_with_cse_normalized` itself is unit-tested directly.
         Err(err) if err.to_string().contains("array formulas") => {
             let model = load_with_cse_normalized(path)
                 .with_context(|| format!("load workbook {name} (CSE-normalized copy)"))?;
@@ -553,6 +561,139 @@ mod tests {
             );
             assert_eq!(report["coverage"]["reliable"], json!(false));
         }
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn strip_cse_array_attrs_removes_only_the_array_attr_inside_f_tags() {
+        // Double- and single-quoted forms, other attributes preserved.
+        assert_eq!(
+            strip_cse_array_attrs("<f t=\"array\" ref=\"B1:B1\">SUM(A1)</f>"),
+            "<f ref=\"B1:B1\">SUM(A1)</f>"
+        );
+        assert_eq!(
+            strip_cse_array_attrs("<f t='array' ref='B1'>MIN(A1,1)</f>"),
+            "<f ref='B1'>MIN(A1,1)</f>"
+        );
+        // A plain <f> tag (no attributes) is untouched.
+        assert_eq!(strip_cse_array_attrs("<v>1</v><f>A1+1</f>"), "<v>1</v><f>A1+1</f>");
+        // Tags that merely start with "<f" (e.g. <font>) are untouched.
+        assert_eq!(
+            strip_cse_array_attrs("<font t=\"array\"/>"),
+            "<font t=\"array\"/>"
+        );
+        // Cell TEXT containing the marker is outside any <f ...> tag: safe.
+        assert_eq!(
+            strip_cse_array_attrs("<is><t>see t=\"array\" docs</t></is>"),
+            "<is><t>see t=\"array\" docs</t></is>"
+        );
+        // Malformed XML: "<f " never closed — passed through unchanged.
+        assert_eq!(strip_cse_array_attrs("tail <f t=\"array\""), "tail <f t=\"array\"");
+    }
+
+    #[test]
+    fn load_with_cse_normalized_loads_a_stripped_copy() {
+        let mut model = Model::new_empty("book", "en", "UTC", "en").expect("new model");
+        model.set_user_input(0, 1, 1, "7".to_string()).expect("set value");
+        model
+            .set_user_input(0, 1, 2, "=MIN(A1,160)".to_string())
+            .expect("set formula");
+        model.evaluate();
+        let path = save_temp(&model, "cse-normalize-direct");
+        patch_zip_part(&path, "xl/worksheets/sheet1.xml", |xml| {
+            let xml = xml.expect("sheet1.xml present");
+            xml.replacen("<f>", "<f t=\"array\" ref=\"B1:B1\">", 1)
+        });
+
+        let loaded = load_with_cse_normalized(&path).expect("normalized load");
+        let formula = loaded
+            .get_cell_formula(0, 1, 2)
+            .expect("read formula")
+            .expect("formula present");
+        assert!(formula.contains("MIN"), "formula lost in normalization: {formula}");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_with_cse_normalized_rejects_a_non_zip_file() {
+        let dir = std::env::temp_dir().join("xlq-inspect-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("not-a-zip-{}.xlsx", std::process::id()));
+        std::fs::write(&path, b"this is not a zip archive").unwrap();
+        let err = match load_with_cse_normalized(path.to_str().unwrap()) {
+            Ok(_) => panic!("garbage must not load"),
+            Err(err) => err,
+        };
+        assert!(
+            format!("{err:#}").contains("zip"),
+            "expected a zip-container error: {err:#}"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn corrupt_zip_fails_with_basename_only_error() {
+        let dir = std::env::temp_dir().join("xlq-inspect-secret-dir");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("corrupt-{}.xlsx", std::process::id()));
+        std::fs::write(&path, b"PK\x03\x04 truncated garbage").unwrap();
+
+        let err = run(path.to_str().unwrap(), false).expect_err("corrupt zip must fail");
+        let text = format!("{err:#}");
+        assert!(
+            text.contains(&format!("corrupt-{}.xlsx", std::process::id())),
+            "basename missing from error: {text}"
+        );
+        assert!(
+            !text.contains("xlq-inspect-secret-dir"),
+            "directory leaked into error: {text}"
+        );
+
+        // ooxml_parts hits the same corrupt container directly.
+        let err = ooxml_parts(path.to_str().unwrap()).expect_err("corrupt zip must fail");
+        assert!(format!("{err:#}").contains("read zip container"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ooxml_parts_open_error_and_missing_file_name_component() {
+        // ooxml_parts on a missing file: the open context carries the basename.
+        let err = ooxml_parts("/tmp/xlq-nowhere/gone.xlsx").expect_err("missing file");
+        assert!(format!("{err:#}").contains("gone.xlsx"));
+
+        // run() on a path with no file-name component fails up front.
+        let err = run("..", false).expect_err("no file name component");
+        assert!(format!("{err:#}").contains("no file name component"));
+    }
+
+    #[test]
+    fn ooxml_part_flags_flip_when_parts_are_present() {
+        let model = sentinel_model();
+        let path = save_temp(&model, "ooxml-flags");
+
+        let before = run(&path, false).expect("inspect");
+        for flag in ["has_vba", "has_pivot_cache", "has_external_links", "has_charts"] {
+            assert_eq!(before["ooxml_parts"][flag], json!(false), "{flag} should start false");
+        }
+
+        patch_zip_part(&path, "xl/vbaProject.bin", |_| "vba".to_string());
+        patch_zip_part(&path, "xl/pivotCache/pivotCacheDefinition1.xml", |_| {
+            "<pivotCacheDefinition/>".to_string()
+        });
+        patch_zip_part(&path, "xl/externalLinks/externalLink1.xml", |_| {
+            "<externalLink/>".to_string()
+        });
+        patch_zip_part(&path, "xl/charts/chart1.xml", |_| "<chartSpace/>".to_string());
+
+        let parts = ooxml_parts(&path).expect("ooxml_parts");
+        assert_eq!(parts["has_vba"], json!(true));
+        assert_eq!(parts["has_pivot_cache"], json!(true));
+        assert_eq!(parts["has_external_links"], json!(true));
+        assert_eq!(parts["has_charts"], json!(true));
+        assert_eq!(parts["has_comments"], json!(false));
 
         let _ = std::fs::remove_file(&path);
     }

@@ -7,6 +7,7 @@ use crate::{
     model::Model,
 };
 
+mod aggregate;
 pub(crate) mod binary_search;
 mod database;
 mod date_and_time;
@@ -166,6 +167,7 @@ pub enum Function {
     Filter,
     Hlookup,
     Hstack,
+    Hyperlink,
     Index,
     Indirect,
     Lookup,
@@ -225,6 +227,7 @@ pub enum Function {
     Asc,
     Arraytotext,
     Dollar,
+    Encodeurl,
     Findb,
     Fixed,
     Leftb,
@@ -537,6 +540,7 @@ pub enum Function {
     Delta,
     Gestep,
     Subtotal,
+    Aggregate,
 
     // Database
     Daverage,
@@ -715,6 +719,7 @@ impl_function_lookup! {
     filter    => Filter,
     hlookup   => Hlookup,
     hstack    => Hstack,
+    hyperlink => Hyperlink,
     index     => Index,
     indirect  => Indirect,
     lookup    => Lookup,
@@ -774,6 +779,7 @@ impl_function_lookup! {
     asc         => Asc,
     arraytotext => Arraytotext,
     dollar      => Dollar,
+    encodeurl   => Encodeurl,
     findb       => Findb,
     fixed       => Fixed,
     leftb       => Leftb,
@@ -1061,6 +1067,7 @@ impl_function_lookup! {
     delta    => Delta,
     gestep   => Gestep,
     subtotal => Subtotal,
+    aggregate => Aggregate,
 
     // Database
     daverage => Daverage,
@@ -1242,6 +1249,7 @@ impl Function {
             Function::Filter => functions.filter.clone(),
             Function::Hlookup => functions.hlookup.clone(),
             Function::Hstack => functions.hstack.clone(),
+            Function::Hyperlink => functions.hyperlink.clone(),
             Function::Index => functions.index.clone(),
             Function::Indirect => functions.indirect.clone(),
             Function::Lookup => functions.lookup.clone(),
@@ -1297,6 +1305,7 @@ impl Function {
             Function::Asc => functions.asc.clone(),
             Function::Arraytotext => functions.arraytotext.clone(),
             Function::Dollar => functions.dollar.clone(),
+            Function::Encodeurl => functions.encodeurl.clone(),
             Function::Findb => functions.findb.clone(),
             Function::Fixed => functions.fixed.clone(),
             Function::Leftb => functions.leftb.clone(),
@@ -1565,6 +1574,7 @@ impl Function {
             Function::Delta => functions.delta.clone(),
             Function::Gestep => functions.gestep.clone(),
             Function::Subtotal => functions.subtotal.clone(),
+            Function::Aggregate => functions.aggregate.clone(),
             Function::Daverage => functions.daverage.clone(),
             Function::Dcount => functions.dcount.clone(),
             Function::Dget => functions.dget.clone(),
@@ -1608,7 +1618,7 @@ impl Function {
         }
     }
 
-    pub fn into_iter() -> IntoIter<Function, 494> {
+    pub fn into_iter() -> IntoIter<Function, 497> {
         [
             Function::And,
             Function::False,
@@ -1708,6 +1718,7 @@ impl Function {
             Function::Indirect,
             Function::Hlookup,
             Function::Hstack,
+            Function::Hyperlink,
             Function::Filter,
             Function::Lookup,
             Function::Match,
@@ -1755,6 +1766,7 @@ impl Function {
             Function::Asc,
             Function::Arraytotext,
             Function::Dollar,
+            Function::Encodeurl,
             Function::Findb,
             Function::Fixed,
             Function::Leftb,
@@ -1942,6 +1954,7 @@ impl Function {
             Function::Delta,
             Function::Gestep,
             Function::Subtotal,
+            Function::Aggregate,
             Function::Roman,
             Function::Arabic,
             Function::Combin,
@@ -2158,6 +2171,8 @@ impl Function {
             Function::Unichar => "_xlfn.UNICHAR".to_string(),
             Function::Numbervalue => "_xlfn.NUMBERVALUE".to_string(),
             Function::Arraytotext => "_xlfn.ARRAYTOTEXT".to_string(),
+            Function::Encodeurl => "_xlfn.ENCODEURL".to_string(),
+            Function::Aggregate => "_xlfn.AGGREGATE".to_string(),
             Function::Rri => "_xlfn.RRI".to_string(),
             Function::Pduration => "_xlfn.PDURATION".to_string(),
             Function::Bitand => "_xlfn.BITAND".to_string(),
@@ -2366,6 +2381,7 @@ impl<'a> Model<'a> {
             Function::Indirect => self.fn_indirect(args, cell),
             Function::Hlookup => self.fn_hlookup(args, cell),
             Function::Hstack => self.fn_hstack(args, cell),
+            Function::Hyperlink => self.fn_hyperlink(args, cell),
             Function::Lookup => self.fn_lookup(args, cell),
             Function::Match => self.fn_match(args, cell),
             Function::Offset => self.fn_offset(args, cell),
@@ -2413,6 +2429,7 @@ impl<'a> Model<'a> {
             Function::Asc => self.fn_asc(args, cell),
             Function::Arraytotext => self.fn_arraytotext(args, cell),
             Function::Dollar => self.fn_dollar(args, cell),
+            Function::Encodeurl => self.fn_encodeurl(args, cell),
             Function::Findb => self.fn_findb(args, cell),
             Function::Fixed => self.fn_fixed(args, cell),
             Function::Leftb => self.fn_leftb(args, cell),
@@ -2600,6 +2617,7 @@ impl<'a> Model<'a> {
             Function::Delta => self.fn_delta(args, cell),
             Function::Gestep => self.fn_gestep(args, cell),
             Function::Subtotal => self.fn_subtotal(args, cell),
+            Function::Aggregate => self.fn_aggregate(args, cell),
             Function::Acot => self.fn_acot(args, cell),
             Function::Acoth => self.fn_acoth(args, cell),
             Function::Cot => self.fn_cot(args, cell),

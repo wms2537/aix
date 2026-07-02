@@ -199,6 +199,11 @@ pub fn probe_support(names: &[String]) -> Vec<String> {
             // The engine's parser rejects the probe formula outright: it
             // certainly cannot evaluate this name. Failing toward
             // "unsupported" keeps the coverage claim honest.
+            // NOT COVERABLE today: set_user_input in the vendored engine
+            // accepts any `=NAME(1)` string a lexer Ident can produce
+            // (verified empirically — even `=(1)` parses); the arm is a
+            // defensive failure default, kept because a future engine bump
+            // could start rejecting probe formulas.
             unsupported.push(name);
         }
     }
@@ -255,6 +260,18 @@ mod tests {
     #[test]
     fn function_names_with_dots() {
         assert_eq!(extract_function_names("=CEILING.MATH(4.3)"), vec!["CEILING.MATH"]);
+    }
+
+    #[test]
+    fn lexer_illegal_token_stops_extraction_without_spinning() {
+        // An unterminated string literal makes the lexer emit
+        // TokenType::Illegal; extraction must bail out, keeping whatever it
+        // already saw, instead of looping on a token that never advances.
+        assert_eq!(
+            extract_function_names("=SUM(A1)+\"unterminated"),
+            vec!["SUM"]
+        );
+        assert!(extract_function_names("='unterminated").is_empty());
     }
 
     #[test]

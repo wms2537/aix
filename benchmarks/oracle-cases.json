@@ -1,0 +1,2654 @@
+{
+  "ABS": [
+    "=ABS(A6)",
+    "=ABS(A1-A5)",
+    "=ABS(-7.25)",
+    "=ABS(B9)"
+  ],
+  "ACCRINT": [
+    "=ACCRINT(DATE(2025,1,1),DATE(2025,7,1),DATE(2025,10,1),0.05,1000,2,0)",
+    "=ACCRINT(DATE(2025,1,1),DATE(2025,7,1),DATE(2026,1,15),0.05,1000,4,1)",
+    "=ACCRINT(DATE(2025,1,1),DATE(2025,7,1),DATE(2024,10,1),0.05,1000,2,0)"
+  ],
+  "ACCRINTM": [
+    "=ACCRINTM(DATE(2025,1,1),DATE(2025,10,1),0.05,1000,0)",
+    "=ACCRINTM(DATE(2025,1,1),DATE(2026,3,15),0.05,1000,3)",
+    "=ACCRINTM(DATE(2025,1,1),DATE(2025,10,1),-0.05,1000,0)"
+  ],
+  "ACOS": [
+    "=ACOS(0.5)",
+    "=ACOS(-1)",
+    "=ACOS(A10)",
+    "=ACOS(2)"
+  ],
+  "ACOSH": [
+    "=ACOSH(1)",
+    "=ACOSH(A1)",
+    "=ACOSH(0.5)"
+  ],
+  "ACOT": [
+    "=ACOT(1)",
+    "=ACOT(A1)",
+    "=ACOT(0)",
+    "=ACOT(A6)"
+  ],
+  "ACOTH": [
+    "=ACOTH(2)",
+    "=ACOTH(A9)",
+    "=ACOTH(-1.5)",
+    "=ACOTH(0.5)"
+  ],
+  "ADDRESS": [
+    "=ADDRESS(2,3)",
+    "=ADDRESS(2,3,2)",
+    "=ADDRESS(2,3,4)",
+    "=ADDRESS(2,3,1,FALSE)"
+  ],
+  "AMORDEGRC": [
+    "=AMORDEGRC(2400,DATE(2025,8,19),DATE(2025,12,31),300,1,0.15,1)",
+    "=AMORDEGRC(2400,DATE(2025,8,19),DATE(2025,12,31),300,0,0.15,1)",
+    "=AMORDEGRC(10000,DATE(2025,1,1),DATE(2025,12,31),1000,2,0.2,0)"
+  ],
+  "AMORLINC": [
+    "=AMORLINC(2400,DATE(2025,8,19),DATE(2025,12,31),300,1,0.15,1)",
+    "=AMORLINC(2400,DATE(2025,8,19),DATE(2025,12,31),300,0,0.15,1)",
+    "=AMORLINC(10000,DATE(2025,1,1),DATE(2025,12,31),1000,2,0.2,0)"
+  ],
+  "AND": [
+    "=AND(E1,E2)",
+    "=AND(A1>0,A2>3,A3>5)",
+    "=AND(E1,A9=100)",
+    "=AND(A7)"
+  ],
+  "ARABIC": [
+    "=ARABIC(\"XIV\")",
+    "=ARABIC(\"MCMXCIX\")",
+    "=ARABIC(\"\")",
+    "=ARABIC(B1)"
+  ],
+  "AREAS": [
+    "=AREAS(A1:A10)",
+    "=AREAS(C1:D5)",
+    "=AREAS((A1:A5,C1:C5))"
+  ],
+  "ARRAYTOTEXT": [
+    "=ARRAYTOTEXT(A1:A3)",
+    "=ARRAYTOTEXT(B1:B2,1)",
+    "=ARRAYTOTEXT(C1:D2,0)"
+  ],
+  "ASC": [
+    "=ASC(\"ＡＢＣ１２３\")",
+    "=ASC(B1)",
+    "=ASC(\"Ｅｘｃｅｌ\")"
+  ],
+  "ASIN": [
+    "=ASIN(0.5)",
+    "=ASIN(-1)",
+    "=ASIN(A10)",
+    "=ASIN(1.2)"
+  ],
+  "ASINH": [
+    "=ASINH(A1)",
+    "=ASINH(0)",
+    "=ASINH(A6)"
+  ],
+  "ATAN": [
+    "=ATAN(1)",
+    "=ATAN(A6)",
+    "=ATAN(0)"
+  ],
+  "ATAN2": [
+    "=ATAN2(1,1)",
+    "=ATAN2(A1,A2)",
+    "=ATAN2(-1,-1)",
+    "=ATAN2(0,0)"
+  ],
+  "ATANH": [
+    "=ATANH(0.5)",
+    "=ATANH(-0.9)",
+    "=ATANH(0)",
+    "=ATANH(1)"
+  ],
+  "AVEDEV": [
+    "=AVEDEV(A1:A10)",
+    "=AVEDEV(C1:C5)",
+    "=AVEDEV(B1:B3)"
+  ],
+  "AVERAGE": [
+    "=AVERAGE(A1:A10)",
+    "=AVERAGE(C1:C5,D1:D5)",
+    "=AVERAGE(A1,A2,9)",
+    "=AVERAGE(B1:B3)"
+  ],
+  "AVERAGEA": [
+    "=AVERAGEA(A1:A5)",
+    "=AVERAGEA(B1:B4)",
+    "=AVERAGEA(E1:E2)"
+  ],
+  "AVERAGEIF": [
+    "=AVERAGEIF(A1:A10,\">5\")",
+    "=AVERAGEIF(C1:C5,\">2\",D1:D5)",
+    "=AVERAGEIF(B1:B10,\"alpha\",A1:A10)",
+    "=AVERAGEIF(A1:A10,\">1000\")"
+  ],
+  "AVERAGEIFS": [
+    "=AVERAGEIFS(D1:D5,C1:C5,\">2\")",
+    "=AVERAGEIFS(D1:D5,C1:C5,\">1\",C1:C5,\"<5\")",
+    "=AVERAGEIFS(A1:A5,C1:C5,\"<>3\")",
+    "=AVERAGEIFS(D1:D5,C1:C5,\">10\")"
+  ],
+  "BASE": [
+    "=BASE(255,16)",
+    "=BASE(7,2)",
+    "=BASE(10,2,8)",
+    "=BASE(-1,2)"
+  ],
+  "BESSELI": [
+    "=BESSELI(1.5,1)",
+    "=BESSELI(A1,0)",
+    "=BESSELI(1,-1)"
+  ],
+  "BESSELJ": [
+    "=BESSELJ(1.9,2)",
+    "=BESSELJ(A1,1)",
+    "=BESSELJ(1,-1)"
+  ],
+  "BESSELK": [
+    "=BESSELK(1.5,1)",
+    "=BESSELK(A1,0)",
+    "=BESSELK(-1,1)"
+  ],
+  "BESSELY": [
+    "=BESSELY(2.5,1)",
+    "=BESSELY(A1,0)",
+    "=BESSELY(0,1)"
+  ],
+  "BETA.DIST": [
+    "=BETA.DIST(0.5,2,3,TRUE)",
+    "=BETA.DIST(0.5,2,3,FALSE)",
+    "=BETA.DIST(2,8,10,TRUE,1,3)",
+    "=BETA.DIST(1.5,2,3,TRUE)"
+  ],
+  "BETA.INV": [
+    "=BETA.INV(0.5,2,3)",
+    "=BETA.INV(0.685,8,10,1,3)",
+    "=BETA.INV(1.5,2,3)"
+  ],
+  "BETADIST": [
+    "=BETADIST(0.5,2,3)",
+    "=BETADIST(2,8,10,1,3)",
+    "=BETADIST(-1,2,3)"
+  ],
+  "BETAINV": [
+    "=BETAINV(0.5,2,3)",
+    "=BETAINV(0.685,8,10,1,3)",
+    "=BETAINV(0,2,3)"
+  ],
+  "BIN2DEC": [
+    "=BIN2DEC(1100)",
+    "=BIN2DEC(\"1111111111\")",
+    "=BIN2DEC(0)",
+    "=BIN2DEC(102)"
+  ],
+  "BIN2HEX": [
+    "=BIN2HEX(11111011)",
+    "=BIN2HEX(1110,4)",
+    "=BIN2HEX(\"1111111111\")",
+    "=BIN2HEX(11111011,1)"
+  ],
+  "BIN2OCT": [
+    "=BIN2OCT(1001,3)",
+    "=BIN2OCT(1100100)",
+    "=BIN2OCT(\"1111111111\")"
+  ],
+  "BINOM.DIST": [
+    "=BINOM.DIST(6,10,0.5,FALSE)",
+    "=BINOM.DIST(6,10,0.5,TRUE)",
+    "=BINOM.DIST(11,10,0.5,FALSE)"
+  ],
+  "BINOM.DIST.RANGE": [
+    "=BINOM.DIST.RANGE(60,0.75,48)",
+    "=BINOM.DIST.RANGE(60,0.75,45,50)",
+    "=BINOM.DIST.RANGE(10,0.5,7,4)"
+  ],
+  "BINOM.INV": [
+    "=BINOM.INV(6,0.5,0.75)",
+    "=BINOM.INV(100,0.3,0.95)",
+    "=BINOM.INV(6,0.5,1.5)"
+  ],
+  "BINOMDIST": [
+    "=BINOMDIST(6,10,0.5,FALSE)",
+    "=BINOMDIST(6,10,0.5,TRUE)",
+    "=BINOMDIST(3,10,1.5,TRUE)"
+  ],
+  "BITAND": [
+    "=BITAND(13,25)",
+    "=BITAND(A9,12)",
+    "=BITAND(-1,5)"
+  ],
+  "BITLSHIFT": [
+    "=BITLSHIFT(4,2)",
+    "=BITLSHIFT(4,-2)",
+    "=BITLSHIFT(1,54)"
+  ],
+  "BITOR": [
+    "=BITOR(23,10)",
+    "=BITOR(A1,A2)",
+    "=BITOR(2.5,1)"
+  ],
+  "BITRSHIFT": [
+    "=BITRSHIFT(13,2)",
+    "=BITRSHIFT(4,-2)",
+    "=BITRSHIFT(A9,3)"
+  ],
+  "BITXOR": [
+    "=BITXOR(5,3)",
+    "=BITXOR(A9,A1)",
+    "=BITXOR(-2,3)"
+  ],
+  "BYCOL": [
+    "=SUM(BYCOL(C1:D5,LAMBDA(c,SUM(c))))",
+    "=INDEX(BYCOL(C1:D5,LAMBDA(c,MAX(c))),1,2)",
+    "=SUM(BYCOL(C1:D5,LAMBDA(c,AVERAGE(c))))"
+  ],
+  "BYROW": [
+    "=SUM(BYROW(C1:D5,LAMBDA(r,SUM(r))))",
+    "=INDEX(BYROW(C1:D5,LAMBDA(r,MAX(r))),2,1)",
+    "=SUM(BYROW(C1:D5,LAMBDA(r,MIN(r))))"
+  ],
+  "CEILING": [
+    "=CEILING(2.5,1)",
+    "=CEILING(A8,0.5)",
+    "=CEILING(-2.5,-2)",
+    "=CEILING(-2.5,2)"
+  ],
+  "CEILING.MATH": [
+    "=CEILING.MATH(24.3,5)",
+    "=CEILING.MATH(6.7)",
+    "=CEILING.MATH(-8.1,2)",
+    "=CEILING.MATH(-5.5,2,-1)"
+  ],
+  "CEILING.PRECISE": [
+    "=CEILING.PRECISE(4.3)",
+    "=CEILING.PRECISE(-4.3,2)",
+    "=CEILING.PRECISE(4.3,-2)"
+  ],
+  "CELL": [
+    "=CELL(\"address\",A1)",
+    "=CELL(\"row\",C3)",
+    "=CELL(\"col\",D2)",
+    "=CELL(\"contents\",A2)"
+  ],
+  "CHAR": [
+    "=CHAR(65)",
+    "=CHAR(A9)",
+    "=CHAR(38)",
+    "=CHAR(0)"
+  ],
+  "CHIDIST": [
+    "=CHIDIST(18.307,10)",
+    "=CHIDIST(2,3)",
+    "=CHIDIST(-1,2)"
+  ],
+  "CHIINV": [
+    "=CHIINV(0.05,10)",
+    "=CHIINV(0.5,1)",
+    "=CHIINV(1.5,2)"
+  ],
+  "CHISQ.DIST": [
+    "=CHISQ.DIST(0.5,1,TRUE)",
+    "=CHISQ.DIST(2,3,FALSE)",
+    "=CHISQ.DIST(2,0,TRUE)"
+  ],
+  "CHISQ.DIST.RT": [
+    "=CHISQ.DIST.RT(18.307,10)",
+    "=CHISQ.DIST.RT(3,4)",
+    "=CHISQ.DIST.RT(-1,2)"
+  ],
+  "CHISQ.INV": [
+    "=CHISQ.INV(0.93,1)",
+    "=CHISQ.INV(0.6,2)",
+    "=CHISQ.INV(1,2)"
+  ],
+  "CHISQ.INV.RT": [
+    "=CHISQ.INV.RT(0.05,10)",
+    "=CHISQ.INV.RT(0.6,2)",
+    "=CHISQ.INV.RT(0,2)"
+  ],
+  "CHISQ.TEST": [
+    "=CHISQ.TEST(A1:A5,C1:C5)",
+    "=CHISQ.TEST(C1:C5,D1:D5)",
+    "=CHISQ.TEST(C1:C5,D1:D4)"
+  ],
+  "CHITEST": [
+    "=CHITEST(A1:A5,C1:C5)",
+    "=CHITEST(C1:C5,D1:D5)"
+  ],
+  "CHOOSE": [
+    "=CHOOSE(2,\"a\",\"b\",\"c\")",
+    "=CHOOSE(A10,10,20,30)",
+    "=CHOOSE(2.9,\"x\",\"y\",\"z\")",
+    "=CHOOSE(0,\"a\",\"b\")"
+  ],
+  "CHOOSECOLS": [
+    "=SUM(CHOOSECOLS(C1:D5,2))",
+    "=INDEX(CHOOSECOLS(C1:D5,2,1),1,1)",
+    "=SUM(CHOOSECOLS(C1:D5,-1))",
+    "=SUM(CHOOSECOLS(C1:D5,3))"
+  ],
+  "CHOOSEROWS": [
+    "=SUM(CHOOSEROWS(C1:D5,1,5))",
+    "=INDEX(CHOOSEROWS(C1:D5,-1),1,2)",
+    "=SUM(CHOOSEROWS(C1:D5,6))"
+  ],
+  "CLEAN": [
+    "=CLEAN(CHAR(9)&\"ab\"&CHAR(10))",
+    "=CLEAN(B1)",
+    "=CLEAN(\"he\"&CHAR(7)&\"llo\")"
+  ],
+  "CODE": [
+    "=CODE(\"A\")",
+    "=CODE(B1)",
+    "=CODE(B10)",
+    "=CODE(\"\")"
+  ],
+  "COLUMN": [
+    "=COLUMN(D3)",
+    "=COLUMN(B7)"
+  ],
+  "COLUMNS": [
+    "=COLUMNS(C1:D5)",
+    "=COLUMNS(A1:A10)"
+  ],
+  "COMBIN": [
+    "=COMBIN(8,2)",
+    "=COMBIN(A9,2)",
+    "=COMBIN(5,0)",
+    "=COMBIN(4,5)"
+  ],
+  "COMBINA": [
+    "=COMBINA(4,3)",
+    "=COMBINA(10,3)",
+    "=COMBINA(2,0)",
+    "=COMBINA(-1,2)"
+  ],
+  "COMPLEX": [
+    "=COMPLEX(3,4)",
+    "=COMPLEX(3,-4,\"j\")",
+    "=COMPLEX(0,1)",
+    "=COMPLEX(1,2,\"k\")"
+  ],
+  "CONCAT": [
+    "=CONCAT(B1,B2)",
+    "=CONCAT(A1:A3)",
+    "=CONCAT(B1,\" \",A1)",
+    "=CONCAT(C1:D2)"
+  ],
+  "CONCATENATE": [
+    "=CONCATENATE(B1,\"-\",B2)",
+    "=CONCATENATE(A1,B9)",
+    "=CONCATENATE(E1,\"x\")"
+  ],
+  "CONFIDENCE": [
+    "=CONFIDENCE(0.05,2.5,50)",
+    "=CONFIDENCE(0.1,1.5,30)",
+    "=CONFIDENCE(0,1,10)"
+  ],
+  "CONFIDENCE.NORM": [
+    "=CONFIDENCE.NORM(0.05,2.5,50)",
+    "=CONFIDENCE.NORM(0.2,1,100)",
+    "=CONFIDENCE.NORM(1.2,1,10)"
+  ],
+  "CONFIDENCE.T": [
+    "=CONFIDENCE.T(0.05,1,50)",
+    "=CONFIDENCE.T(0.1,2.5,30)",
+    "=CONFIDENCE.T(0.05,1,1)"
+  ],
+  "CONVERT": [
+    "=CONVERT(1,\"lbm\",\"kg\")",
+    "=CONVERT(68,\"F\",\"C\")",
+    "=CONVERT(2.5,\"ft\",\"in\")",
+    "=CONVERT(1,\"g\",\"sec\")"
+  ],
+  "CORREL": [
+    "=CORREL(C1:C5,D1:D5)",
+    "=CORREL(A6:A10,C1:C5)",
+    "=CORREL(A1:A5,D1:D5)",
+    "=CORREL(C1:C5,D1:D2)"
+  ],
+  "COS": [
+    "=COS(0)",
+    "=COS(PI()/3)",
+    "=COS(A6)"
+  ],
+  "COSH": [
+    "=COSH(0)",
+    "=COSH(A1)",
+    "=COSH(-1)"
+  ],
+  "COT": [
+    "=COT(PI()/4)",
+    "=COT(A1)",
+    "=COT(0)"
+  ],
+  "COTH": [
+    "=COTH(2)",
+    "=COTH(A6)",
+    "=COTH(0)"
+  ],
+  "COUNT": [
+    "=COUNT(A1:A10)",
+    "=COUNT(B1:B10)",
+    "=COUNT(E1:E2)",
+    "=COUNT(A1:A10,\"7\",TRUE)"
+  ],
+  "COUNTA": [
+    "=COUNTA(A1:A10)",
+    "=COUNTA(B1:B10)",
+    "=COUNTA(E1:E2)",
+    "=COUNTA(A1:A3,\"\",5)"
+  ],
+  "COUNTBLANK": [
+    "=COUNTBLANK(B1:B10)",
+    "=COUNTBLANK(A1:A10)",
+    "=COUNTBLANK(C1:D5)"
+  ],
+  "COUNTIF": [
+    "=COUNTIF(A1:A10,\">5\")",
+    "=COUNTIF(B1:B10,\"*a*\")",
+    "=COUNTIF(B1:B10,\"beta\")",
+    "=COUNTIF(A1:A10,7.5)"
+  ],
+  "COUNTIFS": [
+    "=COUNTIFS(C1:C5,\">2\",D1:D5,\"<50\")",
+    "=COUNTIFS(A1:A5,\">3\",A1:A5,\"<10\")",
+    "=COUNTIFS(B1:B5,\"*a*\",A1:A5,\">2\")"
+  ],
+  "COUPDAYBS": [
+    "=COUPDAYBS(DATE(2026,3,15),DATE(2030,1,1),2,0)",
+    "=COUPDAYBS(DATE(2026,3,15),DATE(2030,1,1),2,1)",
+    "=COUPDAYBS(DATE(2026,3,15),DATE(2030,1,1),4,0)",
+    "=COUPDAYBS(DATE(2031,1,1),DATE(2030,1,1),2,0)"
+  ],
+  "COUPDAYS": [
+    "=COUPDAYS(DATE(2026,3,15),DATE(2030,1,1),2,0)",
+    "=COUPDAYS(DATE(2026,3,15),DATE(2030,1,1),2,1)",
+    "=COUPDAYS(DATE(2026,3,15),DATE(2030,1,1),1,1)"
+  ],
+  "COUPDAYSNC": [
+    "=COUPDAYSNC(DATE(2026,3,15),DATE(2030,1,1),2,0)",
+    "=COUPDAYSNC(DATE(2026,3,15),DATE(2030,1,1),2,1)",
+    "=COUPDAYSNC(DATE(2026,3,15),DATE(2030,1,1),4,1)"
+  ],
+  "COUPNCD": [
+    "=COUPNCD(DATE(2026,3,15),DATE(2030,1,1),2)",
+    "=COUPNCD(DATE(2026,3,15),DATE(2030,1,1),4)",
+    "=COUPNCD(DATE(2026,3,15),DATE(2030,1,1),1)"
+  ],
+  "COUPNUM": [
+    "=COUPNUM(DATE(2026,3,15),DATE(2030,1,1),2)",
+    "=COUPNUM(DATE(2026,3,15),DATE(2030,1,1),4)",
+    "=COUPNUM(DATE(2026,3,15),DATE(2030,1,1),1)"
+  ],
+  "COUPPCD": [
+    "=COUPPCD(DATE(2026,3,15),DATE(2030,1,1),2)",
+    "=COUPPCD(DATE(2026,3,15),DATE(2030,1,1),4)",
+    "=COUPPCD(DATE(2026,3,15),DATE(2029,11,30),2)"
+  ],
+  "COVAR": [
+    "=COVAR(C1:C5,D1:D5)",
+    "=COVAR(A1:A5,C1:C5)"
+  ],
+  "COVARIANCE.P": [
+    "=COVARIANCE.P(C1:C5,D1:D5)",
+    "=COVARIANCE.P(A1:A5,C1:C5)"
+  ],
+  "COVARIANCE.S": [
+    "=COVARIANCE.S(C1:C5,D1:D5)",
+    "=COVARIANCE.S(A1:A5,C1:C5)",
+    "=COVARIANCE.S(C1:C5,A1:A10)"
+  ],
+  "CRITBINOM": [
+    "=CRITBINOM(10,0.5,0.75)",
+    "=CRITBINOM(50,0.1,0.9)",
+    "=CRITBINOM(10,0.5,0)"
+  ],
+  "CSC": [
+    "=CSC(1)",
+    "=CSC(-0.5)",
+    "=CSC(0)"
+  ],
+  "CSCH": [
+    "=CSCH(1)",
+    "=CSCH(-2)",
+    "=CSCH(0)"
+  ],
+  "CUMIPMT": [
+    "=CUMIPMT(0.05,10,1000,1,3,0)",
+    "=CUMIPMT(0.05/12,120,10000,1,12,0)",
+    "=CUMIPMT(0.05,10,1000,1,3,1)",
+    "=CUMIPMT(0.05,10,1000,4,3,0)"
+  ],
+  "CUMPRINC": [
+    "=CUMPRINC(0.05,10,1000,1,3,0)",
+    "=CUMPRINC(0.05/12,120,10000,13,24,0)",
+    "=CUMPRINC(0.05,10,1000,1,10,0)"
+  ],
+  "DATE": [
+    "=DATE(2026,3,15)",
+    "=DATE(2026,13,5)",
+    "=DATE(2026,1,0)",
+    "=DATE(2026,2,30)"
+  ],
+  "DATEDIF": [
+    "=DATEDIF(DATE(2024,1,15),DATE(2026,3,1),\"Y\")",
+    "=DATEDIF(DATE(2024,1,15),DATE(2026,3,1),\"M\")",
+    "=DATEDIF(DATE(2024,1,15),DATE(2026,3,1),\"YM\")",
+    "=DATEDIF(DATE(2026,3,15),DATE(2026,1,1),\"D\")"
+  ],
+  "DATEVALUE": [
+    "=DATEVALUE(\"2026-03-15\")",
+    "=DATEVALUE(B4)",
+    "=DATEVALUE(\"definitely not a date\")"
+  ],
+  "DAVERAGE": [
+    "=DAVERAGE(C1:D5,2,C1:C3)",
+    "=DAVERAGE(C1:D5,1,D1:D2)",
+    "=DAVERAGE(C1:D5,2,C1:C2)"
+  ],
+  "DAY": [
+    "=DAY(DATE(2026,3,15))",
+    "=DAY(DATE(2024,2,29))",
+    "=DAY(EOMONTH(DATE(2026,2,10),0))"
+  ],
+  "DAYS": [
+    "=DAYS(DATE(2026,3,15),DATE(2026,1,1))",
+    "=DAYS(DATE(2026,1,1),DATE(2026,3,15))",
+    "=DAYS(DATE(2026,3,15),DATE(2024,2,29))"
+  ],
+  "DAYS360": [
+    "=DAYS360(DATE(2026,1,31),DATE(2026,3,15))",
+    "=DAYS360(DATE(2026,1,31),DATE(2026,3,31),TRUE)",
+    "=DAYS360(DATE(2026,2,28),DATE(2026,8,31))",
+    "=DAYS360(DATE(2026,3,15),DATE(2026,1,31))"
+  ],
+  "DB": [
+    "=DB(10000,1000,6,1)",
+    "=DB(10000,1000,6,3)",
+    "=DB(10000,1000,6,1,7)"
+  ],
+  "DCOUNT": [
+    "=DCOUNT(C1:D5,2,C1:C3)",
+    "=DCOUNT(C1:D5,1,C1:C2)",
+    "=DCOUNT(C1:D5,2,D1:D2)"
+  ],
+  "DCOUNTA": [
+    "=DCOUNTA(C1:D5,2,C1:C3)",
+    "=DCOUNTA(C1:D5,1,D1:D2)"
+  ],
+  "DDB": [
+    "=DDB(10000,1000,6,1)",
+    "=DDB(10000,1000,6,5)",
+    "=DDB(10000,1000,6,2,1.5)"
+  ],
+  "DEC2BIN": [
+    "=DEC2BIN(10)",
+    "=DEC2BIN(-5)",
+    "=DEC2BIN(A5,8)",
+    "=DEC2BIN(512)"
+  ],
+  "DEC2HEX": [
+    "=DEC2HEX(100)",
+    "=DEC2HEX(-54)",
+    "=DEC2HEX(A9,4)"
+  ],
+  "DEC2OCT": [
+    "=DEC2OCT(8)",
+    "=DEC2OCT(-100)",
+    "=DEC2OCT(A5)"
+  ],
+  "DECIMAL": [
+    "=DECIMAL(\"FF\",16)",
+    "=DECIMAL(\"1010\",2)",
+    "=DECIMAL(B9,10)",
+    "=DECIMAL(\"102\",2)"
+  ],
+  "DEGREES": [
+    "=DEGREES(PI())",
+    "=DEGREES(PI()/6)",
+    "=DEGREES(1)"
+  ],
+  "DELTA": [
+    "=DELTA(5,5)",
+    "=DELTA(A1,A2)",
+    "=DELTA(A7)"
+  ],
+  "DEVSQ": [
+    "=DEVSQ(C1:C5)",
+    "=DEVSQ(A1:A10)",
+    "=DEVSQ(1,2,3,4)"
+  ],
+  "DGET": [
+    "=DGET(C1:D5,2,C1:C2)",
+    "=DGET(C1:D5,1,D1:D2)",
+    "=DGET(C1:D5,2,C1:C3)"
+  ],
+  "DISC": [
+    "=DISC(DATE(2026,1,15),DATE(2026,7,15),97.5,100)",
+    "=DISC(DATE(2026,1,15),DATE(2027,1,15),95,100,3)",
+    "=DISC(DATE(2026,7,15),DATE(2026,1,15),97.5,100)"
+  ],
+  "DMAX": [
+    "=DMAX(C1:D5,2,C1:C3)",
+    "=DMAX(C1:D5,1,C1:C3)"
+  ],
+  "DMIN": [
+    "=DMIN(C1:D5,2,C1:C3)",
+    "=DMIN(C1:D5,1,C1:C3)"
+  ],
+  "DOLLAR": [
+    "=DOLLAR(1234.567,2)",
+    "=DOLLAR(-1234.567,-2)",
+    "=DOLLAR(A8)"
+  ],
+  "DOLLARDE": [
+    "=DOLLARDE(1.02,16)",
+    "=DOLLARDE(1.1,32)",
+    "=DOLLARDE(-1.02,16)",
+    "=DOLLARDE(1.02,0)"
+  ],
+  "DOLLARFR": [
+    "=DOLLARFR(1.125,16)",
+    "=DOLLARFR(1.3125,32)",
+    "=DOLLARFR(1.125,0)"
+  ],
+  "DPRODUCT": [
+    "=DPRODUCT(C1:D5,1,C1:C3)",
+    "=DPRODUCT(C1:D5,2,C1:C3)"
+  ],
+  "DROP": [
+    "=SUM(DROP(C1:C5,2))",
+    "=SUM(DROP(A1:A10,-3))",
+    "=SUM(DROP(C1:D5,1,1))",
+    "=INDEX(DROP(C1:C5,2),1,1)"
+  ],
+  "DSTDEV": [
+    "=DSTDEV(C1:D5,2,C1:C3)",
+    "=DSTDEV(C1:D5,1,C1:C3)"
+  ],
+  "DSTDEVP": [
+    "=DSTDEVP(C1:D5,2,C1:C3)",
+    "=DSTDEVP(C1:D5,1,C1:C3)"
+  ],
+  "DSUM": [
+    "=DSUM(C1:D5,2,C1:C3)",
+    "=DSUM(C1:D5,1,C1:C2)",
+    "=DSUM(C1:D5,2,C1:D2)"
+  ],
+  "DURATION": [
+    "=DURATION(DATE(2026,1,1),DATE(2030,1,1),0.08,0.09,2)",
+    "=DURATION(DATE(2026,1,1),DATE(2036,1,1),0.05,0.05,1)",
+    "=DURATION(DATE(2026,1,1),DATE(2030,1,1),0.08,0.09,2,1)"
+  ],
+  "DVAR": [
+    "=DVAR(C1:D5,2,C1:C3)",
+    "=DVAR(C1:D5,1,C1:C3)"
+  ],
+  "DVARP": [
+    "=DVARP(C1:D5,2,C1:C3)",
+    "=DVARP(C1:D5,1,C1:C3)"
+  ],
+  "EDATE": [
+    "=EDATE(DATE(2026,1,31),1)",
+    "=EDATE(DATE(2026,3,15),-3)",
+    "=EDATE(DATE(2024,1,31),1)"
+  ],
+  "EFFECT": [
+    "=EFFECT(0.05,12)",
+    "=EFFECT(0.1,4)",
+    "=EFFECT(0.05,0)"
+  ],
+  "EOMONTH": [
+    "=EOMONTH(DATE(2026,1,15),1)",
+    "=EOMONTH(DATE(2024,1,15),1)",
+    "=EOMONTH(DATE(2026,3,15),-2)"
+  ],
+  "ERF": [
+    "=ERF(1)",
+    "=ERF(0.5,2)",
+    "=ERF(-0.5)"
+  ],
+  "ERF.PRECISE": [
+    "=ERF.PRECISE(1)",
+    "=ERF.PRECISE(-0.5)"
+  ],
+  "ERFC": [
+    "=ERFC(1)",
+    "=ERFC(0)",
+    "=ERFC(-1)"
+  ],
+  "ERFC.PRECISE": [
+    "=ERFC.PRECISE(0.5)",
+    "=ERFC.PRECISE(-1)"
+  ],
+  "ERROR.TYPE": [
+    "=ERROR.TYPE(1/0)",
+    "=ERROR.TYPE(NA())",
+    "=ERROR.TYPE(A1)"
+  ],
+  "EVEN": [
+    "=EVEN(3)",
+    "=EVEN(-2.5)",
+    "=EVEN(A8)",
+    "=EVEN(0)"
+  ],
+  "EXACT": [
+    "=EXACT(\"alpha\",B1)",
+    "=EXACT(B2,\"beta\")",
+    "=EXACT(B9,100)",
+    "=EXACT(B6,\" padded \")"
+  ],
+  "EXP": [
+    "=EXP(1)",
+    "=EXP(0)",
+    "=EXP(A6)"
+  ],
+  "EXPAND": [
+    "=INDEX(EXPAND(C1:C5,7,2,0),6,2)",
+    "=INDEX(EXPAND(C1:C5,7,2,0),3,1)",
+    "=SUM(EXPAND(C1:C5,6,1,100))",
+    "=INDEX(EXPAND(C1:C5,6),6,1)"
+  ],
+  "EXPON.DIST": [
+    "=EXPON.DIST(0.5,1,TRUE)",
+    "=EXPON.DIST(0.5,1,FALSE)",
+    "=EXPON.DIST(2,1.5,TRUE)",
+    "=EXPON.DIST(-1,1,TRUE)"
+  ],
+  "EXPONDIST": [
+    "=EXPONDIST(0.5,1,TRUE)",
+    "=EXPONDIST(0.5,1,FALSE)",
+    "=EXPONDIST(2,0.5,TRUE)"
+  ],
+  "F.DIST": [
+    "=F.DIST(1,5,10,TRUE)",
+    "=F.DIST(1,5,10,FALSE)",
+    "=F.DIST(2.5,3,8,TRUE)",
+    "=F.DIST(-1,5,10,TRUE)"
+  ],
+  "F.DIST.RT": [
+    "=F.DIST.RT(1,5,10)",
+    "=F.DIST.RT(2.5,3,8)",
+    "=F.DIST.RT(-1,5,10)"
+  ],
+  "F.INV": [
+    "=F.INV(0.5,5,10)",
+    "=F.INV(0.95,5,10)",
+    "=F.INV(0.05,5,10)",
+    "=F.INV(1.5,5,10)"
+  ],
+  "F.INV.RT": [
+    "=F.INV.RT(0.05,5,10)",
+    "=F.INV.RT(0.5,5,10)",
+    "=F.INV.RT(2,5,10)"
+  ],
+  "F.TEST": [
+    "=F.TEST(A1:A5,C1:C5)",
+    "=F.TEST(C1:C5,D1:D5)",
+    "=F.TEST(A1:A5,D1:D5)"
+  ],
+  "FACT": [
+    "=FACT(5)",
+    "=FACT(0)",
+    "=FACT(A8)",
+    "=FACT(-1)"
+  ],
+  "FACTDOUBLE": [
+    "=FACTDOUBLE(7)",
+    "=FACTDOUBLE(8)",
+    "=FACTDOUBLE(0)",
+    "=FACTDOUBLE(-3)"
+  ],
+  "FALSE": [
+    "=FALSE()",
+    "=IF(FALSE(),1,0)"
+  ],
+  "FDIST": [
+    "=FDIST(1,5,10)",
+    "=FDIST(2.5,3,8)",
+    "=FDIST(-1,5,10)"
+  ],
+  "FILTER": [
+    "=SUM(FILTER(A1:A10,A1:A10>5))",
+    "=COUNT(FILTER(C1:C5,D1:D5>25))",
+    "=INDEX(FILTER(B1:B10,A1:A10>5),1)",
+    "=SUM(FILTER(A1:A10,A1:A10>1000,-1))"
+  ],
+  "FIND": [
+    "=FIND(\"DELTA\",B3)",
+    "=FIND(\"a\",B1,2)",
+    "=FIND(\"z\",B5)",
+    "=FIND(\"beta\",B2)"
+  ],
+  "FINDB": [
+    "=FINDB(\"a\",B1)",
+    "=FINDB(\"DELTA\",B3)",
+    "=FINDB(\"a\",B1,2)"
+  ],
+  "FINV": [
+    "=FINV(0.05,5,10)",
+    "=FINV(0.5,5,10)"
+  ],
+  "FISHER": [
+    "=FISHER(0.5)",
+    "=FISHER(-0.9)",
+    "=FISHER(1)"
+  ],
+  "FISHERINV": [
+    "=FISHERINV(0.5)",
+    "=FISHERINV(-2)",
+    "=FISHERINV(0)"
+  ],
+  "FIXED": [
+    "=FIXED(1234.567,1)",
+    "=FIXED(1234.567,-2)",
+    "=FIXED(1234.567,1,TRUE)",
+    "=FIXED(A9)"
+  ],
+  "FLOOR": [
+    "=FLOOR(A8, 2)",
+    "=FLOOR(A8, 0.5)",
+    "=FLOOR(-3.7, -2)",
+    "=FLOOR(A6, 2)"
+  ],
+  "FLOOR.MATH": [
+    "=FLOOR.MATH(A8)",
+    "=FLOOR.MATH(-3.7, 2)",
+    "=FLOOR.MATH(-3.7, 2, 1)",
+    "=FLOOR.MATH(A9, 7)"
+  ],
+  "FLOOR.PRECISE": [
+    "=FLOOR.PRECISE(A8)",
+    "=FLOOR.PRECISE(A8, 2)",
+    "=FLOOR.PRECISE(-3.7, 2)",
+    "=FLOOR.PRECISE(-3.7, -2)"
+  ],
+  "FORECAST": [
+    "=FORECAST(6, D1:D5, C1:C5)",
+    "=FORECAST(2.5, A1:A5, C1:C5)",
+    "=FORECAST(0, D1:D5, C1:C5)",
+    "=FORECAST(3, A2:A6, C1:C5)"
+  ],
+  "FORECAST.LINEAR": [
+    "=FORECAST.LINEAR(6, D1:D5, C1:C5)",
+    "=FORECAST.LINEAR(2.5, A1:A5, C1:C5)",
+    "=FORECAST.LINEAR(10, A2:A6, C1:C5)"
+  ],
+  "FORMULATEXT": [
+    "=FORMULATEXT(A1)",
+    "=ISNA(FORMULATEXT(B4))"
+  ],
+  "FREQUENCY": [
+    "=INDEX(FREQUENCY(A1:A10, C1:C5), 1, 1)",
+    "=INDEX(FREQUENCY(A1:A10, C1:C5), 6, 1)",
+    "=SUM(FREQUENCY(A1:A10, C1:C5))"
+  ],
+  "FTEST": [
+    "=FTEST(A1:A5, D1:D5)",
+    "=FTEST(C1:C5, D1:D5)",
+    "=FTEST(C1:C5, C1:C5)"
+  ],
+  "FV": [
+    "=FV(0.05, 10, -100)",
+    "=FV(0.05, 10, -100, -1000, 1)",
+    "=FV(0, 10, -100)",
+    "=FV(0.05/12, 120, -100)"
+  ],
+  "FVSCHEDULE": [
+    "=FVSCHEDULE(1000, {0.05,0.04,0.03})",
+    "=FVSCHEDULE(A9, C1:C5)",
+    "=FVSCHEDULE(1000, {0})"
+  ],
+  "GAMMA": [
+    "=GAMMA(A8)",
+    "=GAMMA(0.5)",
+    "=GAMMA(-1.5)",
+    "=GAMMA(A6)"
+  ],
+  "GAMMA.DIST": [
+    "=GAMMA.DIST(A1, 3, 2, TRUE)",
+    "=GAMMA.DIST(A1, 3, 2, FALSE)",
+    "=GAMMA.DIST(A4, 9, 2, TRUE)",
+    "=GAMMA.DIST(-1, 3, 2, TRUE)"
+  ],
+  "GAMMA.INV": [
+    "=GAMMA.INV(0.5, 3, 2)",
+    "=GAMMA.INV(0.95, 9, 2)",
+    "=GAMMA.INV(1.5, 3, 2)"
+  ],
+  "GAMMADIST": [
+    "=GAMMADIST(A1, 3, 2, TRUE)",
+    "=GAMMADIST(A1, 3, 2, FALSE)",
+    "=GAMMADIST(A7, 3, 2, TRUE)"
+  ],
+  "GAMMAINV": [
+    "=GAMMAINV(0.5, 3, 2)",
+    "=GAMMAINV(0.25, 4, 1)",
+    "=GAMMAINV(-0.1, 3, 2)"
+  ],
+  "GAMMALN": [
+    "=GAMMALN(A5)",
+    "=GAMMALN(0.5)",
+    "=GAMMALN(A7)"
+  ],
+  "GAMMALN.PRECISE": [
+    "=GAMMALN.PRECISE(A9)",
+    "=GAMMALN.PRECISE(4.5)",
+    "=GAMMALN.PRECISE(A6)"
+  ],
+  "GAUSS": [
+    "=GAUSS(1)",
+    "=GAUSS(A1)",
+    "=GAUSS(A7)",
+    "=GAUSS(A6)"
+  ],
+  "GCD": [
+    "=GCD(A1, A2, A3)",
+    "=GCD(A1:A5)",
+    "=GCD(A7, 8)",
+    "=GCD(A8, 5)"
+  ],
+  "GEOMEAN": [
+    "=GEOMEAN(C1:C5)",
+    "=GEOMEAN(A1:A5)",
+    "=GEOMEAN(D1:D5)",
+    "=GEOMEAN(A1:A10)"
+  ],
+  "GESTEP": [
+    "=GESTEP(A1, 1)",
+    "=GESTEP(A6, 0)",
+    "=GESTEP(A7)",
+    "=GESTEP(4.9, 5)"
+  ],
+  "GROWTH": [
+    "=INDEX(GROWTH({2,4,8,16,32}, {1,2,3,4,5}, 6), 1, 1)",
+    "=INDEX(GROWTH(D1:D5, C1:C5, 6), 1, 1)",
+    "=INDEX(GROWTH(A1:A5, C1:C5), 1, 1)"
+  ],
+  "HARMEAN": [
+    "=HARMEAN(C1:C5)",
+    "=HARMEAN(A1:A5)",
+    "=HARMEAN(A1:A10)"
+  ],
+  "HEX2BIN": [
+    "=HEX2BIN(\"F\")",
+    "=HEX2BIN(\"F\", 8)",
+    "=HEX2BIN(\"FFFFFFFFFF\")",
+    "=HEX2BIN(\"200\")"
+  ],
+  "HEX2DEC": [
+    "=HEX2DEC(\"FF\")",
+    "=HEX2DEC(B9)",
+    "=HEX2DEC(\"FFFFFFFFFF\")",
+    "=HEX2DEC(\"XYZ\")"
+  ],
+  "HEX2OCT": [
+    "=HEX2OCT(\"FF\")",
+    "=HEX2OCT(\"FF\", 6)",
+    "=HEX2OCT(\"FFFFFFFFFF\")",
+    "=HEX2OCT(\"20000000\")"
+  ],
+  "HLOOKUP": [
+    "=HLOOKUP(1, A1:E2, 2, FALSE)",
+    "=HLOOKUP(\"alpha\", A1:E2, 2, FALSE)",
+    "=HLOOKUP(3, C1:D2, 2, TRUE)",
+    "=HLOOKUP(\"zzz\", A1:E2, 2, FALSE)"
+  ],
+  "HOUR": [
+    "=HOUR(TIME(13,45,30))",
+    "=HOUR(A8/24)",
+    "=HOUR(DATE(2026,3,15)+0.75)",
+    "=HOUR(1)"
+  ],
+  "HSTACK": [
+    "=INDEX(HSTACK(C1:C5, D1:D5), 2, 2)",
+    "=SUM(HSTACK(C1:C5, D1:D5))",
+    "=COLUMNS(HSTACK(A1:A10, A1:A10, A1:A10))",
+    "=INDEX(HSTACK(C1:C3, D1:D5), 4, 1)"
+  ],
+  "HYPGEOM.DIST": [
+    "=HYPGEOM.DIST(1, 4, 8, 20, FALSE)",
+    "=HYPGEOM.DIST(1, 4, 8, 20, TRUE)",
+    "=HYPGEOM.DIST(4, 4, 8, 20, TRUE)",
+    "=HYPGEOM.DIST(5, 4, 8, 20, FALSE)"
+  ],
+  "HYPGEOMDIST": [
+    "=HYPGEOMDIST(1, 4, 8, 20)",
+    "=HYPGEOMDIST(2, 4, 8, 20)",
+    "=HYPGEOMDIST(-1, 4, 8, 20)"
+  ],
+  "IF": [
+    "=IF(A1>1, \"big\", \"small\")",
+    "=IF(E2, 1, 0)",
+    "=IF(A7, \"t\", \"f\")",
+    "=IF(A6>0, 1)"
+  ],
+  "IFERROR": [
+    "=IFERROR(A1/A2, \"err\")",
+    "=IFERROR(1/0, \"err\")",
+    "=IFERROR(VLOOKUP(999, C1:D5, 2, FALSE), -1)",
+    "=IFERROR(B7, \"empty\")"
+  ],
+  "IFNA": [
+    "=IFNA(NA(), \"missing\")",
+    "=IFNA(VLOOKUP(999, C1:D5, 2, FALSE), 0)",
+    "=IFNA(1/0, \"missing\")",
+    "=IFNA(A5, 0)"
+  ],
+  "IFS": [
+    "=IFS(A1>5, \"big\", A1>1, \"mid\", TRUE, \"small\")",
+    "=IFS(E1, \"yes\")",
+    "=IFS(A7>0, 1, A7<0, 2)",
+    "=IFS(A9=100, \"hundred\", TRUE, \"other\")"
+  ],
+  "IMABS": [
+    "=IMABS(\"3+4i\")",
+    "=IMABS(\"2-3i\")",
+    "=IMABS(\"-5\")",
+    "=IMABS(COMPLEX(0, -12))"
+  ],
+  "IMAGINARY": [
+    "=IMAGINARY(\"3+4i\")",
+    "=IMAGINARY(\"2-3i\")",
+    "=IMAGINARY(\"7\")",
+    "=IMAGINARY(\"4j\")"
+  ],
+  "IMARGUMENT": [
+    "=IMARGUMENT(\"3+4i\")",
+    "=IMARGUMENT(\"-1\")",
+    "=IMARGUMENT(\"2i\")",
+    "=IMARGUMENT(\"0\")"
+  ],
+  "IMCONJUGATE": [
+    "=IMCONJUGATE(\"3+4i\")",
+    "=IMCONJUGATE(\"2-3i\")",
+    "=IMCONJUGATE(\"5\")"
+  ],
+  "IMCOS": [
+    "=IMREAL(IMCOS(\"1+i\"))",
+    "=IMAGINARY(IMCOS(\"1+i\"))",
+    "=IMCOS(\"0\")"
+  ],
+  "IMCOSH": [
+    "=IMREAL(IMCOSH(\"1+i\"))",
+    "=IMAGINARY(IMCOSH(\"1+i\"))",
+    "=IMCOSH(\"0\")"
+  ],
+  "IMCOT": [
+    "=IMREAL(IMCOT(\"1+i\"))",
+    "=IMAGINARY(IMCOT(\"1+i\"))",
+    "=IMCOT(\"0\")"
+  ],
+  "IMCSC": [
+    "=IMREAL(IMCSC(\"1+i\"))",
+    "=IMAGINARY(IMCSC(\"1+i\"))",
+    "=IMCSC(\"0\")"
+  ],
+  "IMCSCH": [
+    "=IMREAL(IMCSCH(\"1+i\"))",
+    "=IMAGINARY(IMCSCH(\"1+i\"))",
+    "=IMCSCH(\"0\")"
+  ],
+  "IMDIV": [
+    "=IMDIV(\"4+2i\", \"1+i\")",
+    "=IMDIV(\"10\", \"2\")",
+    "=IMDIV(\"1+i\", \"0\")"
+  ],
+  "IMEXP": [
+    "=IMREAL(IMEXP(\"1+i\"))",
+    "=IMAGINARY(IMEXP(\"1+i\"))",
+    "=IMEXP(\"0\")"
+  ],
+  "IMLN": [
+    "=IMREAL(IMLN(\"3+4i\"))",
+    "=IMAGINARY(IMLN(\"3+4i\"))",
+    "=IMLN(\"0\")"
+  ],
+  "IMLOG10": [
+    "=IMREAL(IMLOG10(\"100\"))",
+    "=IMAGINARY(IMLOG10(\"-1\"))",
+    "=IMREAL(IMLOG10(\"3+4i\"))"
+  ],
+  "IMLOG2": [
+    "=IMREAL(IMLOG2(\"8\"))",
+    "=IMAGINARY(IMLOG2(\"1+i\"))",
+    "=IMREAL(IMLOG2(\"1+i\"))"
+  ],
+  "IMPOWER": [
+    "=IMAGINARY(IMPOWER(\"1+i\", 2))",
+    "=IMREAL(IMPOWER(\"2\", 10))",
+    "=IMABS(IMPOWER(\"3+4i\", 0.5))",
+    "=IMPOWER(\"0\", -1)"
+  ],
+  "IMPRODUCT": [
+    "=IMPRODUCT(\"1+i\", \"1-i\")",
+    "=IMPRODUCT(\"2\", \"3\", \"4\")",
+    "=IMPRODUCT(\"2i\", \"2i\")"
+  ],
+  "IMREAL": [
+    "=IMREAL(\"3+4i\")",
+    "=IMREAL(\"-2-3i\")",
+    "=IMREAL(\"7\")",
+    "=IMREAL(\"i\")"
+  ],
+  "IMSEC": [
+    "=IMREAL(IMSEC(\"1+i\"))",
+    "=IMAGINARY(IMSEC(\"1+i\"))",
+    "=IMSEC(\"0\")"
+  ],
+  "IMSECH": [
+    "=IMREAL(IMSECH(\"1+i\"))",
+    "=IMAGINARY(IMSECH(\"1+i\"))",
+    "=IMSECH(\"0\")"
+  ],
+  "IMSIN": [
+    "=IMREAL(IMSIN(\"1+i\"))",
+    "=IMAGINARY(IMSIN(\"1+i\"))",
+    "=IMSIN(\"0\")"
+  ],
+  "IMSINH": [
+    "=IMREAL(IMSINH(\"1+i\"))",
+    "=IMAGINARY(IMSINH(\"1+i\"))",
+    "=IMSINH(\"0\")"
+  ],
+  "IMSQRT": [
+    "=IMAGINARY(IMSQRT(\"-4\"))",
+    "=IMABS(IMSQRT(\"3+4i\"))",
+    "=IMSQRT(\"4\")"
+  ],
+  "IMSUB": [
+    "=IMSUB(\"5+3i\", \"2+i\")",
+    "=IMSUB(\"2\", \"3i\")",
+    "=IMSUB(\"1+i\", \"1+i\")"
+  ],
+  "IMSUM": [
+    "=IMSUM(\"1+i\", \"2+3i\")",
+    "=IMSUM(\"5\", \"-2\")",
+    "=IMSUM(\"i\", \"i\")"
+  ],
+  "IMTAN": [
+    "=IMREAL(IMTAN(\"1+i\"))",
+    "=IMAGINARY(IMTAN(\"1+i\"))",
+    "=IMTAN(\"0\")"
+  ],
+  "INDEX": [
+    "=INDEX(A1:A10, 5)",
+    "=INDEX(C1:D5, 3, 2)",
+    "=INDEX(B1:B10, 4)",
+    "=INDEX(A1:A10, 11)"
+  ],
+  "INDIRECT": [
+    "=INDIRECT(\"A5\")",
+    "=INDIRECT(\"B\"&2)",
+    "=INDIRECT(\"R3C1\", FALSE)",
+    "=INDIRECT(\"notacell\")"
+  ],
+  "INT": [
+    "=INT(A8)",
+    "=INT(-3.5)",
+    "=INT(A9)",
+    "=INT(\"9.99\")"
+  ],
+  "INTERCEPT": [
+    "=INTERCEPT(A2:A6, C1:C5)",
+    "=INTERCEPT(D1:D5, C1:C5)",
+    "=INTERCEPT(A1:A5, C1:C4)"
+  ],
+  "INTRATE": [
+    "=INTRATE(DATE(2026,1,1), DATE(2027,1,1), 950, 1000)",
+    "=INTRATE(DATE(2026,1,1), DATE(2026,7,1), 980, 1000, 3)",
+    "=INTRATE(DATE(2027,1,1), DATE(2026,1,1), 950, 1000)"
+  ],
+  "IPMT": [
+    "=IPMT(0.05, 1, 10, -1000)",
+    "=IPMT(0.05, 2, 10, -1000)",
+    "=IPMT(0.05, 1, 10, -1000, 0, 1)",
+    "=IPMT(0.05, 11, 10, -1000)"
+  ],
+  "IRR": [
+    "=IRR({-100,120})",
+    "=IRR({-1000,300,400,500,600})",
+    "=IRR({-1000,300,400,500,600}, 0.2)",
+    "=IRR({100,200,300})"
+  ],
+  "ISBLANK": [
+    "=ISBLANK(A7)",
+    "=ISBLANK(B7)",
+    "=ISBLANK(E1)"
+  ],
+  "ISERR": [
+    "=ISERR(1/0)",
+    "=ISERR(NA())",
+    "=ISERR(A1)",
+    "=ISERR(SQRT(-1))"
+  ],
+  "ISERROR": [
+    "=ISERROR(1/0)",
+    "=ISERROR(NA())",
+    "=ISERROR(A1/A2)",
+    "=ISERROR(HEX2DEC(\"ZZ\"))"
+  ],
+  "ISEVEN": [
+    "=ISEVEN(A1)",
+    "=ISEVEN(A8)",
+    "=ISEVEN(A7)",
+    "=ISEVEN(A6)"
+  ],
+  "ISFORMULA": [
+    "=ISFORMULA(A1)",
+    "=ISFORMULA(B7)"
+  ],
+  "ISLOGICAL": [
+    "=ISLOGICAL(E1)",
+    "=ISLOGICAL(A1)",
+    "=ISLOGICAL(1=1)",
+    "=ISLOGICAL(B1)"
+  ],
+  "ISNA": [
+    "=ISNA(NA())",
+    "=ISNA(VLOOKUP(999, C1:D5, 2, FALSE))",
+    "=ISNA(1/0)",
+    "=ISNA(A1)"
+  ],
+  "ISNONTEXT": [
+    "=ISNONTEXT(A1)",
+    "=ISNONTEXT(B1)",
+    "=ISNONTEXT(B7)",
+    "=ISNONTEXT(E1)"
+  ],
+  "ISNUMBER": [
+    "=ISNUMBER(A1)",
+    "=ISNUMBER(B9)",
+    "=ISNUMBER(\"5\")",
+    "=ISNUMBER(E1)"
+  ],
+  "ISO.CEILING": [
+    "=ISO.CEILING(4.3)",
+    "=ISO.CEILING(-4.3)",
+    "=ISO.CEILING(A8, 2)",
+    "=ISO.CEILING(4.3, -2)"
+  ],
+  "ISODD": [
+    "=ISODD(A8)",
+    "=ISODD(A1)",
+    "=ISODD(A6)",
+    "=ISODD(A7)"
+  ],
+  "ISOMITTED": [
+    "=LAMBDA([x],ISOMITTED(x))()",
+    "=LAMBDA([x],ISOMITTED(x))(5)",
+    "=LAMBDA([x],IF(ISOMITTED(x),-1,x))(A1)"
+  ],
+  "ISOWEEKNUM": [
+    "=ISOWEEKNUM(DATE(2026,3,15))",
+    "=ISOWEEKNUM(DATE(2026,1,1))",
+    "=ISOWEEKNUM(DATE(2027,1,1))",
+    "=ISOWEEKNUM(DATE(2024,12,30))"
+  ],
+  "ISPMT": [
+    "=ISPMT(0.05,1,10,-1000)",
+    "=ISPMT(0.05,10,10,-1000)",
+    "=ISPMT(0.05/12,6,120,-10000)"
+  ],
+  "ISREF": [
+    "=ISREF(A1)",
+    "=ISREF(A1:C5)",
+    "=ISREF(123)",
+    "=ISREF(\"A1\")"
+  ],
+  "ISTEXT": [
+    "=ISTEXT(B1)",
+    "=ISTEXT(A1)",
+    "=ISTEXT(B9)",
+    "=ISTEXT(E1)"
+  ],
+  "KURT": [
+    "=KURT(A1:A10)",
+    "=KURT(C1:C5)",
+    "=KURT(1,2,3)"
+  ],
+  "LAMBDA": [
+    "=LAMBDA(x,y,x+y)(A1,A2)",
+    "=LAMBDA(x,x*x)(A5)",
+    "=LAMBDA(s,UPPER(s))(B1)"
+  ],
+  "LARGE": [
+    "=LARGE(A1:A10,1)",
+    "=LARGE(A1:A10,3)",
+    "=LARGE(C1:C5,5)",
+    "=LARGE(A1:A10,0)"
+  ],
+  "LCM": [
+    "=LCM(A1,A2)",
+    "=LCM(4,6,10)",
+    "=LCM(A1:A5)",
+    "=LCM(A6,4)"
+  ],
+  "LEFT": [
+    "=LEFT(B1,3)",
+    "=LEFT(B3,5)",
+    "=LEFT(A9,2)",
+    "=LEFT(B1,0)"
+  ],
+  "LEFTB": [
+    "=LEFTB(B1,3)",
+    "=LEFTB(B3,7)",
+    "=LEFTB(B9,2)"
+  ],
+  "LEN": [
+    "=LEN(B1)",
+    "=LEN(B6)",
+    "=LEN(B7)",
+    "=LEN(A8)"
+  ],
+  "LENB": [
+    "=LENB(B1)",
+    "=LENB(B6)",
+    "=LENB(A8)"
+  ],
+  "LET": [
+    "=LET(x,A1,y,A2,x*y)",
+    "=LET(x,2,y,x*3,x+y)",
+    "=LET(x,SUM(C1:C5),x/5)"
+  ],
+  "LINEST": [
+    "=INDEX(LINEST(D1:D5,C1:C5),1,1)",
+    "=INDEX(LINEST(D1:D5,C1:C5),1,2)",
+    "=INDEX(LINEST(A1:A5,C1:C5,TRUE,TRUE),3,1)"
+  ],
+  "LN": [
+    "=LN(A5)",
+    "=LN(1)",
+    "=LN(A9)",
+    "=LN(A6)"
+  ],
+  "LOG": [
+    "=LOG(A9)",
+    "=LOG(8,2)",
+    "=LOG(A5,10)",
+    "=LOG(A7)"
+  ],
+  "LOG10": [
+    "=LOG10(A9)",
+    "=LOG10(1000)",
+    "=LOG10(A6)"
+  ],
+  "LOGEST": [
+    "=INDEX(LOGEST(D1:D5,C1:C5),1,1)",
+    "=INDEX(LOGEST(D1:D5,C1:C5),1,2)",
+    "=INDEX(LOGEST(A6:A8,C1:C3),1,1)"
+  ],
+  "LOGINV": [
+    "=LOGINV(0.5,0,1)",
+    "=LOGINV(0.75,1,0.5)",
+    "=LOGINV(1.5,0,1)"
+  ],
+  "LOGNORM.DIST": [
+    "=LOGNORM.DIST(1,0,1,TRUE)",
+    "=LOGNORM.DIST(4,3.5,1.2,TRUE)",
+    "=LOGNORM.DIST(1,0,1,FALSE)",
+    "=LOGNORM.DIST(0,0,1,TRUE)"
+  ],
+  "LOGNORM.INV": [
+    "=LOGNORM.INV(0.5,0,1)",
+    "=LOGNORM.INV(0.39,3.5,1.2)",
+    "=LOGNORM.INV(1,0,1)"
+  ],
+  "LOGNORMDIST": [
+    "=LOGNORMDIST(1,0,1)",
+    "=LOGNORMDIST(4,3.5,1.2)",
+    "=LOGNORMDIST(0,0,1)"
+  ],
+  "LOOKUP": [
+    "=LOOKUP(3,C1:C5,D1:D5)",
+    "=LOOKUP(3.5,C1:C5,D1:D5)",
+    "=LOOKUP(6,C1:C5,D1:D5)",
+    "=LOOKUP(0.5,C1:C5,D1:D5)"
+  ],
+  "LOWER": [
+    "=LOWER(B2)",
+    "=LOWER(B3)",
+    "=LOWER(B8)"
+  ],
+  "MAKEARRAY": [
+    "=SUM(MAKEARRAY(3,3,LAMBDA(r,c,r*c)))",
+    "=INDEX(MAKEARRAY(2,3,LAMBDA(r,c,r*10+c)),2,3)",
+    "=SUM(MAKEARRAY(1,1,LAMBDA(r,c,r+c)))"
+  ],
+  "MAP": [
+    "=SUM(MAP(C1:C5,LAMBDA(x,x^2)))",
+    "=SUM(MAP(C1:C5,D1:D5,LAMBDA(x,y,x*y)))",
+    "=INDEX(MAP(A1:A3,LAMBDA(v,v*10)),3,1)"
+  ],
+  "MATCH": [
+    "=MATCH(8,A1:A10,0)",
+    "=MATCH(7,C1:C5,1)",
+    "=MATCH(\"beta\",B1:B10,0)",
+    "=MATCH(3,A1:A10,0)"
+  ],
+  "MAX": [
+    "=MAX(A1:A10)",
+    "=MAX(A1:A10,200)",
+    "=MAX(B1:B10)",
+    "=MAX(A6,A7)"
+  ],
+  "MAXA": [
+    "=MAXA(A1:A10)",
+    "=MAXA(B1:B10)",
+    "=MAXA(A6,E1)",
+    "=MAXA(A6,A7)"
+  ],
+  "MAXIFS": [
+    "=MAXIFS(A1:A5,C1:C5,\">2\")",
+    "=MAXIFS(D1:D5,C1:C5,\"<4\")",
+    "=MAXIFS(A1:A10,B1:B10,\"alpha\")",
+    "=MAXIFS(A1:A5,C1:C5,\">10\")"
+  ],
+  "MDETERM": [
+    "=MDETERM({1,2;3,4})",
+    "=MDETERM(C1:D2)",
+    "=MDETERM({2,0,1;0,3,0;1,0,2})"
+  ],
+  "MDURATION": [
+    "=MDURATION(DATE(2026,1,1),DATE(2031,1,1),0.05,0.06,2)",
+    "=MDURATION(DATE(2026,1,1),DATE(2031,1,1),0.05,0.06,1,1)",
+    "=MDURATION(DATE(2031,1,1),DATE(2026,1,1),0.05,0.06,2)"
+  ],
+  "MEDIAN": [
+    "=MEDIAN(A1:A10)",
+    "=MEDIAN(C1:C5)",
+    "=MEDIAN(A1:A3)",
+    "=MEDIAN(B1:B5)"
+  ],
+  "MID": [
+    "=MID(B3,7,5)",
+    "=MID(B1,2,3)",
+    "=MID(B1,10,5)",
+    "=MID(B1,0,2)"
+  ],
+  "MIDB": [
+    "=MIDB(B3,7,5)",
+    "=MIDB(B1,2,3)",
+    "=MIDB(B9,1,2)"
+  ],
+  "MIN": [
+    "=MIN(A1:A10)",
+    "=MIN(C1:C5,D1:D5)",
+    "=MIN(B1:B10)",
+    "=MIN(A1:A5,-10)"
+  ],
+  "MINA": [
+    "=MINA(A1:A10)",
+    "=MINA(B2:B5)",
+    "=MINA(C1:C5,E2)",
+    "=MINA(C1:C5)"
+  ],
+  "MINIFS": [
+    "=MINIFS(A1:A5,C1:C5,\">=3\")",
+    "=MINIFS(D1:D5,C1:C5,\"<>2\")",
+    "=MINIFS(A1:A10,A1:A10,\">0\")",
+    "=MINIFS(A1:A5,C1:C5,\">99\")"
+  ],
+  "MINUTE": [
+    "=MINUTE(TIME(6,45,15))",
+    "=MINUTE(DATE(2026,3,15)+TIME(8,30,45))",
+    "=MINUTE(A8)",
+    "=MINUTE(0.99999)"
+  ],
+  "MINVERSE": [
+    "=INDEX(MINVERSE({4,0;0,2}),1,1)",
+    "=INDEX(MINVERSE({1,2;3,4}),1,1)",
+    "=INDEX(MINVERSE(C1:D2),1,1)"
+  ],
+  "MIRR": [
+    "=MIRR({-1000,300,400,500},0.05,0.08)",
+    "=MIRR(A1:A10,0.05,0.08)",
+    "=MIRR(C1:C5,0.05,0.08)"
+  ],
+  "MMULT": [
+    "=INDEX(MMULT({1,2;3,4},{5;6}),1,1)",
+    "=INDEX(MMULT(C1:D2,C1:D2),1,1)",
+    "=SUM(MMULT({1,2,3},{4;5;6}))"
+  ],
+  "MOD": [
+    "=MOD(A4,3)",
+    "=MOD(A6,4)",
+    "=MOD(A5,-3)",
+    "=MOD(A1,0)"
+  ],
+  "MODE": [
+    "=MODE(1,2,2,3)",
+    "=MODE({4,4,5,6,6,6})",
+    "=MODE(C1:C5)"
+  ],
+  "MODE.MULT": [
+    "=SUM(MODE.MULT({1,2,2,3,3,4}))",
+    "=COUNT(MODE.MULT({1,1,2,2,3}))",
+    "=SUM(MODE.MULT(C1:C5))"
+  ],
+  "MODE.SNGL": [
+    "=MODE.SNGL(1,2,2,3)",
+    "=MODE.SNGL({5,5,7,7})",
+    "=MODE.SNGL(A1:A10)"
+  ],
+  "MONTH": [
+    "=MONTH(DATE(2026,3,15))",
+    "=MONTH(DATE(2026,13,1))",
+    "=MONTH(A9)",
+    "=MONTH(DATE(2026,3,31)+1)"
+  ],
+  "MROUND": [
+    "=MROUND(A5,3)",
+    "=MROUND(A8,2)",
+    "=MROUND(-10,-3)",
+    "=MROUND(A1,-3)"
+  ],
+  "MULTINOMIAL": [
+    "=MULTINOMIAL(2,3,4)",
+    "=MULTINOMIAL(C1:C5)",
+    "=MULTINOMIAL(A6,2)"
+  ],
+  "MUNIT": [
+    "=SUM(MUNIT(3))",
+    "=INDEX(MUNIT(4),2,2)",
+    "=INDEX(MUNIT(4),1,2)",
+    "=SUM(MUNIT(0))"
+  ],
+  "N": [
+    "=N(A1)",
+    "=N(B9)",
+    "=N(E1)",
+    "=N(DATE(2026,3,15))"
+  ],
+  "NA": [
+    "=NA()",
+    "=ISNA(NA())"
+  ],
+  "NEGBINOM.DIST": [
+    "=NEGBINOM.DIST(3,2,0.5,FALSE)",
+    "=NEGBINOM.DIST(3,2,0.5,TRUE)",
+    "=NEGBINOM.DIST(10,5,0.25,FALSE)",
+    "=NEGBINOM.DIST(-1,2,0.5,FALSE)"
+  ],
+  "NEGBINOMDIST": [
+    "=NEGBINOMDIST(3,2,0.5)",
+    "=NEGBINOMDIST(10,5,0.25)",
+    "=NEGBINOMDIST(3,2,1.5)"
+  ],
+  "NETWORKDAYS": [
+    "=NETWORKDAYS(DATE(2026,3,1),DATE(2026,3,31))",
+    "=NETWORKDAYS(DATE(2026,3,15),DATE(2026,3,15))",
+    "=NETWORKDAYS(DATE(2026,3,2),DATE(2026,3,6),DATE(2026,3,4))",
+    "=NETWORKDAYS(DATE(2026,3,20),DATE(2026,3,10))"
+  ],
+  "NETWORKDAYS.INTL": [
+    "=NETWORKDAYS.INTL(DATE(2026,3,1),DATE(2026,3,31),11)",
+    "=NETWORKDAYS.INTL(DATE(2026,3,1),DATE(2026,3,31),7)",
+    "=NETWORKDAYS.INTL(DATE(2026,3,2),DATE(2026,3,8),\"0000011\")",
+    "=NETWORKDAYS.INTL(DATE(2026,3,1),DATE(2026,3,31),\"1111111\")"
+  ],
+  "NOMINAL": [
+    "=NOMINAL(0.06,4)",
+    "=NOMINAL(0.05,12)",
+    "=NOMINAL(0.05,0)"
+  ],
+  "NORM.DIST": [
+    "=NORM.DIST(0,0,1,TRUE)",
+    "=NORM.DIST(1.5,1,2,TRUE)",
+    "=NORM.DIST(0,0,1,FALSE)",
+    "=NORM.DIST(1,0,0,TRUE)"
+  ],
+  "NORM.INV": [
+    "=NORM.INV(0.5,0,1)",
+    "=NORM.INV(0.975,0,1)",
+    "=NORM.INV(0.9,100,15)",
+    "=NORM.INV(0,0,1)"
+  ],
+  "NORM.S.DIST": [
+    "=NORM.S.DIST(0,TRUE)",
+    "=NORM.S.DIST(1.96,TRUE)",
+    "=NORM.S.DIST(0,FALSE)",
+    "=NORM.S.DIST(-1,TRUE)"
+  ],
+  "NORM.S.INV": [
+    "=NORM.S.INV(0.5)",
+    "=NORM.S.INV(0.975)",
+    "=NORM.S.INV(0.05)",
+    "=NORM.S.INV(1)"
+  ],
+  "NORMDIST": [
+    "=NORMDIST(0,0,1,TRUE)",
+    "=NORMDIST(2,1,2,FALSE)",
+    "=NORMDIST(1,0,-1,TRUE)"
+  ],
+  "NORMINV": [
+    "=NORMINV(0.5,0,1)",
+    "=NORMINV(0.9,100,15)",
+    "=NORMINV(1,0,1)"
+  ],
+  "NORMSDIST": [
+    "=NORMSDIST(0)",
+    "=NORMSDIST(1.96)",
+    "=NORMSDIST(-1.5)"
+  ],
+  "NORMSINV": [
+    "=NORMSINV(0.5)",
+    "=NORMSINV(0.975)",
+    "=NORMSINV(0)"
+  ],
+  "NOT": [
+    "=NOT(E1)",
+    "=NOT(E2)",
+    "=NOT(A7)",
+    "=NOT(B1)"
+  ],
+  "NPER": [
+    "=NPER(0.05,-100,1000)",
+    "=NPER(0.05/12,-200,10000,0,1)",
+    "=NPER(0,-100,1000)",
+    "=NPER(0.05,-100,2000)"
+  ],
+  "NPV": [
+    "=NPV(0.05,D1:D5)",
+    "=NPV(0.1,100,200,300)",
+    "=NPV(0.05,A1:A10)",
+    "=NPV(-1,D1:D5)"
+  ],
+  "NUMBERVALUE": [
+    "=NUMBERVALUE(\"1.234,56\",\",\",\".\")",
+    "=NUMBERVALUE(B9)",
+    "=NUMBERVALUE(\"3.5%\")",
+    "=NUMBERVALUE(B1)"
+  ],
+  "OCT2BIN": [
+    "=OCT2BIN(7)",
+    "=OCT2BIN(10,6)",
+    "=OCT2BIN(777)",
+    "=OCT2BIN(8)"
+  ],
+  "OCT2DEC": [
+    "=OCT2DEC(17)",
+    "=OCT2DEC(B9)",
+    "=OCT2DEC(7777777777)",
+    "=OCT2DEC(9)"
+  ],
+  "OCT2HEX": [
+    "=OCT2HEX(17)",
+    "=OCT2HEX(100)",
+    "=OCT2HEX(17,4)",
+    "=OCT2HEX(8)"
+  ],
+  "ODD": [
+    "=ODD(A1)",
+    "=ODD(A8)",
+    "=ODD(-2)",
+    "=ODD(A7)"
+  ],
+  "ODDFPRICE": [
+    "=ODDFPRICE(DATE(2026,2,1),DATE(2031,3,1),DATE(2025,12,1),DATE(2026,9,1),0.05,0.06,100,2)",
+    "=ODDFPRICE(DATE(2026,5,15),DATE(2031,3,1),DATE(2026,3,1),DATE(2027,3,1),0.05,0.06,100,1)",
+    "=ODDFPRICE(DATE(2026,2,1),DATE(2031,3,1),DATE(2026,3,1),DATE(2026,9,1),0.05,0.06,100,2)"
+  ],
+  "ODDFYIELD": [
+    "=ODDFYIELD(DATE(2026,2,1),DATE(2031,3,1),DATE(2025,12,1),DATE(2026,9,1),0.05,95,100,2)",
+    "=ODDFYIELD(DATE(2026,5,15),DATE(2031,3,1),DATE(2026,3,1),DATE(2027,3,1),0.04,101.5,100,1)",
+    "=ODDFYIELD(DATE(2026,2,1),DATE(2031,3,1),DATE(2025,12,1),DATE(2026,9,1),0.05,-95,100,2)"
+  ],
+  "ODDLPRICE": [
+    "=ODDLPRICE(DATE(2026,2,1),DATE(2026,6,15),DATE(2025,10,15),0.05,0.06,100,2)",
+    "=ODDLPRICE(DATE(2026,2,1),DATE(2026,6,15),DATE(2025,10,15),0.05,0.06,100,2,1)",
+    "=ODDLPRICE(DATE(2026,2,1),DATE(2026,6,15),DATE(2026,3,1),0.05,0.06,100,2)"
+  ],
+  "ODDLYIELD": [
+    "=ODDLYIELD(DATE(2026,2,1),DATE(2026,6,15),DATE(2025,10,15),0.05,99.5,100,2)",
+    "=ODDLYIELD(DATE(2026,2,1),DATE(2026,6,15),DATE(2025,10,15),0.05,102,100,4)",
+    "=ODDLYIELD(DATE(2026,2,1),DATE(2026,6,15),DATE(2025,10,15),0.05,-99.5,100,2)"
+  ],
+  "OFFSET": [
+    "=OFFSET(A1,3,0)",
+    "=OFFSET(C1,1,1)",
+    "=SUM(OFFSET(C1,0,1,5,1))",
+    "=OFFSET(A1,-1,0)"
+  ],
+  "OR": [
+    "=OR(E1,E2)",
+    "=OR(E2,A7)",
+    "=OR(C1:C5>4)",
+    "=OR(A6)"
+  ],
+  "PDURATION": [
+    "=PDURATION(0.05,1000,2000)",
+    "=PDURATION(0.025,2000,2200)",
+    "=PDURATION(0,1000,2000)"
+  ],
+  "PEARSON": [
+    "=PEARSON(C1:C5,D1:D5)",
+    "=PEARSON(A1:A5,D1:D5)",
+    "=PEARSON(A6:A10,C1:C5)",
+    "=PEARSON(C1:C3,D1:D5)"
+  ],
+  "PERCENTILE": [
+    "=PERCENTILE(A1:A10,0.5)",
+    "=PERCENTILE(C1:C5,0.25)",
+    "=PERCENTILE(A1:A10,1)",
+    "=PERCENTILE(A1:A10,1.5)"
+  ],
+  "PERCENTILE.EXC": [
+    "=PERCENTILE.EXC(A1:A10,0.5)",
+    "=PERCENTILE.EXC(A1:A10,0.25)",
+    "=PERCENTILE.EXC(C1:C5,0.1)"
+  ],
+  "PERCENTILE.INC": [
+    "=PERCENTILE.INC(A1:A10,0.9)",
+    "=PERCENTILE.INC(C1:C5,0.5)",
+    "=PERCENTILE.INC(A1:A10,0)"
+  ],
+  "PERCENTOF": [
+    "=PERCENTOF(A1:A5,A1:A10)",
+    "=PERCENTOF(C1:C2,C1:C5)",
+    "=PERCENTOF(A6:A7,A1:A10)"
+  ],
+  "PERCENTRANK": [
+    "=PERCENTRANK(A1:A10,6)",
+    "=PERCENTRANK(A1:A10,5)",
+    "=PERCENTRANK(A1:A10,7,5)",
+    "=PERCENTRANK(A1:A10,200)"
+  ],
+  "PERCENTRANK.EXC": [
+    "=PERCENTRANK.EXC(A1:A10,6)",
+    "=PERCENTRANK.EXC(C1:C5,3)",
+    "=PERCENTRANK.EXC(A1:A10,-3)"
+  ],
+  "PERCENTRANK.INC": [
+    "=PERCENTRANK.INC(A1:A10,10)",
+    "=PERCENTRANK.INC(C1:C5,2.5)",
+    "=PERCENTRANK.INC(A1:A10,100)"
+  ],
+  "PERMUT": [
+    "=PERMUT(10,3)",
+    "=PERMUT(A5,C3)",
+    "=PERMUT(10.9,3.2)",
+    "=PERMUT(3,5)"
+  ],
+  "PERMUTATIONA": [
+    "=PERMUTATIONA(4,3)",
+    "=PERMUTATIONA(A2,C2)",
+    "=PERMUTATIONA(0,0)"
+  ],
+  "PHI": [
+    "=PHI(0)",
+    "=PHI(1.5)",
+    "=PHI(A6)"
+  ],
+  "PI": [
+    "=PI()",
+    "=PI()*2"
+  ],
+  "PMT": [
+    "=PMT(0.05,10,-1000)",
+    "=PMT(0.05/12,120,-1000,0,1)",
+    "=PMT(0,10,-1000)"
+  ],
+  "POISSON": [
+    "=POISSON(2,3,TRUE)",
+    "=POISSON(2,3,FALSE)",
+    "=POISSON(-1,3,TRUE)"
+  ],
+  "POISSON.DIST": [
+    "=POISSON.DIST(3,2.5,TRUE)",
+    "=POISSON.DIST(3,2.5,FALSE)",
+    "=POISSON.DIST(0,2,TRUE)"
+  ],
+  "POWER": [
+    "=POWER(2,10)",
+    "=POWER(A1,0.5)",
+    "=POWER(-2,3)",
+    "=POWER(0,0)"
+  ],
+  "PPMT": [
+    "=PPMT(0.05,1,10,-1000)",
+    "=PPMT(0.05,10,10,-1000)",
+    "=PPMT(0.05/12,1,120,-1000,0,1)"
+  ],
+  "PRICE": [
+    "=PRICE(DATE(2026,3,15),DATE(2030,3,15),0.05,0.06,100,2)",
+    "=PRICE(DATE(2026,1,1),DATE(2028,1,1),0.04,0.05,100,1,0)",
+    "=PRICE(DATE(2026,3,15),DATE(2031,3,15),0.05,0.05,100,4,3)"
+  ],
+  "PRICEDISC": [
+    "=PRICEDISC(DATE(2026,3,15),DATE(2027,3,15),0.05,100)",
+    "=PRICEDISC(DATE(2026,1,1),DATE(2026,7,1),0.04,100,1)",
+    "=PRICEDISC(DATE(2026,3,15),DATE(2026,3,16),0.05,100)"
+  ],
+  "PRICEMAT": [
+    "=PRICEMAT(DATE(2026,3,15),DATE(2028,3,15),DATE(2025,3,15),0.05,0.06)",
+    "=PRICEMAT(DATE(2026,1,1),DATE(2027,1,1),DATE(2026,1,1),0.04,0.05,1)",
+    "=PRICEMAT(DATE(2026,3,15),DATE(2028,3,15),DATE(2025,3,15),0.05,0.06,4)"
+  ],
+  "PROB": [
+    "=PROB({1,2,3,4},{0.1,0.2,0.3,0.4},2)",
+    "=PROB({1,2,3,4},{0.1,0.2,0.3,0.4},2,4)",
+    "=PROB({1,2,3},{0.5,0.3,0.1},2)"
+  ],
+  "PRODUCT": [
+    "=PRODUCT(C1:C5)",
+    "=PRODUCT(A1:A10)",
+    "=PRODUCT(C1:C3,\"2\")",
+    "=PRODUCT(A1:A5)"
+  ],
+  "PROPER": [
+    "=PROPER(B1)",
+    "=PROPER(B3)",
+    "=PROPER(B8)",
+    "=PROPER(\"don't stop 2x\")"
+  ],
+  "PV": [
+    "=PV(0.05,10,-100)",
+    "=PV(0.05/12,120,-100,0,1)",
+    "=PV(0.05,10,0,-2000)",
+    "=PV(0,10,-100)"
+  ],
+  "QUARTILE": [
+    "=QUARTILE(A1:A10,1)",
+    "=QUARTILE(A1:A10,3)",
+    "=QUARTILE(A1:A10,0)",
+    "=QUARTILE(A1:A10,5)"
+  ],
+  "QUARTILE.EXC": [
+    "=QUARTILE.EXC(A1:A10,1)",
+    "=QUARTILE.EXC(A1:A10,3)",
+    "=QUARTILE.EXC(A1:A10,0)"
+  ],
+  "QUARTILE.INC": [
+    "=QUARTILE.INC(A1:A10,2)",
+    "=QUARTILE.INC(C1:C5,1)",
+    "=QUARTILE.INC(A1:A10,0)"
+  ],
+  "QUOTIENT": [
+    "=QUOTIENT(10,3)",
+    "=QUOTIENT(-10,3)",
+    "=QUOTIENT(A9,A4)",
+    "=QUOTIENT(5,0)"
+  ],
+  "RADIANS": [
+    "=RADIANS(180)",
+    "=RADIANS(-45)",
+    "=RADIANS(A9)"
+  ],
+  "RANK": [
+    "=RANK(8,A1:A10)",
+    "=RANK(8,A1:A10,1)",
+    "=RANK(A6,A1:A10,1)",
+    "=RANK(5,A1:A10)"
+  ],
+  "RANK.AVG": [
+    "=RANK.AVG(10,A1:A10)",
+    "=RANK.AVG(3,C1:C5,1)",
+    "=RANK.AVG(2,A1:A10,1)",
+    "=RANK.AVG(3,A1:A10)"
+  ],
+  "RANK.EQ": [
+    "=RANK.EQ(7.5,A1:A10)",
+    "=RANK.EQ(1,C1:C5,1)",
+    "=RANK.EQ(0,A1:A10,1)",
+    "=RANK.EQ(-3,A1:A10)"
+  ],
+  "RATE": [
+    "=RATE(10,-150,1000)",
+    "=RATE(120,-11,1000)",
+    "=RATE(10,-100,1000)",
+    "=RATE(10,-150,1000,0,1)"
+  ],
+  "RECEIVED": [
+    "=RECEIVED(DATE(2026,3,15),DATE(2027,3,15),1000,0.05)",
+    "=RECEIVED(DATE(2026,1,1),DATE(2026,7,1),1000,0.04,1)",
+    "=RECEIVED(DATE(2026,3,15),DATE(2028,3,15),1000,0.5)"
+  ],
+  "REDUCE": [
+    "=REDUCE(0,C1:C5,LAMBDA(a,b,a+b))",
+    "=REDUCE(1,C1:C5,LAMBDA(a,b,a*b))",
+    "=REDUCE(0,A1:A5,LAMBDA(acc,v,MAX(acc,v)))"
+  ],
+  "REGEXEXTRACT": [
+    "=REGEXEXTRACT(B3,\"[A-Z]+\")",
+    "=REGEXEXTRACT(B4,\"\\d{4}\")",
+    "=REGEXEXTRACT(B1,\"\\d+\")"
+  ],
+  "REGEXREPLACE": [
+    "=REGEXREPLACE(B5,\"[,;]\",\"-\")",
+    "=REGEXREPLACE(B3,\"[a-z]+\",\"X\")",
+    "=REGEXREPLACE(B4,\"(\\d+)-(\\d+)-(\\d+)\",\"$3/$2/$1\")"
+  ],
+  "REGEXTEST": [
+    "=REGEXTEST(B1,\"^al\")",
+    "=REGEXTEST(B2,\"^b\")",
+    "=REGEXTEST(B9,\"^\\d+$\")"
+  ],
+  "REPLACE": [
+    "=REPLACE(B1,1,2,\"AL\")",
+    "=REPLACE(B1,10,5,\"X\")",
+    "=REPLACE(A9,2,1,\"5\")",
+    "=REPLACE(B3,7,5,\"delta\")"
+  ],
+  "REPLACEB": [
+    "=REPLACEB(B1,1,2,\"AL\")",
+    "=REPLACEB(B3,1,5,\"G\")",
+    "=REPLACEB(B9,1,1,\"9\")"
+  ],
+  "REPT": [
+    "=REPT(\"ab\",3)",
+    "=REPT(B1,2)",
+    "=REPT(\"x\",0)",
+    "=REPT(\"-\",A2)"
+  ],
+  "RIGHT": [
+    "=RIGHT(B1,3)",
+    "=RIGHT(B3,5)",
+    "=RIGHT(A9,2)",
+    "=RIGHT(B1,50)"
+  ],
+  "RIGHTB": [
+    "=RIGHTB(B1,3)",
+    "=RIGHTB(B9,2)",
+    "=RIGHTB(B1,0)"
+  ],
+  "ROMAN": [
+    "=ROMAN(1999)",
+    "=ROMAN(499,4)",
+    "=ROMAN(A9)",
+    "=ROMAN(0)"
+  ],
+  "ROUND": [
+    "=ROUND(2.5,0)",
+    "=ROUND(-2.5,0)",
+    "=ROUND(123.456,2)",
+    "=ROUND(123.456,-2)"
+  ],
+  "ROUNDDOWN": [
+    "=ROUNDDOWN(7.9,0)",
+    "=ROUNDDOWN(-7.9,0)",
+    "=ROUNDDOWN(123.456,-2)",
+    "=ROUNDDOWN(A8,0)"
+  ],
+  "ROUNDUP": [
+    "=ROUNDUP(7.1,0)",
+    "=ROUNDUP(-7.1,0)",
+    "=ROUNDUP(123.451,2)",
+    "=ROUNDUP(0.001,-2)"
+  ],
+  "ROW": [
+    "=ROW(C3)",
+    "=ROW(A1)",
+    "=SUM(ROW(C1:C5))"
+  ],
+  "ROWS": [
+    "=ROWS(A1:A10)",
+    "=ROWS(C1:D5)",
+    "=ROWS(A1)"
+  ],
+  "RRI": [
+    "=RRI(10,1000,2000)",
+    "=RRI(5,1000,500)",
+    "=RRI(10,-1000,-2000)",
+    "=RRI(0,1000,2000)"
+  ],
+  "RSQ": [
+    "=RSQ(C1:C5,D1:D5)",
+    "=RSQ(A1:A5,D1:D5)",
+    "=RSQ(A6:A10,C1:C5)",
+    "=RSQ(C1:C5,D1:D4)"
+  ],
+  "SCAN": [
+    "=SUM(SCAN(0,C1:C5,LAMBDA(a,b,a+b)))",
+    "=INDEX(SCAN(0,C1:C5,LAMBDA(a,b,a+b)),5,1)",
+    "=SUM(SCAN(1,C1:C3,LAMBDA(a,b,a*b)))"
+  ],
+  "SEARCH": [
+    "=SEARCH(\"beta\",B2)",
+    "=SEARCH(\"delta\",B3)",
+    "=SEARCH(\"a\",B1,3)",
+    "=SEARCH(\"z\",B1)"
+  ],
+  "SEARCHB": [
+    "=SEARCHB(\"beta\",B2)",
+    "=SEARCHB(\"100\",B9)",
+    "=SEARCHB(\"q\",B1)"
+  ],
+  "SEC": [
+    "=SEC(0)",
+    "=SEC(1)",
+    "=SEC(A6)"
+  ],
+  "SECH": [
+    "=SECH(0)",
+    "=SECH(1)",
+    "=SECH(-2)"
+  ],
+  "SECOND": [
+    "=SECOND(TIME(10,30,45))",
+    "=SECOND(TIME(23,59,59))",
+    "=SECOND(0.999999)"
+  ],
+  "SEQUENCE": [
+    "=SUM(SEQUENCE(5))",
+    "=SUM(SEQUENCE(3,4))",
+    "=INDEX(SEQUENCE(4,1,10,5),3,1)",
+    "=SUM(SEQUENCE(5,1,10,-2))"
+  ],
+  "SERIESSUM": [
+    "=SERIESSUM(2,1,1,C1:C5)",
+    "=SERIESSUM(0.5,0,2,C1:C5)",
+    "=SERIESSUM(A1,0,1,C1:C3)"
+  ],
+  "SHEET": [
+    "=SHEET()",
+    "=SHEET(A1)"
+  ],
+  "SHEETS": [
+    "=SHEETS()",
+    "=SHEETS(A1:A10)"
+  ],
+  "SIGN": [
+    "=SIGN(A6)",
+    "=SIGN(A7)",
+    "=SIGN(7.5)",
+    "=SIGN(B10)"
+  ],
+  "SIN": [
+    "=SIN(0)",
+    "=SIN(PI()/2)",
+    "=SIN(RADIANS(30))",
+    "=SIN(A6)"
+  ],
+  "SINH": [
+    "=SINH(0)",
+    "=SINH(1)",
+    "=SINH(-2)"
+  ],
+  "SKEW": [
+    "=SKEW(A1:A10)",
+    "=SKEW(C1:C5)",
+    "=SKEW(A1:A2)"
+  ],
+  "SKEW.P": [
+    "=SKEW.P(A1:A10)",
+    "=SKEW.P(C1:C5)",
+    "=SKEW.P(A1:A2)"
+  ],
+  "SLN": [
+    "=SLN(10000,1000,10)",
+    "=SLN(5000,0,5)",
+    "=SLN(10000,1000,0)"
+  ],
+  "SLOPE": [
+    "=SLOPE(D1:D5,C1:C5)",
+    "=SLOPE(A1:A5,C1:C5)",
+    "=SLOPE(C1:C5,C1:C5)",
+    "=SLOPE(D1:D5,C1:C4)"
+  ],
+  "SMALL": [
+    "=SMALL(A1:A10,1)",
+    "=SMALL(A1:A10,3)",
+    "=SMALL(C1:C5,5)",
+    "=SMALL(A1:A10,11)"
+  ],
+  "SORT": [
+    "=INDEX(SORT(A1:A10),1,1)",
+    "=INDEX(SORT(A1:A10,1,-1),1,1)",
+    "=INDEX(SORT(B1:B3),1,1)"
+  ],
+  "SORTBY": [
+    "=INDEX(SORTBY(C1:C5,A6:A10),3,1)",
+    "=INDEX(SORTBY(C1:C5,A6:A10,-1),1,1)",
+    "=INDEX(SORTBY(D1:D5,C1:C5,-1),1,1)"
+  ],
+  "SQRT": [
+    "=SQRT(A9)",
+    "=SQRT(2)",
+    "=SQRT(-4)",
+    "=SQRT(B9)"
+  ],
+  "SQRTPI": [
+    "=SQRTPI(2)",
+    "=SQRTPI(0)",
+    "=SQRTPI(A9)",
+    "=SQRTPI(-1)"
+  ],
+  "STANDARDIZE": [
+    "=STANDARDIZE(10,5,2)",
+    "=STANDARDIZE(A1,5,2)",
+    "=STANDARDIZE(5,5,2)",
+    "=STANDARDIZE(10,5,0)"
+  ],
+  "STDEV": [
+    "=STDEV(A1:A10)",
+    "=STDEV(C1:C5)",
+    "=STDEV(A1)"
+  ],
+  "STDEV.P": [
+    "=STDEV.P(A1:A10)",
+    "=STDEV.P(C1:C5)",
+    "=STDEV.P(A1)"
+  ],
+  "STDEV.S": [
+    "=STDEV.S(A1:A10)",
+    "=STDEV.S(D1:D5)",
+    "=STDEV.S(A7)"
+  ],
+  "STDEVA": [
+    "=STDEVA(A1:A5)",
+    "=STDEVA(E1:E2)",
+    "=STDEVA(A1:A2,B9)"
+  ],
+  "STDEVP": [
+    "=STDEVP(A1:A10)",
+    "=STDEVP(C1:C5)",
+    "=STDEVP(A6:A7)"
+  ],
+  "STDEVPA": [
+    "=STDEVPA(A1:A10)",
+    "=STDEVPA(C1:C5)",
+    "=STDEVPA(A1:A2,E1:E2)",
+    "=STDEVPA(B9:B10)"
+  ],
+  "STEYX": [
+    "=STEYX(D1:D5,C1:C5)",
+    "=STEYX(A1:A5,C1:C5)",
+    "=STEYX(D1:D2,C1:C2)"
+  ],
+  "SUBSTITUTE": [
+    "=SUBSTITUTE(B1,\"a\",\"o\")",
+    "=SUBSTITUTE(\"banana\",\"na\",\"--\")",
+    "=SUBSTITUTE(B3,\"a\",\"X\",2)",
+    "=SUBSTITUTE(B5,\";\",\",\")"
+  ],
+  "SUBTOTAL": [
+    "=SUBTOTAL(9,A1:A10)",
+    "=SUBTOTAL(1,C1:C5)",
+    "=SUBTOTAL(4,A1:A10)",
+    "=SUBTOTAL(109,A1:A5)"
+  ],
+  "SUM": [
+    "=SUM(A1:A10)",
+    "=SUM(C1:C5,D1:D5)",
+    "=SUM(\"3\",2)",
+    "=SUM(B9:B10)"
+  ],
+  "SUMIF": [
+    "=SUMIF(A1:A10,\">5\")",
+    "=SUMIF(C1:C5,\">2\",D1:D5)",
+    "=SUMIF(B1:B10,\"alpha\",A1:A10)",
+    "=SUMIF(A1:A10,\"<0\")"
+  ],
+  "SUMIFS": [
+    "=SUMIFS(D1:D5,C1:C5,\">2\")",
+    "=SUMIFS(D1:D5,C1:C5,\">1\",D1:D5,\"<50\")",
+    "=SUMIFS(A1:A10,B1:B10,\"a*\")"
+  ],
+  "SUMPRODUCT": [
+    "=SUMPRODUCT(C1:C5,D1:D5)",
+    "=SUMPRODUCT(A1:A5,C1:C5)",
+    "=SUMPRODUCT(--(A1:A10>5))"
+  ],
+  "SUMSQ": [
+    "=SUMSQ(C1:C5)",
+    "=SUMSQ(3,4)",
+    "=SUMSQ(A6)",
+    "=SUMSQ(A1:A5)"
+  ],
+  "SUMX2MY2": [
+    "=SUMX2MY2(C1:C5,D1:D5)",
+    "=SUMX2MY2(A1:A5,C1:C5)",
+    "=SUMX2MY2(C1:C5,D1:D4)"
+  ],
+  "SUMX2PY2": [
+    "=SUMX2PY2(C1:C5,D1:D5)",
+    "=SUMX2PY2(A1:A5,C1:C5)",
+    "=SUMX2PY2(C1:C5,D1:D4)"
+  ],
+  "SUMXMY2": [
+    "=SUMXMY2(C1:C5,D1:D5)",
+    "=SUMXMY2(A1:A5,C1:C5)",
+    "=SUMXMY2(C1:C5,D1:D4)"
+  ],
+  "SWITCH": [
+    "=SWITCH(A1,2,\"two\",4,\"four\",\"other\")",
+    "=SWITCH(A3,2,\"two\",4,\"four\",\"other\")",
+    "=SWITCH(B1,\"alpha\",1,\"Beta\",2,0)",
+    "=SWITCH(3,1,\"a\",2,\"b\")"
+  ],
+  "SYD": [
+    "=SYD(1000,100,5,1)",
+    "=SYD(1000,100,5,5)",
+    "=SYD(10000,0,10,3)",
+    "=SYD(1000,100,5,6)"
+  ],
+  "T": [
+    "=T(B1)",
+    "=T(A1)",
+    "=T(\"hello\")",
+    "=T(E1)"
+  ],
+  "T.DIST": [
+    "=T.DIST(1.5,10,TRUE)",
+    "=T.DIST(1.5,10,FALSE)",
+    "=T.DIST(-2,5,TRUE)",
+    "=T.DIST(1,0,TRUE)"
+  ],
+  "T.DIST.2T": [
+    "=T.DIST.2T(2,10)",
+    "=T.DIST.2T(1.5,5)",
+    "=T.DIST.2T(-1,10)"
+  ],
+  "T.DIST.RT": [
+    "=T.DIST.RT(2,10)",
+    "=T.DIST.RT(-1.5,8)",
+    "=T.DIST.RT(0,3)"
+  ],
+  "T.INV": [
+    "=T.INV(0.95,10)",
+    "=T.INV(0.05,5)",
+    "=T.INV(0.5,10)",
+    "=T.INV(0,10)"
+  ],
+  "T.INV.2T": [
+    "=T.INV.2T(0.05,10)",
+    "=T.INV.2T(0.5,5)",
+    "=T.INV.2T(1.5,10)"
+  ],
+  "T.TEST": [
+    "=T.TEST(C1:C5,D1:D5,2,1)",
+    "=T.TEST(A1:A5,A6:A10,2,2)",
+    "=T.TEST(C1:C5,D1:D5,1,3)"
+  ],
+  "TAKE": [
+    "=SUM(TAKE(A1:A10,3))",
+    "=SUM(TAKE(A1:A10,-2))",
+    "=INDEX(TAKE(C1:D5,2,2),2,2)"
+  ],
+  "TAN": [
+    "=TAN(0)",
+    "=TAN(PI()/4)",
+    "=TAN(A6)",
+    "=TAN(-1)"
+  ],
+  "TANH": [
+    "=TANH(0)",
+    "=TANH(1)",
+    "=TANH(A6)",
+    "=TANH(100)"
+  ],
+  "TBILLEQ": [
+    "=TBILLEQ(DATE(2026,3,15),DATE(2026,9,15),0.045)",
+    "=TBILLEQ(DATE(2026,1,1),DATE(2026,12,1),0.05)",
+    "=TBILLEQ(DATE(2026,3,15),DATE(2027,6,15),0.05)"
+  ],
+  "TBILLPRICE": [
+    "=TBILLPRICE(DATE(2026,3,15),DATE(2026,9,15),0.045)",
+    "=TBILLPRICE(DATE(2026,1,1),DATE(2026,6,30),0.06)",
+    "=TBILLPRICE(DATE(2026,3,15),DATE(2026,6,15),-0.02)"
+  ],
+  "TBILLYIELD": [
+    "=TBILLYIELD(DATE(2026,3,15),DATE(2026,9,15),98.5)",
+    "=TBILLYIELD(DATE(2026,1,1),DATE(2026,6,30),97)",
+    "=TBILLYIELD(DATE(2026,3,15),DATE(2026,9,15),0)"
+  ],
+  "TDIST": [
+    "=TDIST(2,10,1)",
+    "=TDIST(2,10,2)",
+    "=TDIST(-1,10,2)"
+  ],
+  "TEXT": [
+    "=TEXT(A9,\"0.00\")",
+    "=TEXT(1234.567,\"#,##0.0\")",
+    "=TEXT(DATE(2026,3,15),\"yyyy-mm-dd\")",
+    "=TEXT(0.75,\"0%\")"
+  ],
+  "TEXTAFTER": [
+    "=TEXTAFTER(B3,\"gamma \")",
+    "=TEXTAFTER(\"a-b-c\",\"-\")",
+    "=TEXTAFTER(\"a-b-c\",\"-\",-1)",
+    "=TEXTAFTER(B1,\"z\")"
+  ],
+  "TEXTBEFORE": [
+    "=TEXTBEFORE(B3,\" \")",
+    "=TEXTBEFORE(\"a-b-c\",\"-\")",
+    "=TEXTBEFORE(\"a-b-c\",\"-\",-1)",
+    "=TEXTBEFORE(B1,\"z\")"
+  ],
+  "TEXTJOIN": [
+    "=TEXTJOIN(\",\",TRUE,B1:B3)",
+    "=TEXTJOIN(\"-\",FALSE,B6:B8)",
+    "=TEXTJOIN(\" \",TRUE,A1:A3)",
+    "=TEXTJOIN(\"|\",TRUE,C1:C5)"
+  ],
+  "TEXTSPLIT": [
+    "=INDEX(TEXTSPLIT(B5,\",\"),1,2)",
+    "=INDEX(TEXTSPLIT(B5,\",\",\";\"),2,1)",
+    "=COUNTA(TEXTSPLIT(\"a,b,c\",\",\"))"
+  ],
+  "TIME": [
+    "=TIME(12,30,0)",
+    "=TIME(23,59,59)",
+    "=TIME(6,90,30)",
+    "=TIME(-1,0,0)"
+  ],
+  "TIMEVALUE": [
+    "=TIMEVALUE(\"12:30:00\")",
+    "=TIMEVALUE(\"18:45\")",
+    "=TIMEVALUE(\"notatime\")"
+  ],
+  "TINV": [
+    "=TINV(0.05,10)",
+    "=TINV(0.5,5)",
+    "=TINV(1.5,10)"
+  ],
+  "TOCOL": [
+    "=SUM(TOCOL(C1:D5))",
+    "=INDEX(TOCOL(C1:D5),3,1)",
+    "=INDEX(TOCOL(C1:D5,0,TRUE),6,1)"
+  ],
+  "TOROW": [
+    "=SUM(TOROW(A1:A10))",
+    "=INDEX(TOROW(C1:D5),1,4)",
+    "=INDEX(TOROW(C1:D5,0,TRUE),1,6)"
+  ],
+  "TRANSPOSE": [
+    "=INDEX(TRANSPOSE(C1:C5),1,3)",
+    "=SUM(TRANSPOSE(D1:D5))",
+    "=INDEX(TRANSPOSE(A1:B10),2,4)"
+  ],
+  "TREND": [
+    "=SUM(TREND(D1:D5,C1:C5))",
+    "=TREND(D1:D5,C1:C5,7)",
+    "=TREND(D1:D5,C1:C5,0)"
+  ],
+  "TRIM": [
+    "=TRIM(B6)",
+    "=TRIM(\"  a   b  \")",
+    "=TRIM(B7)"
+  ],
+  "TRIMMEAN": [
+    "=TRIMMEAN(A1:A10,0.2)",
+    "=TRIMMEAN(C1:C5,0.4)",
+    "=TRIMMEAN(A1:A10,0)",
+    "=TRIMMEAN(A1:A10,1)"
+  ],
+  "TRIMRANGE": [
+    "=SUM(TRIMRANGE(A1:A10))",
+    "=ROWS(TRIMRANGE(C1:D5))",
+    "=COLUMNS(TRIMRANGE(C1:D5))"
+  ],
+  "TRUE": [
+    "=TRUE()",
+    "=IF(TRUE(),\"yes\",\"no\")",
+    "=TRUE()*5"
+  ],
+  "TRUNC": [
+    "=TRUNC(8.9)",
+    "=TRUNC(-8.9)",
+    "=TRUNC(3.14159,2)",
+    "=TRUNC(123.456,-1)"
+  ],
+  "TTEST": [
+    "=TTEST(C1:C5,D1:D5,2,1)",
+    "=TTEST(A1:A5,A6:A10,2,2)",
+    "=TTEST(C1:C5,D1:D5,1,3)"
+  ],
+  "TYPE": [
+    "=TYPE(A1)",
+    "=TYPE(B1)",
+    "=TYPE(E1)",
+    "=TYPE(1/0)"
+  ],
+  "UNICHAR": [
+    "=UNICHAR(65)",
+    "=UNICHAR(937)",
+    "=UNICHAR(8364)",
+    "=UNICHAR(0)"
+  ],
+  "UNICODE": [
+    "=UNICODE(\"A\")",
+    "=UNICODE(\"€\")",
+    "=UNICODE(B1)",
+    "=UNICODE(\"\")"
+  ],
+  "UNIQUE": [
+    "=SUM(UNIQUE(A1:A10))",
+    "=INDEX(UNIQUE(C1:C5),2,1)",
+    "=ROWS(UNIQUE({1;2;2;3}))"
+  ],
+  "UPPER": [
+    "=UPPER(B1)",
+    "=UPPER(B8)",
+    "=UPPER(\"abc123\")"
+  ],
+  "VALUE": [
+    "=VALUE(B9)",
+    "=VALUE(B10)",
+    "=VALUE(\"3.14\")",
+    "=VALUE(B1)"
+  ],
+  "VALUETOTEXT": [
+    "=VALUETOTEXT(A1)",
+    "=VALUETOTEXT(B1,0)",
+    "=VALUETOTEXT(B1,1)",
+    "=VALUETOTEXT(E1)"
+  ],
+  "VAR": [
+    "=VAR(C1:C5)",
+    "=VAR(A1:A10)",
+    "=VAR(A1,A2)"
+  ],
+  "VAR.P": [
+    "=VAR.P(C1:C5)",
+    "=VAR.P(A1:A10)",
+    "=VAR.P(A1)"
+  ],
+  "VAR.S": [
+    "=VAR.S(C1:C5)",
+    "=VAR.S(A1:A10)",
+    "=VAR.S(A1)"
+  ],
+  "VARA": [
+    "=VARA(C1:C5)",
+    "=VARA(A1:A5,E1:E2)",
+    "=VARA(B1:B3,A1:A2)"
+  ],
+  "VARP": [
+    "=VARP(C1:C5)",
+    "=VARP(A1:A10)",
+    "=VARP(A1)"
+  ],
+  "VARPA": [
+    "=VARPA(C1:C5)",
+    "=VARPA(A1:A5,E1:E2)",
+    "=VARPA(B9:B10)"
+  ],
+  "VDB": [
+    "=VDB(10000,1000,10,0,3)",
+    "=VDB(10000,1000,10,2,4,1.5)",
+    "=VDB(10000,1000,10,0,1)",
+    "=VDB(10000,1000,10,4,2)"
+  ],
+  "VLOOKUP": [
+    "=VLOOKUP(3,C1:D5,2,FALSE)",
+    "=VLOOKUP(3.5,C1:D5,2,TRUE)",
+    "=VLOOKUP(99,C1:D5,2,FALSE)",
+    "=VLOOKUP(0,C1:D5,2,TRUE)"
+  ],
+  "VSTACK": [
+    "=SUM(VSTACK(C1:C5,D1:D5))",
+    "=ROWS(VSTACK(C1:C5,A1:A10))",
+    "=INDEX(VSTACK(C1:C5,D1:D5),7,1)"
+  ],
+  "WEEKDAY": [
+    "=WEEKDAY(DATE(2026,3,15))",
+    "=WEEKDAY(DATE(2026,3,15),2)",
+    "=WEEKDAY(DATE(2026,3,15),3)",
+    "=WEEKDAY(DATE(2026,7,2),11)"
+  ],
+  "WEEKNUM": [
+    "=WEEKNUM(DATE(2026,3,15))",
+    "=WEEKNUM(DATE(2026,3,15),2)",
+    "=WEEKNUM(DATE(2026,1,1))",
+    "=WEEKNUM(DATE(2026,3,15),21)"
+  ],
+  "WEIBULL": [
+    "=WEIBULL(2,1.5,3,TRUE)",
+    "=WEIBULL(2,1.5,3,FALSE)",
+    "=WEIBULL(-1,1,1,TRUE)"
+  ],
+  "WEIBULL.DIST": [
+    "=WEIBULL.DIST(2,1.5,3,TRUE)",
+    "=WEIBULL.DIST(2,1.5,3,FALSE)",
+    "=WEIBULL.DIST(-1,1,1,TRUE)"
+  ],
+  "WORKDAY": [
+    "=WORKDAY(DATE(2026,3,15),10)",
+    "=WORKDAY(DATE(2026,3,16),-5)",
+    "=WORKDAY(DATE(2026,3,13),1,DATE(2026,3,16))",
+    "=WORKDAY(DATE(2026,3,15),0)"
+  ],
+  "WORKDAY.INTL": [
+    "=WORKDAY.INTL(DATE(2026,3,15),10,11)",
+    "=WORKDAY.INTL(DATE(2026,3,15),5,\"0000011\")",
+    "=WORKDAY.INTL(DATE(2026,3,13),3,1,DATE(2026,3,17))",
+    "=WORKDAY.INTL(DATE(2026,3,15),1,\"1111111\")"
+  ],
+  "WRAPCOLS": [
+    "=INDEX(WRAPCOLS(A1:A10,4),2,2)",
+    "=SUM(WRAPCOLS(C1:C5,5))",
+    "=INDEX(WRAPCOLS(C1:C5,3,0),3,2)",
+    "=INDEX(WRAPCOLS(A1:A10,4),3,3)"
+  ],
+  "WRAPROWS": [
+    "=INDEX(WRAPROWS(A1:A10,5),2,3)",
+    "=SUM(WRAPROWS(C1:C5,5))",
+    "=INDEX(WRAPROWS(C1:C5,2,-1),3,2)"
+  ],
+  "XIRR": [
+    "=XIRR({-1000,500,600},{46023,46204,46388})",
+    "=XIRR({-1000,1100},{46023,46388})",
+    "=XIRR({1000,500},{46023,46388})"
+  ],
+  "XLOOKUP": [
+    "=XLOOKUP(3,C1:C5,D1:D5)",
+    "=XLOOKUP(99,C1:C5,D1:D5,\"missing\")",
+    "=XLOOKUP(3.5,C1:C5,D1:D5,\"nf\",-1)",
+    "=XLOOKUP(\"beta\",B1:B5,A1:A5)"
+  ],
+  "XMATCH": [
+    "=XMATCH(4,C1:C5)",
+    "=XMATCH(3.5,C1:C5,-1)",
+    "=XMATCH(\"MiXeD\",B1:B10)",
+    "=XMATCH(99,C1:C5)"
+  ],
+  "XNPV": [
+    "=XNPV(0.05,{-1000,500,600},{46023,46204,46388})",
+    "=XNPV(0.1,{-1000,1100},{46023,46388})",
+    "=XNPV(0.05,{-1000,500},{46204,46023})"
+  ],
+  "XOR": [
+    "=XOR(E1,E2)",
+    "=XOR(TRUE,TRUE)",
+    "=XOR(A1>1,A2>10,A3>1)",
+    "=XOR(1,0,1)"
+  ],
+  "YEAR": [
+    "=YEAR(DATE(2026,3,15))",
+    "=YEAR(DATE(2000,2,29))",
+    "=YEAR(46023)"
+  ],
+  "YEARFRAC": [
+    "=YEARFRAC(DATE(2026,1,1),DATE(2026,7,1),0)",
+    "=YEARFRAC(DATE(2026,1,1),DATE(2027,1,1),1)",
+    "=YEARFRAC(DATE(2026,3,15),DATE(2026,9,15),3)",
+    "=YEARFRAC(DATE(2026,1,1),DATE(2026,7,1),7)"
+  ],
+  "YIELD": [
+    "=YIELD(DATE(2026,3,15),DATE(2030,3,15),0.05,95,100,2,0)",
+    "=YIELD(DATE(2026,1,1),DATE(2031,1,1),0.06,100,100,1,0)",
+    "=YIELD(DATE(2030,3,15),DATE(2026,3,15),0.05,95,100,2,0)"
+  ],
+  "YIELDDISC": [
+    "=YIELDDISC(DATE(2026,3,15),DATE(2026,9,15),98,100,0)",
+    "=YIELDDISC(DATE(2026,1,1),DATE(2026,12,31),95,100,3)",
+    "=YIELDDISC(DATE(2026,3,15),DATE(2026,9,15),0,100,0)"
+  ],
+  "YIELDMAT": [
+    "=YIELDMAT(DATE(2026,3,15),DATE(2027,3,15),DATE(2025,9,15),0.05,99,0)",
+    "=YIELDMAT(DATE(2026,1,1),DATE(2028,1,1),DATE(2025,7,1),0.04,101,3)",
+    "=YIELDMAT(DATE(2026,3,15),DATE(2027,3,15),DATE(2025,9,15),-0.05,99,0)"
+  ],
+  "Z.TEST": [
+    "=Z.TEST(A1:A10,5)",
+    "=Z.TEST(A1:A10,5,3)",
+    "=Z.TEST(C1:C5,3)"
+  ],
+  "ZTEST": [
+    "=ZTEST(A1:A10,5)",
+    "=ZTEST(A1:A10,5,3)",
+    "=ZTEST(C1:C5,3)"
+  ],
+  "_meta": {
+    "data_block": {
+      "A1:A10": [
+        2,
+        4,
+        6,
+        8,
+        10,
+        -3,
+        0,
+        7.5,
+        100,
+        1
+      ],
+      "B1:B10": [
+        "alpha",
+        "Beta",
+        "gamma DELTA",
+        "2026-03-15",
+        "x,y;z",
+        " padded ",
+        "",
+        "MiXeD",
+        "100",
+        "-5"
+      ],
+      "C1:C5": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "D1:D5": [
+        10,
+        20,
+        30,
+        40,
+        50
+      ],
+      "E1": true,
+      "E2": false
+    },
+    "description": "Shared data block placed on sheet 'T' of the oracle workbook. Every case formula references this block. One case per row, formula in column G, starting at G1, functions in sorted-key order, cases in listed order.",
+    "notes": [
+      "All B-column values are stored as TEXT (including '2026-03-15', '100', '-5').",
+      "B7 (the empty string) is materialized as a BLANK cell in both engines: openpyxl cannot persist a bare empty-string literal and ironcalc's set_user_input('') clears the cell, so blank is the only representation both sides can share.",
+      "The workbook generator adds Excel OOXML storage prefixes (_xlfn., _xlfn._xlws.) to post-2007 function names before writing; the formulas here are the canonical Excel-UI spellings and are fed verbatim to ironcalc."
+    ]
+  }
+}

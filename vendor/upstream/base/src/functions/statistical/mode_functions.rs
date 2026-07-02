@@ -109,7 +109,7 @@ impl<'a> Model<'a> {
 /// Returns (modes_in_first_encounter_order, max_frequency).
 /// When multiple values tie for the highest frequency, they are returned in the
 /// order they were first seen in the input — matching Excel's behaviour.
-fn find_modes(values: &[f64]) -> (Vec<f64>, usize) {
+pub(crate) fn find_modes(values: &[f64]) -> (Vec<f64>, usize) {
     // counts: bits → (value, count, first_seen_index)
     let mut counts: HashMap<u64, (f64, usize, usize)> = HashMap::new();
     for (pos, &v) in values.iter().enumerate() {

@@ -468,6 +468,80 @@ mod tests {
     }
 
     #[test]
+    fn removed_cell_in_a_common_sheet_is_kind_removed() {
+        let old_model = model_with(&[(1, 1, "keep"), (2, 3, "gone")]);
+        let new_model = model_with(&[(1, 1, "keep")]);
+
+        let old_snap = snapshot(&old_model).unwrap();
+        let new_snap = snapshot(&new_model).unwrap();
+        let report = diff_snapshots(&old_snap, &new_snap).unwrap();
+
+        assert_eq!(report.changes.len(), 1);
+        assert_eq!(report.changes[0]["kind"], "removed");
+        assert_eq!(report.changes[0]["cell"], "C2");
+        assert_eq!(report.changes[0]["new"], serde_json::Value::Null);
+        assert_eq!(report.changes[0]["old"]["value"], "gone");
+        assert_eq!(report.summary["removed"], 1);
+        assert_eq!(report.summary["changed"], 0);
+        assert_eq!(report.summary["by_sheet"]["Sheet1"]["removed"], 1);
+    }
+
+    #[test]
+    fn basename_falls_back_to_the_input_for_component_free_paths() {
+        assert_eq!(basename("/tmp/dir/book.xlsx"), "book.xlsx");
+        assert_eq!(basename(".."), "..");
+    }
+
+    #[test]
+    fn load_errors_carry_basenames_only() {
+        // Missing OLD file.
+        let err = run("/tmp/xlq-diff-secret-dir/old.xlsx", "/tmp/xlq-diff-secret-dir/new.xlsx")
+            .expect_err("missing files must fail");
+        let text = format!("{err:#}");
+        assert!(text.contains("old.xlsx"), "old basename missing: {text}");
+        assert!(!text.contains("xlq-diff-secret-dir"), "directory leaked: {text}");
+
+        // OLD loads fine, NEW is missing: the second load context is hit.
+        let model = model_with(&[(1, 1, "x")]);
+        let dir = std::env::temp_dir().join("xlq-diff-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let good = dir.join(format!("good-{}.xlsx", std::process::id()));
+        let _ = std::fs::remove_file(&good);
+        let good = good.to_string_lossy().into_owned();
+        ironcalc::export::save_to_xlsx(&model, &good).unwrap();
+        let err = run(&good, "/tmp/xlq-diff-secret-dir/new.xlsx")
+            .expect_err("missing new file must fail");
+        let text = format!("{err:#}");
+        assert!(text.contains("new.xlsx"), "new basename missing: {text}");
+        assert!(!text.contains("xlq-diff-secret-dir"), "directory leaked: {text}");
+        let _ = std::fs::remove_file(&good);
+    }
+
+    #[test]
+    fn run_end_to_end_reports_shas_and_changes() {
+        let dir = std::env::temp_dir().join("xlq-diff-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let old_path = dir.join(format!("run-old-{}.xlsx", std::process::id()));
+        let new_path = dir.join(format!("run-new-{}.xlsx", std::process::id()));
+        let _ = std::fs::remove_file(&old_path);
+        let _ = std::fs::remove_file(&new_path);
+        let old_path = old_path.to_string_lossy().into_owned();
+        let new_path = new_path.to_string_lossy().into_owned();
+        ironcalc::export::save_to_xlsx(&model_with(&[(1, 1, "1")]), &old_path).unwrap();
+        ironcalc::export::save_to_xlsx(&model_with(&[(1, 1, "2")]), &new_path).unwrap();
+
+        let report = run(&old_path, &new_path).expect("diff runs");
+        assert_eq!(report["xlq"]["command"], "diff");
+        assert_eq!(report["old"]["sha256"].as_str().unwrap().len(), 64);
+        assert_eq!(report["new"]["sha256"].as_str().unwrap().len(), 64);
+        assert_eq!(report["summary"]["changed"], 1);
+        assert_eq!(report["truncated"], false);
+
+        let _ = std::fs::remove_file(&old_path);
+        let _ = std::fs::remove_file(&new_path);
+    }
+
+    #[test]
     fn a1_notation_is_correct() {
         assert_eq!(a1(7, 2).unwrap(), "B7");
         assert_eq!(a1(1, 27).unwrap(), "AA1");

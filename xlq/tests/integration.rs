@@ -61,6 +61,30 @@ fn xlq(args: &[&str]) -> (Value, String) {
 }
 
 #[test]
+fn failing_command_exits_one_with_json_error_payload_and_no_full_paths() {
+    // main.rs error path: exit code 1, human diagnostic on stderr, and a
+    // machine-readable {"error": ...} JSON payload on stdout that carries
+    // the file BASENAME only — never the directory.
+    let out = Command::new(env!("CARGO_BIN_EXE_xlq"))
+        .args(["inspect", "/tmp/xlq-secret-client-dir/missing.xlsx"])
+        .output()
+        .expect("spawn xlq");
+    assert_eq!(out.status.code(), Some(1), "failure must exit 1");
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("xlq error:"), "stderr diagnostic missing: {stderr}");
+
+    let stdout = String::from_utf8(out.stdout).expect("stdout is utf8");
+    let json: Value = serde_json::from_str(&stdout).expect("error payload parses as JSON");
+    let message = json["error"].as_str().expect("error key present");
+    assert!(message.contains("missing.xlsx"), "basename missing: {message}");
+    assert!(
+        !stdout.contains("xlq-secret-client-dir"),
+        "directory leaked into stdout payload: {stdout}"
+    );
+}
+
+#[test]
 fn fixtures_generate_all_files_and_defect_manifest() {
     let dir = fixtures_dir();
     for name in [
@@ -198,7 +222,7 @@ fn calc_payroll_reports_coverage_and_zero_recalc_drift() {
     assert_eq!(json["xlq"]["command"], "calc");
 
     let coverage = json["coverage"].as_object().expect("coverage block present");
-    assert_eq!(coverage["engine"], "ironcalc 0.7.1");
+    assert_eq!(coverage["engine"], "ironcalc 0.7.1+e50ccea8 (vendored master)");
     // Fixtures must only use functions the engine supports.
     assert_eq!(coverage["reliable"], true, "fixture uses unsupported functions");
     assert_eq!(coverage["unsupported_functions"], serde_json::json!([]));

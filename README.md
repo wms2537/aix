@@ -44,21 +44,23 @@ xlq inspect payroll.xlsx
 ```json
 {
   "xlq": { "version": "0.1.0", "command": "inspect" },
-  "file": { "name": "payroll.xlsx", "bytes": 48213, "sha256": "9f2c51…" },
+  "file": { "name": "payroll.xlsx", "bytes": 15311, "sha256": "14e424…" },
   "sheets": [
     { "name": "Attendance", "state": "visible", "rows": 41, "cols": 32,
-      "cells": 1280, "formulas": 0, "errors": {} },
-    { "name": "Payroll", "state": "visible", "rows": 41, "cols": 9,
-      "cells": 360, "formulas": 280, "errors": { "#N/A": 4 } }
+      "cells": 1312, "formulas": 0, "errors": {} },
+    { "name": "Rates", "state": "visible", "rows": 40, "cols": 2,
+      "cells": 80, "formulas": 0, "errors": {} },
+    { "name": "Payroll", "state": "visible", "rows": 41, "cols": 8,
+      "cells": 328, "formulas": 280, "errors": { "#N/A": 3 } }
   ],
   "defined_names": { "count": 0 },
-  "functions": { "IF": 80, "MAX": 40, "MIN": 40, "SUM": 3, "VLOOKUP": 40 },
+  "functions": { "IF": 40, "MAX": 40, "MIN": 40, "SUM": 40, "VLOOKUP": 40 },
   "unsupported_functions": [],
   "volatile_functions": [],
   "ooxml_parts": { "has_vba": false, "has_pivot_cache": false,
                    "has_external_links": false, "has_charts": false,
-                   "has_comments": false, "part_count": 12 },
-  "coverage": { "engine": "ironcalc 0.7.1", "reliable": true }
+                   "has_comments": false, "part_count": 19 },
+  "coverage": { "engine": "ironcalc 0.7.1+e50ccea8 (vendored master)", "reliable": true }
 }
 ```
 
@@ -120,22 +122,26 @@ xlq calc branch-consolidation.xlsx
 ```json
 {
   "xlq": { "version": "0.1.0", "command": "calc" },
-  "file": { "name": "branch-consolidation.xlsx", "sha256": "77b0e3…" },
-  "changed": [
-    { "sheet": "Consolidated", "cell": "C9", "row": 9, "col": 3,
-      "stored": "182500", "recomputed": "197300",
-      "formula": "=SUM(Branch1!C9,Branch2!C9,Branch3!C9,Branch4!C9,Branch5!C9)",
-      "volatile": false }
-  ],
-  "summary": { "cells": 1120, "formulas": 430, "changed": 1 },
-  "coverage": { "engine": "ironcalc 0.7.1", "reliable": true,
-                "unsupported_functions": [], "volatile_functions": [] }
+  "file": { "name": "branch-consolidation.xlsx", "sha256": "16fbc8…" },
+  "changed": [],
+  "summary": { "cells": 1274, "formulas": 443, "changed": 0 },
+  "truncated": false,
+  "coverage": { "engine": "ironcalc 0.7.1+e50ccea8 (vendored master)", "reliable": true,
+                "unsupported_functions": [], "user_defined_functions": [],
+                "volatile_functions": [] }
 }
 ```
 
 calc loads the file, snapshots every stored value (what Excel last saved),
 recomputes, and reports cells where the two disagree — stale caches,
-engine/Excel disagreement, or volatile functions. Cells whose formulas call a
+engine/Excel disagreement, or volatile functions. The shipped fixtures are
+authored by the engine's own writer, so their caches are consistent and
+`changed` is empty, as above (rerun the command to verify, including the
+hash). On a workbook with a stale cache each entry carries the location,
+the stored and recomputed values, and the formula, e.g.
+`{ "sheet": "Consolidated", "cell": "C9", "stored": "182500",
+"recomputed": "197300", "formula": "=SUM(…)", "volatile": false }`.
+Cells whose formulas call a
 volatile function (NOW, TODAY, RAND, RANDBETWEEN, OFFSET, INDIRECT, CELL,
 INFO) are flagged `"volatile": true` so expected churn is distinguishable
 from real staleness. It never writes the file.
@@ -191,6 +197,26 @@ own S3 bucket or git remote — never a third-party tenant).
   explicit truncation markers — an agent can work a 40-tab workbook without
   flooding its context window.
 
+## Engine
+
+xlq links a **vendored clone of IronCalc master at `e50ccea8`**
+(`vendor/upstream`), reported in every JSON output as
+`ironcalc 0.7.1+e50ccea8 (vendored master)`. The vendored tree additionally
+carries a small local patch implementing ENCODEURL, HYPERLINK, and AGGREGATE
+(offered upstream; see
+[docs/upstream/residual-functions-patch.md](docs/upstream/residual-functions-patch.md)).
+
+Function coverage on this pin: **497 of 522 Excel functions (95.2%)** — and
+all 25 unsupported names require an external service, an OLAP cube, a
+pivot-table model, or a DBCS locale, so effectively 100% of locally-evaluable
+functions resolve. Breakdown and taxonomy: [docs/COVERAGE.md](docs/COVERAGE.md).
+Name recognition is not numerical fidelity: for value-level confidence, see
+the 1,634-case differential comparison against LibreOffice in
+[docs/AGREEMENT.md](docs/AGREEMENT.md) (97.2% agreement where both engines
+produce a value — 88.8% counting the one-side-error cases, which are
+dominated by LibreOffice's missing functions — with every disagreement
+triaged).
+
 ## Build
 
 ```
@@ -199,8 +225,8 @@ cargo build --release
 ```
 
 The binary lands at `xlq/target/release/xlq`. Requires a stable Rust
-toolchain; the only notable dependencies are ironcalc, clap, serde, sha2,
-and zip.
+toolchain; the only notable dependencies are the vendored ironcalc, clap,
+serde, sha2, and zip.
 
 ## Fixture corpus
 

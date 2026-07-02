@@ -52,7 +52,7 @@ Each journal line is one JSON object:
   ],
   "timestamp": "2026-07-02T09:41:07Z",
   "actor": "claude-code/session-8c1f",
-  "engine_version": "ironcalc 0.7.1",
+  "engine_version": "ironcalc 0.7.1+e50ccea8 (vendored master)",
   "clock": "2026-07-02T09:41:07Z",
   "seed": 1719913267
 }

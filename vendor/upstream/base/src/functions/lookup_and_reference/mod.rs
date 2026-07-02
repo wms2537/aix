@@ -17,6 +17,7 @@ mod choosecols_chooserows;
 mod drop_take;
 mod expand;
 mod hstack_vstack;
+mod hyperlink;
 mod tocol_torow;
 mod transpose;
 mod trimrange;

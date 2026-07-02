@@ -3,7 +3,7 @@ use crate::{
     calc_result::CalcResult, expressions::parser::Node, expressions::token::Error, model::Model,
 };
 
-use super::percentile::percentile_inc_impl;
+use super::percentile::{percentile_exc_impl, percentile_inc_impl};
 
 impl<'a> Model<'a> {
     // QUARTILE.INC(array, quart) — quart: 0..4 → 0%, 25%, 50%, 75%, 100%
@@ -84,22 +84,13 @@ impl<'a> Model<'a> {
 
         // Reuse PERCENTILE.EXC logic directly
         let k = quart as f64 / 4.0;
-        let n = sorted.len() as f64;
-
-        if k <= 0.0 || k >= 1.0 || k < 1.0 / (n + 1.0) || k > n / (n + 1.0) {
-            return CalcResult::new_error(
+        match percentile_exc_impl(&sorted, k) {
+            Some(result) => CalcResult::Number(result),
+            None => CalcResult::new_error(
                 Error::NUM,
                 cell,
                 "QUARTILE.EXC: not enough data points for this quartile".to_string(),
-            );
+            ),
         }
-
-        let rank = k * (n + 1.0) - 1.0;
-        let low = rank.floor() as usize;
-        let high = (low + 1).min(sorted.len() - 1);
-        let frac = rank - rank.floor();
-        let result = sorted[low] + frac * (sorted[high] - sorted[low]);
-
-        CalcResult::Number(result)
     }
 }

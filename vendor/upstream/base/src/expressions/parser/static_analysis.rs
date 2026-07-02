@@ -850,6 +850,17 @@ fn args_signature_npv(arg_count: usize) -> Vec<Signature> {
     result
 }
 
+fn args_signature_aggregate(arg_count: usize) -> Vec<Signature> {
+    // AGGREGATE(function_num, options, ref1, [ref2], ...)
+    if arg_count < 3 {
+        return vec![Signature::Error; arg_count];
+    }
+    let mut result = vec![Signature::Vector; arg_count];
+    result[0] = Signature::Scalar;
+    result[1] = Signature::Scalar;
+    result
+}
+
 fn args_signature_irr(arg_count: usize) -> Vec<Signature> {
     if arg_count > 2 {
         vec![Signature::Error; arg_count]
@@ -1050,6 +1061,7 @@ fn get_function_args_signature(kind: &Function, arg_count: usize) -> Vec<Signatu
         Function::Chooserows => args_signature_choosecols(arg_count),
         Function::Expand => args_signature_expand(arg_count),
         Function::Hlookup => args_signature_hlookup(arg_count),
+        Function::Hyperlink => args_signature_scalars(arg_count, 1, 1),
         Function::Hstack => vec![Signature::Vector; arg_count],
         Function::Index => args_signature_index(arg_count),
         Function::Indirect => args_signature_scalars(arg_count, 1, 0),
@@ -1259,6 +1271,7 @@ fn get_function_args_signature(kind: &Function, arg_count: usize) -> Vec<Signatu
         Function::Delta => args_signature_scalars(arg_count, 1, 1),
         Function::Gestep => args_signature_scalars(arg_count, 1, 1),
         Function::Subtotal => args_signature_npv(arg_count),
+        Function::Aggregate => args_signature_aggregate(arg_count),
         Function::Rand => args_signature_no_args(arg_count),
         Function::Randbetween => args_signature_scalars(arg_count, 2, 0),
         Function::Formulatext => args_signature_scalars(arg_count, 1, 0),
@@ -1270,6 +1283,7 @@ fn get_function_args_signature(kind: &Function, arg_count: usize) -> Vec<Signatu
         Function::Asc => args_signature_scalars(arg_count, 1, 0),
         Function::Arraytotext => args_signature_arraytotext(arg_count),
         Function::Dollar => args_signature_scalars(arg_count, 1, 1),
+        Function::Encodeurl => args_signature_scalars(arg_count, 1, 0),
         Function::Findb => args_signature_scalars(arg_count, 2, 1),
         Function::Fixed => args_signature_scalars(arg_count, 1, 2),
         Function::Leftb => args_signature_scalars(arg_count, 1, 1),
@@ -1700,6 +1714,7 @@ fn static_analysis_on_function(kind: &Function, args: &[Node]) -> StaticResult {
         Function::Chooserows => StaticResult::Unknown,
         Function::Expand => StaticResult::Unknown,
         Function::Hlookup => not_implemented(args),
+        Function::Hyperlink => not_implemented(args),
         Function::Hstack => StaticResult::Unknown,
         Function::Index => static_analysis_index(args),
         Function::Indirect => static_analysis_indirect(args),
@@ -1771,6 +1786,7 @@ fn static_analysis_on_function(kind: &Function, args: &[Node]) -> StaticResult {
         Function::Asc => not_implemented(args),
         Function::Arraytotext => not_implemented(args),
         Function::Dollar => not_implemented(args),
+        Function::Encodeurl => not_implemented(args),
         Function::Findb => not_implemented(args),
         Function::Fixed => not_implemented(args),
         Function::Leftb => not_implemented(args),
@@ -1930,6 +1946,7 @@ fn static_analysis_on_function(kind: &Function, args: &[Node]) -> StaticResult {
         Function::Delta => not_implemented(args),
         Function::Gestep => not_implemented(args),
         Function::Subtotal => not_implemented(args),
+        Function::Aggregate => not_implemented(args),
         Function::Rand => not_implemented(args),
         Function::Randbetween => scalar_arguments(args),
         Function::Eomonth => scalar_arguments(args),

@@ -487,4 +487,70 @@ mod tests {
         assert!(!formula_is_volatile("=SUM(A1:A3)+1"));
         assert!(formula_is_volatile("=OFFSET(A1,1,1)"));
     }
+
+    #[test]
+    fn cell_reference_out_of_a1_range_falls_back_to_r1c1() {
+        // number_to_column(0) has no A1 letters; the label degrades to R1C1
+        // rather than panicking.
+        assert_eq!(cell_reference(0, 5), "R5C0");
+    }
+
+    #[test]
+    fn run_errors_carry_basenames_only() {
+        // Missing file: fails at the sha256 step.
+        let err = run("/tmp/xlq-calc-secret-dir/payroll.xlsx").expect_err("missing file");
+        let text = format!("{err:#}");
+        assert!(text.contains("payroll.xlsx"), "basename missing: {text}");
+        assert!(!text.contains("xlq-calc-secret-dir"), "directory leaked: {text}");
+
+        // Present but not an xlsx: fails at the load step with the basename.
+        let dir = std::env::temp_dir().join("xlq-calc-secret-dir-2");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("corrupt-{}.xlsx", std::process::id()));
+        std::fs::write(&path, b"not a zip").unwrap();
+        let err = run(path.to_str().unwrap()).expect_err("corrupt file");
+        let text = format!("{err:#}");
+        assert!(text.contains("load workbook"), "load context missing: {text}");
+        assert!(!text.contains("xlq-calc-secret-dir-2"), "directory leaked: {text}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn changed_list_truncates_at_cap_with_full_summary_totals() {
+        // 10_005 formula cells all read A1; mutate A1 behind the engine's
+        // back and save, so a fresh load + evaluate changes every one of
+        // them — 5 past the CHANGED_CAP.
+        let n = CHANGED_CAP as i32 + 5;
+        let mut model = empty_model();
+        model.set_user_input(0, 1, 1, "0".to_string()).unwrap();
+        for row in 1..=n {
+            model
+                .set_user_input(0, row, 2, "=$A$1+1".to_string())
+                .unwrap();
+        }
+        model.evaluate();
+        model
+            .workbook
+            .worksheet_mut(0)
+            .unwrap()
+            .set_cell_with_number(1, 1, 5.0, 0)
+            .unwrap();
+
+        let dir = std::env::temp_dir().join("xlq-calc-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("truncate-{}.xlsx", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let path = path.to_string_lossy().into_owned();
+        ironcalc::export::save_to_xlsx(&model, &path).unwrap();
+
+        let report = run(&path).expect("calc runs");
+        assert_eq!(report["truncated"], json!(true));
+        assert_eq!(report["changed"].as_array().unwrap().len(), CHANGED_CAP);
+        assert_eq!(report["summary"]["changed"], json!(n));
+        assert_eq!(report["summary"]["cells"], json!(n as u64 + 1));
+        assert_eq!(report["summary"]["formulas"], json!(n));
+        assert_eq!(report["coverage"]["reliable"], json!(true));
+
+        let _ = std::fs::remove_file(&path);
+    }
 }

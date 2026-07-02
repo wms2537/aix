@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-07-02T12:41:50Z",
+  "generated_utc": "2026-07-02T15:31:31Z",
   "machine": {
     "cpu_model": "Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz",
     "logical_cores": 12,
@@ -7,7 +7,7 @@
   },
   "tools": {
     "xlq": "xlq 0.1.0",
-    "engine": "ironcalc 0.7.1",
+    "engine": "ironcalc 0.7.1+e50ccea8 (vendored master)",
     "openpyxl": "openpyxl 3.1.5",
     "libreoffice": "LibreOffice 24.8.7.2 480(Build:2)"
   },
@@ -25,22 +25,22 @@
       {
         "tool": "xlq calc (ironcalc)",
         "operation": "load + full recalc + stored-vs-recomputed compare",
-        "median_s": 1.262
+        "median_s": 1.277
       },
       {
         "tool": "ironcalc load only (load-only bin)",
         "operation": "load_from_xlsx and exit; isolates parse/load from census, hashing, recalc",
-        "median_s": 0.589
+        "median_s": 0.611
       },
       {
         "tool": "libreoffice --convert-to xlsx",
         "operation": "process spawn + load + save (closest CLI recalc analog; NOT an isolated recalc — see caveats)",
-        "median_s": 1.588
+        "median_s": 1.702
       },
       {
         "tool": "openpyxl load_workbook(data_only=False)",
         "operation": "load only",
-        "median_s": 0.927,
+        "median_s": 0.900,
         "calc": "n/a (cannot)"
       }
     ],
@@ -53,47 +53,47 @@
   "B_inspect": [
     {
       "fixture": "branch-consolidation.xlsx",
-      "fixture_bytes": 18040,
+      "fixture_bytes": 20553,
       "median_s": 0.007,
-      "output_bytes": 1739
+      "output_bytes": 1766
     },
     {
       "fixture": "claims.xlsx",
-      "fixture_bytes": 24964,
-      "median_s": 0.036,
-      "output_bytes": 1099
+      "fixture_bytes": 27475,
+      "median_s": 0.024,
+      "output_bytes": 1126
     },
     {
       "fixture": "payroll.xlsx",
-      "fixture_bytes": 12798,
-      "median_s": 0.006,
-      "output_bytes": 1294
+      "fixture_bytes": 15311,
+      "median_s": 0.010,
+      "output_bytes": 1321
     },
     {
       "fixture": "perf-large.xlsx",
-      "fixture_bytes": 1645976,
-      "median_s": 0.960,
-      "output_bytes": 938
+      "fixture_bytes": 1648490,
+      "median_s": 0.941,
+      "output_bytes": 965
     },
     {
       "fixture": "stock-reconciliation.xlsx",
-      "fixture_bytes": 32085,
+      "fixture_bytes": 34599,
       "median_s": 0.011,
-      "output_bytes": 1431
+      "output_bytes": 1458
     }
   ],
   "C_token_efficiency": [
     {
       "fixture": "branch-consolidation.xlsx",
-      "census_bytes": 1739,
+      "census_bytes": 1766,
       "naive_dump_bytes": 51107,
-      "naive_over_census_ratio": 29.4
+      "naive_over_census_ratio": 28.9
     },
     {
       "fixture": "perf-large.xlsx",
-      "census_bytes": 938,
+      "census_bytes": 965,
       "naive_dump_bytes": 7239303,
-      "naive_over_census_ratio": 7717.8
+      "naive_over_census_ratio": 7501.9
     }
   ],
   "D_preservation": [
@@ -101,26 +101,28 @@
       "fixture": "branch-consolidation.xlsx",
       "tool": "openpyxl",
       "resave_ok": true,
-      "output_bytes": 17478,
+      "output_bytes": 17695,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 0,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 442
         },
-        "kinds": {},
+        "kinds": {
+          "cached_value": 442
+        },
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 14,
+      "parts_before": 16,
       "parts_after": 14,
       "dropped": [
+        "xl/metadata.xml",
         "xl/sharedStrings.xml"
       ],
-      "added": [
-        "xl/theme/theme1.xml"
-      ],
+      "added": [],
       "changed_size": [
         "[Content_Types].xml",
         "_rels/.rels",
@@ -137,7 +139,9 @@
         "xl/worksheets/sheet6.xml"
       ],
       "changed_content_same_size": [],
-      "identical": [],
+      "identical": [
+        "xl/theme/theme1.xml"
+      ],
       "worksheet_xml_bytes_before": 52077,
       "worksheet_xml_bytes_after": 56083,
       "core_xml_present_in_both": true,
@@ -148,24 +152,28 @@
       "fixture": "branch-consolidation.xlsx",
       "tool": "libreoffice",
       "resave_ok": true,
-      "output_bytes": 24255,
+      "output_bytes": 24491,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 0,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 67
         },
-        "kinds": {},
+        "kinds": {
+          "cached_value": 67
+        },
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 14,
+      "parts_before": 16,
       "parts_after": 16,
-      "dropped": [],
+      "dropped": [
+        "xl/metadata.xml"
+      ],
       "added": [
-        "docProps/custom.xml",
-        "xl/theme/theme1.xml"
+        "docProps/custom.xml"
       ],
       "changed_size": [
         "[Content_Types].xml",
@@ -175,6 +183,7 @@
         "xl/_rels/workbook.xml.rels",
         "xl/sharedStrings.xml",
         "xl/styles.xml",
+        "xl/theme/theme1.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml",
         "xl/worksheets/sheet2.xml",
@@ -186,7 +195,7 @@
       "changed_content_same_size": [],
       "identical": [],
       "worksheet_xml_bytes_before": 52077,
-      "worksheet_xml_bytes_after": 90516,
+      "worksheet_xml_bytes_after": 90261,
       "core_xml_present_in_both": true,
       "core_xml_identical": false,
       "core_xml_equal_ignoring_modified": false
@@ -195,20 +204,21 @@
       "fixture": "branch-consolidation.xlsx",
       "tool": "ironcalc",
       "resave_ok": true,
-      "output_bytes": 18053,
+      "output_bytes": 20566,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 0,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 0
         },
         "kinds": {},
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 14,
-      "parts_after": 14,
+      "parts_before": 16,
+      "parts_after": 16,
       "dropped": [],
       "added": [],
       "changed_size": [],
@@ -220,8 +230,10 @@
         "_rels/.rels",
         "docProps/app.xml",
         "xl/_rels/workbook.xml.rels",
+        "xl/metadata.xml",
         "xl/sharedStrings.xml",
         "xl/styles.xml",
+        "xl/theme/theme1.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml",
         "xl/worksheets/sheet2.xml",
@@ -240,26 +252,28 @@
       "fixture": "claims.xlsx",
       "tool": "openpyxl",
       "resave_ok": true,
-      "output_bytes": 24594,
+      "output_bytes": 24810,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 0,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 1342
         },
-        "kinds": {},
+        "kinds": {
+          "cached_value": 1342
+        },
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 10,
+      "parts_before": 12,
       "parts_after": 10,
       "dropped": [
+        "xl/metadata.xml",
         "xl/sharedStrings.xml"
       ],
-      "added": [
-        "xl/theme/theme1.xml"
-      ],
+      "added": [],
       "changed_size": [
         "[Content_Types].xml",
         "_rels/.rels",
@@ -272,7 +286,9 @@
         "xl/worksheets/sheet2.xml"
       ],
       "changed_content_same_size": [],
-      "identical": [],
+      "identical": [
+        "xl/theme/theme1.xml"
+      ],
       "worksheet_xml_bytes_before": 163161,
       "worksheet_xml_bytes_after": 160783,
       "core_xml_present_in_both": true,
@@ -283,13 +299,14 @@
       "fixture": "claims.xlsx",
       "tool": "libreoffice",
       "resave_ok": true,
-      "output_bytes": 30079,
+      "output_bytes": 30302,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 300,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 0
         },
         "kinds": {
           "formula": 300
@@ -297,12 +314,13 @@
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 10,
+      "parts_before": 12,
       "parts_after": 12,
-      "dropped": [],
+      "dropped": [
+        "xl/metadata.xml"
+      ],
       "added": [
-        "docProps/custom.xml",
-        "xl/theme/theme1.xml"
+        "docProps/custom.xml"
       ],
       "changed_size": [
         "[Content_Types].xml",
@@ -312,6 +330,7 @@
         "xl/_rels/workbook.xml.rels",
         "xl/sharedStrings.xml",
         "xl/styles.xml",
+        "xl/theme/theme1.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml",
         "xl/worksheets/sheet2.xml"
@@ -319,7 +338,7 @@
       "changed_content_same_size": [],
       "identical": [],
       "worksheet_xml_bytes_before": 163161,
-      "worksheet_xml_bytes_after": 235570,
+      "worksheet_xml_bytes_after": 234663,
       "core_xml_present_in_both": true,
       "core_xml_identical": false,
       "core_xml_equal_ignoring_modified": false
@@ -328,20 +347,21 @@
       "fixture": "claims.xlsx",
       "tool": "ironcalc",
       "resave_ok": true,
-      "output_bytes": 24977,
+      "output_bytes": 27488,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 0,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 0
         },
         "kinds": {},
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 10,
-      "parts_after": 10,
+      "parts_before": 12,
+      "parts_after": 12,
       "dropped": [],
       "added": [],
       "changed_size": [],
@@ -353,8 +373,10 @@
         "_rels/.rels",
         "docProps/app.xml",
         "xl/_rels/workbook.xml.rels",
+        "xl/metadata.xml",
         "xl/sharedStrings.xml",
         "xl/styles.xml",
+        "xl/theme/theme1.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml",
         "xl/worksheets/sheet2.xml"
@@ -369,26 +391,28 @@
       "fixture": "payroll.xlsx",
       "tool": "openpyxl",
       "resave_ok": true,
-      "output_bytes": 13392,
+      "output_bytes": 13609,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 0,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 224
         },
-        "kinds": {},
+        "kinds": {
+          "cached_value": 224
+        },
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 11,
+      "parts_before": 13,
       "parts_after": 11,
       "dropped": [
+        "xl/metadata.xml",
         "xl/sharedStrings.xml"
       ],
-      "added": [
-        "xl/theme/theme1.xml"
-      ],
+      "added": [],
       "changed_size": [
         "[Content_Types].xml",
         "_rels/.rels",
@@ -402,7 +426,9 @@
         "xl/worksheets/sheet3.xml"
       ],
       "changed_content_same_size": [],
-      "identical": [],
+      "identical": [
+        "xl/theme/theme1.xml"
+      ],
       "worksheet_xml_bytes_before": 51453,
       "worksheet_xml_bytes_after": 61137,
       "core_xml_present_in_both": true,
@@ -413,13 +439,14 @@
       "fixture": "payroll.xlsx",
       "tool": "libreoffice",
       "resave_ok": true,
-      "output_bytes": 17195,
+      "output_bytes": 17421,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 40,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 0
         },
         "kinds": {
           "formula": 40
@@ -427,12 +454,13 @@
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 11,
+      "parts_before": 13,
       "parts_after": 13,
-      "dropped": [],
+      "dropped": [
+        "xl/metadata.xml"
+      ],
       "added": [
-        "docProps/custom.xml",
-        "xl/theme/theme1.xml"
+        "docProps/custom.xml"
       ],
       "changed_size": [
         "[Content_Types].xml",
@@ -442,6 +470,7 @@
         "xl/_rels/workbook.xml.rels",
         "xl/sharedStrings.xml",
         "xl/styles.xml",
+        "xl/theme/theme1.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml",
         "xl/worksheets/sheet2.xml",
@@ -450,7 +479,7 @@
       "changed_content_same_size": [],
       "identical": [],
       "worksheet_xml_bytes_before": 51453,
-      "worksheet_xml_bytes_after": 91490,
+      "worksheet_xml_bytes_after": 91145,
       "core_xml_present_in_both": true,
       "core_xml_identical": false,
       "core_xml_equal_ignoring_modified": false
@@ -459,20 +488,21 @@
       "fixture": "payroll.xlsx",
       "tool": "ironcalc",
       "resave_ok": true,
-      "output_bytes": 12811,
+      "output_bytes": 15324,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 0,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 0
         },
         "kinds": {},
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 11,
-      "parts_after": 11,
+      "parts_before": 13,
+      "parts_after": 13,
       "dropped": [],
       "added": [],
       "changed_size": [],
@@ -484,8 +514,10 @@
         "_rels/.rels",
         "docProps/app.xml",
         "xl/_rels/workbook.xml.rels",
+        "xl/metadata.xml",
         "xl/sharedStrings.xml",
         "xl/styles.xml",
+        "xl/theme/theme1.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml",
         "xl/worksheets/sheet2.xml",
@@ -501,26 +533,28 @@
       "fixture": "perf-large.xlsx",
       "tool": "openpyxl",
       "resave_ok": true,
-      "output_bytes": 818852,
+      "output_bytes": 819070,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 0,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 99800
         },
-        "kinds": {},
+        "kinds": {
+          "cached_value": 10000
+        },
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 9,
+      "parts_before": 11,
       "parts_after": 9,
       "dropped": [
+        "xl/metadata.xml",
         "xl/sharedStrings.xml"
       ],
-      "added": [
-        "xl/theme/theme1.xml"
-      ],
+      "added": [],
       "changed_size": [
         "[Content_Types].xml",
         "_rels/.rels",
@@ -532,7 +566,9 @@
         "xl/worksheets/sheet1.xml"
       ],
       "changed_content_same_size": [],
-      "identical": [],
+      "identical": [
+        "xl/theme/theme1.xml"
+      ],
       "worksheet_xml_bytes_before": 7622337,
       "worksheet_xml_bytes_after": 4728802,
       "core_xml_present_in_both": true,
@@ -543,28 +579,30 @@
       "fixture": "perf-large.xlsx",
       "tool": "libreoffice",
       "resave_ok": true,
-      "output_bytes": 1642136,
+      "output_bytes": 1642354,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 249,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 90381
         },
         "kinds": {
-          "formula": 249
+          "formula": 30,
+          "cached_value": 9970
         },
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 9,
+      "parts_before": 11,
       "parts_after": 10,
       "dropped": [
+        "xl/metadata.xml",
         "xl/sharedStrings.xml"
       ],
       "added": [
-        "docProps/custom.xml",
-        "xl/theme/theme1.xml"
+        "docProps/custom.xml"
       ],
       "changed_size": [
         "[Content_Types].xml",
@@ -573,13 +611,14 @@
         "docProps/core.xml",
         "xl/_rels/workbook.xml.rels",
         "xl/styles.xml",
+        "xl/theme/theme1.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml"
       ],
       "changed_content_same_size": [],
       "identical": [],
       "worksheet_xml_bytes_before": 7622337,
-      "worksheet_xml_bytes_after": 9250115,
+      "worksheet_xml_bytes_after": 9248622,
       "core_xml_present_in_both": true,
       "core_xml_identical": false,
       "core_xml_equal_ignoring_modified": false
@@ -588,20 +627,21 @@
       "fixture": "perf-large.xlsx",
       "tool": "ironcalc",
       "resave_ok": true,
-      "output_bytes": 1645990,
+      "output_bytes": 1648503,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 0,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 0
         },
         "kinds": {},
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 9,
-      "parts_after": 9,
+      "parts_before": 11,
+      "parts_after": 11,
       "dropped": [],
       "added": [],
       "changed_size": [],
@@ -613,8 +653,10 @@
         "_rels/.rels",
         "docProps/app.xml",
         "xl/_rels/workbook.xml.rels",
+        "xl/metadata.xml",
         "xl/sharedStrings.xml",
         "xl/styles.xml",
+        "xl/theme/theme1.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml"
       ],
@@ -628,26 +670,28 @@
       "fixture": "stock-reconciliation.xlsx",
       "tool": "openpyxl",
       "resave_ok": true,
-      "output_bytes": 37117,
+      "output_bytes": 37330,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 0,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 153
         },
-        "kinds": {},
+        "kinds": {
+          "cached_value": 153
+        },
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 12,
+      "parts_before": 14,
       "parts_after": 12,
       "dropped": [
+        "xl/metadata.xml",
         "xl/sharedStrings.xml"
       ],
-      "added": [
-        "xl/theme/theme1.xml"
-      ],
+      "added": [],
       "changed_size": [
         "[Content_Types].xml",
         "_rels/.rels",
@@ -662,7 +706,9 @@
         "xl/worksheets/sheet4.xml"
       ],
       "changed_content_same_size": [],
-      "identical": [],
+      "identical": [
+        "xl/theme/theme1.xml"
+      ],
       "worksheet_xml_bytes_before": 202923,
       "worksheet_xml_bytes_after": 271328,
       "core_xml_present_in_both": true,
@@ -673,13 +719,14 @@
       "fixture": "stock-reconciliation.xlsx",
       "tool": "libreoffice",
       "resave_ok": true,
-      "output_bytes": 40663,
+      "output_bytes": 40771,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 31,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 0
         },
         "kinds": {
           "formula": 31
@@ -687,12 +734,13 @@
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 12,
+      "parts_before": 14,
       "parts_after": 14,
-      "dropped": [],
+      "dropped": [
+        "xl/metadata.xml"
+      ],
       "added": [
-        "docProps/custom.xml",
-        "xl/theme/theme1.xml"
+        "docProps/custom.xml"
       ],
       "changed_size": [
         "[Content_Types].xml",
@@ -702,6 +750,7 @@
         "xl/_rels/workbook.xml.rels",
         "xl/sharedStrings.xml",
         "xl/styles.xml",
+        "xl/theme/theme1.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml",
         "xl/worksheets/sheet2.xml",
@@ -711,7 +760,7 @@
       "changed_content_same_size": [],
       "identical": [],
       "worksheet_xml_bytes_before": 202923,
-      "worksheet_xml_bytes_after": 384887,
+      "worksheet_xml_bytes_after": 381210,
       "core_xml_present_in_both": true,
       "core_xml_identical": false,
       "core_xml_equal_ignoring_modified": false
@@ -720,20 +769,21 @@
       "fixture": "stock-reconciliation.xlsx",
       "tool": "ironcalc",
       "resave_ok": true,
-      "output_bytes": 32098,
+      "output_bytes": 34611,
       "loads_in_ironcalc": true,
       "cell_diff": {
         "summary": {
           "changed": 0,
           "added": 0,
-          "removed": 0
+          "removed": 0,
+          "cached_value": 0
         },
         "kinds": {},
         "sheets_added": 0,
         "sheets_removed": 0
       },
-      "parts_before": 12,
-      "parts_after": 12,
+      "parts_before": 14,
+      "parts_after": 14,
       "dropped": [],
       "added": [],
       "changed_size": [],
@@ -745,8 +795,10 @@
         "_rels/.rels",
         "docProps/app.xml",
         "xl/_rels/workbook.xml.rels",
+        "xl/metadata.xml",
         "xl/sharedStrings.xml",
         "xl/styles.xml",
+        "xl/theme/theme1.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml",
         "xl/worksheets/sheet2.xml",
@@ -768,11 +820,10 @@
       "resave_ok": true,
       "loads_in_ironcalc": true,
       "parts_before": 14,
-      "parts_after": 14,
-      "dropped": [
-        "xl/theme/theme1.xml"
-      ],
+      "parts_after": 16,
+      "dropped": [],
       "added": [
+        "xl/metadata.xml",
         "xl/sharedStrings.xml"
       ],
       "changed_size": [
@@ -791,7 +842,9 @@
         "xl/worksheets/sheet6.xml"
       ],
       "changed_content_same_size": [],
-      "identical": [],
+      "identical": [
+        "xl/theme/theme1.xml"
+      ],
       "worksheet_xml_bytes_before": 56083,
       "worksheet_xml_bytes_after": 49223
     },
@@ -802,12 +855,13 @@
       "resave_ok": true,
       "loads_in_ironcalc": true,
       "parts_before": 16,
-      "parts_after": 14,
+      "parts_after": 16,
       "dropped": [
-        "docProps/custom.xml",
-        "xl/theme/theme1.xml"
+        "docProps/custom.xml"
       ],
-      "added": [],
+      "added": [
+        "xl/metadata.xml"
+      ],
       "changed_size": [
         "[Content_Types].xml",
         "_rels/.rels",
@@ -816,6 +870,7 @@
         "xl/_rels/workbook.xml.rels",
         "xl/sharedStrings.xml",
         "xl/styles.xml",
+        "xl/theme/theme1.xml",
         "xl/workbook.xml",
         "xl/worksheets/sheet1.xml",
         "xl/worksheets/sheet2.xml",
@@ -826,8 +881,8 @@
       ],
       "changed_content_same_size": [],
       "identical": [],
-      "worksheet_xml_bytes_before": 90516,
-      "worksheet_xml_bytes_after": 57131
+      "worksheet_xml_bytes_before": 90261,
+      "worksheet_xml_bytes_after": 56834
     }
   ]
 }

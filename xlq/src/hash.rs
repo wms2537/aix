@@ -24,3 +24,42 @@ pub fn sha256_file(path: &str) -> Result<String> {
     }
     Ok(format!("{:x}", hasher.finalize()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hashes_known_content_to_known_digest() {
+        let dir = std::env::temp_dir().join("xlq-hash-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("abc-{}.bin", std::process::id()));
+        std::fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            sha256_file(path.to_str().unwrap()).unwrap(),
+            // SHA-256("abc"), FIPS 180-2 test vector.
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn open_error_carries_basename_only() {
+        let err = sha256_file("/tmp/xlq-secret-dir-name/missing.xlsx")
+            .expect_err("missing file must fail");
+        let text = format!("{err:#}");
+        assert!(text.contains("missing.xlsx"), "basename missing: {text}");
+        assert!(
+            !text.contains("xlq-secret-dir-name"),
+            "directory leaked into error: {text}"
+        );
+    }
+
+    #[test]
+    fn path_without_file_name_component_uses_placeholder_and_read_fails() {
+        // "/" has no file-name component (the "<file>" placeholder branch)
+        // and opening it succeeds on Linux but reading fails (EISDIR), which
+        // exercises the read error path too.
+        assert!(sha256_file("/").is_err());
+    }
+}

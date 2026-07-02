@@ -1,15 +1,33 @@
 # xlq Benchmarks: Performance + Preservation
 
-Date: 2026-07-02. Produced by `benchmarks/run_bench.sh` (rerun it to regenerate
-everything, including `benchmarks/results.json`; it requires python3+openpyxl and
-soffice on PATH, overridable via `PY`/`SOFFICE`). All raw numbers in this document —
-including the cell-level `xlq diff` results, the uncompressed worksheet-XML sizes,
-and the `docProps/core.xml` timestamp check in section D — come from that
-`results.json`; the harness computes each of them.
+Date: 2026-07-02, regenerated after the engine upgrade from the ironcalc 0.7.1
+release to the vendored master pin (`ironcalc 0.7.1+e50ccea8 (vendored master)`,
+plus the local ENCODEURL/HYPERLINK/AGGREGATE patch). Produced by
+`benchmarks/run_bench.sh` (rerun it to regenerate everything, including
+`benchmarks/results.json`; it requires python3+openpyxl and soffice on PATH,
+overridable via `PY`/`SOFFICE`). All raw **current-run** numbers in this
+document — including the cell-level `xlq diff` results, the uncompressed
+worksheet-XML sizes, and the `docProps/core.xml` timestamp check in section D —
+come from that `results.json`; the harness computes each of them. The
+exception is every number labeled "(0.7.1 run)" (section A's historical
+column, the "same 620 cells" claim, and the "zero stored-value changes under
+the 0.7.1 fixtures" baseline in the flagged subsection): those come from the
+previous run's `results.json`, which this refresh **overwrote** and which is
+not otherwise preserved in the repo, so the historical column and the deltas
+derived from it are quoted from a superseded artifact and cannot be re-audited
+here — only the current-run numbers can.
 
 Machine: Intel Core i7-8700K @ 3.70GHz, 12 logical cores, Linux.
-Tools: xlq 0.1.0 (engine ironcalc 0.7.1, release build), openpyxl 3.1.5 (CPython),
-LibreOffice 24.8.7.2 headless.
+Tools: xlq 0.1.0 (engine ironcalc 0.7.1+e50ccea8 vendored master, release build),
+openpyxl 3.1.5 (CPython), LibreOffice 24.8.7.2 headless.
+
+**Because the engine changed, the fixtures changed too** — they are authored by
+the engine's own writer (`xlq-fixtures`), and master's writer emits two OOXML
+parts 0.7.1's did not (`xl/theme/theme1.xml`, `xl/metadata.xml`) and serializes
+cached formula values at full float precision. Section D's part-level and
+cell-level numbers therefore moved for reasons that have nothing to do with
+openpyxl or LibreOffice changing; the deltas are called out inline and the one
+dramatic mover is flagged in its own subsection.
 
 ---
 
@@ -68,47 +86,52 @@ best-case interactive latency, not cold-start.
 
 ## A. LOAD+CALC — perf-large.xlsx (100,000 cells, 99,800 formulas, 1.6 MB)
 
-| Tool | Operation actually measured | Median wall time |
-|---|---|---|
-| **xlq calc** (ironcalc) | load + full recalc + raw stored-vs-recomputed compare + volatile taint + report | **1.262 s** |
-| ironcalc load only (`load-only` bin) | `load_from_xlsx` and exit | 0.589 s |
-| LibreOffice `--convert-to xlsx` | process spawn + load + save (recalc not guaranteed; caveat 1) | 1.588 s |
-| openpyxl `load_workbook(data_only=False)` | load only | 0.927 s — calc: **n/a (cannot)** |
+| Tool | Operation actually measured | Median wall time | (0.7.1 run) |
+|---|---|---|---|
+| **xlq calc** (ironcalc) | load + full recalc + raw stored-vs-recomputed compare + volatile taint + report | **1.277 s** | 1.262 s |
+| ironcalc load only (`load-only` bin) | `load_from_xlsx` and exit | 0.611 s | 0.589 s |
+| LibreOffice `--convert-to xlsx` | process spawn + load + save (recalc not guaranteed; caveat 1) | 1.702 s | 1.588 s |
+| openpyxl `load_workbook(data_only=False)` | load only | 0.900 s — calc: **n/a (cannot)** | 0.927 s |
 
-xlq recalculates ~99,800 formulas, raw-diffs every stored value, and runs the
-volatile-dependency analysis in ~1.36× the time openpyxl needs just to *parse* the
-same file — and openpyxl then still cannot calculate anything. LibreOffice, despite
-spawning an entire office process and writing the 1.6 MB result back out, lands only
-~1.26× behind xlq. That is closer than a "Rust vs office suite" framing would
-suggest; see Interpretation.
+The engine upgrade is performance-neutral on this workload: every delta vs the
+0.7.1 run (+1% xlq calc, +4% load-only, +7% LibreOffice, −3% openpyxl) is inside
+caveat 9's noise band. xlq recalculates ~99,800 formulas, raw-diffs every stored
+value, and runs the volatile-dependency analysis in ~1.4× the time openpyxl needs
+just to *parse* the same file — and openpyxl then still cannot calculate anything.
+LibreOffice, despite spawning an entire office process and writing the 1.6 MB
+result back out, lands only ~1.33× behind xlq. That is closer than a "Rust vs
+office suite" framing would suggest; see Interpretation.
 
 ## B. INSPECT — census latency and size per fixture
 
 | Fixture | File size | `xlq inspect` median | Census output |
 |---|---:|---:|---:|
-| branch-consolidation.xlsx | 18,040 B | 0.007 s | 1,739 B |
-| claims.xlsx | 24,964 B | 0.036 s | 1,099 B |
-| payroll.xlsx | 12,798 B | 0.006 s | 1,294 B |
-| perf-large.xlsx | 1,645,976 B | 0.960 s | 938 B |
-| stock-reconciliation.xlsx | 32,085 B | 0.011 s | 1,431 B |
+| branch-consolidation.xlsx | 20,553 B | 0.007 s | 1,766 B |
+| claims.xlsx | 27,475 B | 0.024 s | 1,126 B |
+| payroll.xlsx | 15,311 B | 0.010 s | 1,321 B |
+| perf-large.xlsx | 1,648,490 B | 0.941 s | 965 B |
+| stock-reconciliation.xlsx | 34,599 B | 0.011 s | 1,458 B |
 
-Census size is governed by structural diversity (distinct functions, sheets, error
-kinds), not workbook size: the 100k-cell fixture produces the *smallest* census.
-On perf-large, the measured ironcalc load (0.589 s, section A's `load-only` row)
-accounts for ~60% of the 0.960 s inspect time; the remainder is SHA-256 hashing,
-the function tally, and the support probe.
+(Fixture files are 2–3 KB larger than the 0.7.1-generated ones — master's writer
+adds `xl/theme/theme1.xml` and `xl/metadata.xml`; census outputs are exactly 27 B
+larger each because the engine identifier string in the `coverage` object is
+longer.) Census size is governed by structural diversity (distinct functions,
+sheets, error kinds), not workbook size: the 100k-cell fixture produces the
+*smallest* census. On perf-large, the measured ironcalc load (0.611 s, section A's
+`load-only` row) accounts for ~65% of the 0.941 s inspect time; the remainder is
+SHA-256 hashing, the function tally, and the support probe.
 
 ## C. TOKEN EFFICIENCY — census vs naive full-sheet dump
 
 | Fixture | xlq census | Naive openpyxl dump (all cells, value+formula) | Ratio |
 |---|---:|---:|---:|
-| branch-consolidation.xlsx | 1,739 B | 51,107 B | **29.4×** |
-| perf-large.xlsx | 938 B | 7,239,303 B | **7,718×** |
+| branch-consolidation.xlsx | 1,766 B | 51,107 B | **28.9×** |
+| perf-large.xlsx | 965 B | 7,239,303 B | **7,502×** |
 
 This quantifies the "agent reads the census, not the whole sheet" claim: on the
 large fixture the naive dump is ~7.2 MB — far beyond any LLM context window — while
-the census is 938 bytes (roughly a couple hundred tokens). The honest reading of the
-29.4× small-fixture number: for small sheets an agent *could* afford the full dump;
+the census is 965 bytes (roughly a couple hundred tokens). The honest reading of the
+28.9× small-fixture number: for small sheets an agent *could* afford the full dump;
 the census becomes load-bearing as workbooks grow, and the ratio scales with cell
 count because census size does not.
 
@@ -117,60 +140,97 @@ count because census size does not.
 Each fixture re-saved by: (1) openpyxl `load_workbook()` + `save()`,
 (2) LibreOffice `--convert-to xlsx`, (3) ironcalc `load_from_xlsx` + `save_to_xlsx`
 (`src/bin/roundtrip.rs`). Counts are OOXML parts (caveat 6). **Remember caveat 4:
-the inputs are ironcalc-authored, so the ironcalc rows are its best case.**
+the inputs are ironcalc-authored, so the ironcalc rows are its best case.** The
+part-level counts differ from the 0.7.1 run because the *inputs* differ: the
+master-authored fixtures carry `xl/theme/theme1.xml` and `xl/metadata.xml`, which
+the 0.7.1 fixtures did not.
 
 | Fixture | Tool | Dropped | Added | Changed | Byte-identical | Loads in ironcalc | VBA/charts/pivots |
 |---|---|---:|---:|---:|---:|---|---|
-| branch-consolidation | openpyxl | 1 | 1 | 13 | 0 | yes | untested here; see [#22044](https://github.com/anthropics/claude-code/issues/22044) |
-| branch-consolidation | LibreOffice | 0 | 2 | 14 | 0 | yes | untested here |
-| branch-consolidation | ironcalc | 0 | 0 | 1 | 13 | yes | untested here (cannot author them) |
-| claims | openpyxl | 1 | 1 | 9 | 0 | yes | untested here |
-| claims | LibreOffice | 0 | 2 | 10 | 0 | yes | untested here |
-| claims | ironcalc | 0 | 0 | 1 | 9 | yes | untested here |
-| payroll | openpyxl | 1 | 1 | 10 | 0 | yes | untested here |
-| payroll | LibreOffice | 0 | 2 | 11 | 0 | yes | untested here |
-| payroll | ironcalc | 0 | 0 | 1 | 10 | yes | untested here |
-| perf-large | openpyxl | 1 | 1 | 8 | 0 | yes | untested here |
-| perf-large | LibreOffice | 1 | 2 | 8 | 0 | yes | untested here |
-| perf-large | ironcalc | 0 | 0 | 1 | 8 | yes | untested here |
-| stock-reconciliation | openpyxl | 1 | 1 | 11 | 0 | yes | untested here |
-| stock-reconciliation | LibreOffice | 0 | 2 | 12 | 0 | yes | untested here |
-| stock-reconciliation | ironcalc | 0 | 0 | 1 | 11 | yes | untested here |
+| branch-consolidation | openpyxl | 2 | 0 | 13 | 1 | yes | untested here; see [#22044](https://github.com/anthropics/claude-code/issues/22044) |
+| branch-consolidation | LibreOffice | 1 | 1 | 15 | 0 | yes | untested here |
+| branch-consolidation | ironcalc | 0 | 0 | 1 | 15 | yes | untested here (cannot author them) |
+| claims | openpyxl | 2 | 0 | 9 | 1 | yes | untested here |
+| claims | LibreOffice | 1 | 1 | 11 | 0 | yes | untested here |
+| claims | ironcalc | 0 | 0 | 1 | 11 | yes | untested here |
+| payroll | openpyxl | 2 | 0 | 10 | 1 | yes | untested here |
+| payroll | LibreOffice | 1 | 1 | 12 | 0 | yes | untested here |
+| payroll | ironcalc | 0 | 0 | 1 | 12 | yes | untested here |
+| perf-large | openpyxl | 2 | 0 | 8 | 1 | yes | untested here |
+| perf-large | LibreOffice | 2 | 1 | 9 | 0 | yes | untested here |
+| perf-large | ironcalc | 0 | 0 | 1 | 10 | yes | untested here |
+| stock-reconciliation | openpyxl | 2 | 0 | 11 | 1 | yes | untested here |
+| stock-reconciliation | LibreOffice | 1 | 1 | 13 | 0 | yes | untested here |
+| stock-reconciliation | ironcalc | 0 | 0 | 1 | 13 | yes | untested here |
 
 What the drops/adds/changes actually are (worksheet-XML sizes and the core.xml
 check are recorded per row in `results.json` as `worksheet_xml_bytes_before/after`
 and `core_xml_equal_ignoring_modified`):
 
-- **openpyxl** drops `xl/sharedStrings.xml` on every fixture (strings are
-  re-serialized another way), adds `xl/theme/theme1.xml` (its own default theme),
-  and rewrites **every remaining part** — zero parts survive byte-identical. Its
-  perf-large worksheet XML is 38% smaller than the original (4,728,802 vs
-  7,622,337 B uncompressed): a wholesale re-serialization, not a copy.
-- **LibreOffice** adds `docProps/custom.xml` and `xl/theme/theme1.xml`, drops
-  `xl/sharedStrings.xml` on perf-large, and likewise rewrites every remaining part
-  (its perf-large worksheet XML is 21% *larger*, 9,250,115 B uncompressed). Zero
-  parts byte-identical.
+- **openpyxl** drops `xl/sharedStrings.xml` (strings are re-serialized another way)
+  and `xl/metadata.xml` (the dynamic-array metadata part it does not model) on every
+  fixture, and rewrites every remaining part except one: `xl/theme/theme1.xml`
+  survives **byte-identical**, because openpyxl's bundled default theme happens to
+  be the same bytes ironcalc master writes. (Under the 0.7.1 fixtures, which had no
+  theme part, openpyxl *added* its theme instead.) Its perf-large worksheet XML is
+  38% smaller than the original (4,728,802 vs 7,622,337 B uncompressed): a wholesale
+  re-serialization, not a copy.
+- **LibreOffice** adds `docProps/custom.xml`, drops `xl/metadata.xml` on every
+  fixture (plus `xl/sharedStrings.xml` on perf-large), and rewrites every remaining
+  part including the theme (its perf-large worksheet XML is 21% *larger*,
+  9,248,622 B uncompressed). Zero parts byte-identical.
 - **ironcalc** on its own files reproduces every part byte-for-byte **except
   `docProps/core.xml`**, where it re-stamps `dcterms:modified` with the current
   time. The harness verifies mechanically that core.xml is equal once
   `<dcterms:modified>` is ignored: that timestamp is the entire difference.
 
 **Cell-level content** (`xlq diff` original vs re-save, recorded per row as
-`cell_diff` in `results.json`): **openpyxl and ironcalc report 0 added / 0
-removed / 0 changed cells on all five fixtures. LibreOffice does not**: it
-rewrites formula text on 4 of the 5 fixtures — 620 formula cells in total
-(claims: 300, perf-large: 249, payroll: 40, stock-reconciliation: 31; only
-branch-consolidation survives untouched). Every one of those changes is kind
-`formula`, zero are value changes: LibreOffice canonicalizes formula text, e.g.
-`=VLOOKUP($C2,Limits!$A$2:$B$6,2,FALSE)` → `…,FALSE())` and `=SUM(GR4:GR4)` →
-`=SUM(GR4)`. These rewrites are semantically equivalent and the computed values
-are preserved, but the formulas on disk are no longer what the author wrote —
-a real fidelity change that a text-level audit or a byte-level signature will
-flag. (An earlier revision of this document claimed 0/0/0 for all three tools;
-that was wrong, and the harness now computes this table so it cannot silently
-regress again. The documented real-world losses — VBA, shapes, pivot details,
-conditional formatting — live exactly in the parts these fixtures don't have.
-This benchmark cannot exonerate any tool on those; see caveat 5.)
+`cell_diff` in `results.json`; `summary.cached_value` is the authoritative count —
+the `kinds` field is tallied from a changes list that truncates at 10,000):
+
+- **ironcalc: 0 added / 0 removed / 0 changed / 0 cached_value on all five
+  fixtures.** Bit-exact on its own output, as the part-level table implies.
+- **openpyxl: 0 added / 0 removed / 0 changed — but every formula cell loses its
+  cached value** (kind `cached_value`: 442 + 1,342 + 224 + 99,800 + 153 = **101,961
+  cells across the five fixtures**). openpyxl parses formulas without their cached
+  results and writes them back without `<v>` elements, so every formula cell in its
+  output reads as 0 until something recalculates the file. This is openpyxl's
+  long-documented behavior (the README's diff section has always said so); the
+  harness now records the per-fixture counts in `results.json` rather than leaving
+  it as prose.
+- **LibreOffice rewrites formula text on 4 of the 5 fixtures — 620 formula cells
+  in total** (claims: 300, perf-large: 249, payroll: 40, stock-reconciliation: 31;
+  branch-consolidation's formulas survive untouched). These are the same 620 cells
+  and the same canonicalizations as in the 0.7.1 run, e.g.
+  `=VLOOKUP($C2,Limits!$A$2:$B$6,2,FALSE)` → `…,FALSE())` and `=SUM(GR4:GR4)` →
+  `=SUM(GR4)`. Semantically equivalent, values preserved — but the formulas on disk
+  are no longer what the author wrote; a text-level audit or byte-level signature
+  will flag them. **New in this run:** LibreOffice also produces cached-value drift
+  (67 cells on branch-consolidation, 90,381 on perf-large) — see the flag below.
+
+### ⚠ Flagged: LibreOffice cached-value drift went from 0 to 90,448 cells
+
+The one number that moved dramatically (far beyond 2×) between the 0.7.1 run and
+this one. Under the 0.7.1-authored fixtures, LibreOffice's re-save produced **zero**
+stored-value changes; under the master-authored fixtures it produces **90,448**
+`cached_value` diffs (90,381 on perf-large + 67 on branch-consolidation).
+
+Root cause (verified against the raw XML): ironcalc master's writer serializes
+cached formula results as shortest-round-trip f64 (up to 17 significant digits,
+e.g. `<v>521.6666666666666</v>`); LibreOffice re-serializes the same number at 15
+significant digits (`<v>521.666666666667</v>`). The stored doubles genuinely differ
+— by ~1e-13 relative — and `xlq diff` compares raw values exactly, so it reports
+them. Only fixtures with non-terminating decimal results are affected (AVERAGE
+over 3 cells in perf-large, margin divisions in branch-consolidation); the
+integer-valued fixtures show zero drift. Two honest readings, both true: (1) this
+is measurement noise at the last ulp, not a corruption risk — the 0.7.1 run's
+"LibreOffice preserves values exactly" was partly an artifact of 0.7.1 writing the
+same 15-digit representation LO does; (2) it is also a real property of LO's write
+path — it re-serializes stored results rather than copying them, which is exactly
+the class of behavior this benchmark exists to expose. Agents diffing an LO
+re-save against a full-precision original will see this; xlq's `cached_value`
+kind (as opposed to `changed`) is the mechanism that keeps it from being confused
+with a content edit.
 
 ## D2. The correction: ironcalc on files it did NOT author
 
@@ -179,14 +239,21 @@ through the same ironcalc roundtrip:
 
 | Input authored by | Dropped | Added | Changed | Byte-identical | Loads in ironcalc |
 |---|---|---|---:|---:|---|
-| openpyxl | `xl/theme/theme1.xml` | `xl/sharedStrings.xml` | 13 | **0** | yes |
-| LibreOffice | `xl/theme/theme1.xml`, `docProps/custom.xml` | — | 14 | **0** | yes |
+| openpyxl | — | `xl/metadata.xml`, `xl/sharedStrings.xml` | 13 | **1** (`xl/theme/theme1.xml`) | yes |
+| LibreOffice | `docProps/custom.xml` | `xl/metadata.xml` | 15 | **0** | yes |
 
-On foreign-authored files ironcalc behaves like the others: it silently drops the
-theme part and LibreOffice's custom document properties, and rewrites **100% of the
-remaining parts** — zero byte-identical. The clean ironcalc rows in section D are a
+On foreign-authored files ironcalc behaves like the others: it silently drops
+LibreOffice's custom document properties, injects the parts its own writer always
+emits (`xl/metadata.xml`, and `xl/sharedStrings.xml` where the input inlined its
+strings), and rewrites essentially all the remaining parts. The single
+byte-identical part on the openpyxl input is the theme — and only because openpyxl
+and ironcalc master happen to write the same default theme bytes, not because
+anything was copied through. The clean ironcalc rows in section D are a
 fixed-point artifact of same-writer-in-same-writer-out, not evidence of a
-preservation-safe write path.
+preservation-safe write path. (Vs the 0.7.1 run the direction of the part churn
+flipped — 0.7.1's writer *dropped* the theme it didn't write and master *adds*
+metadata the inputs lacked — but the conclusion is identical: the model-based
+writer re-serializes the world.)
 
 ---
 
@@ -198,55 +265,65 @@ preservation-safe write path.
   formulas in ~1.3 s — ~1.4× the time openpyxl spends merely parsing the file — and
   openpyxl cannot recalculate at any speed. For an agent that needs to know "are the
   stored values actually what the formulas produce?", the openpyxl column is not
-  slower, it is empty.
-- **Token economy (section C) is the standout result:** 938 bytes of census versus a
-  7.2 MB dump (7,718×) on the 100k-cell fixture. This is the difference between "the
+  slower, it is empty. And with the master engine's 497/522 function coverage (see
+  `docs/COVERAGE.md`), "recalculate" now extends to dynamic-array and LAMBDA
+  workbooks the 0.7.1 engine had to flag as unreliable.
+- **Token economy (section C) is the standout result:** 965 bytes of census versus a
+  7.2 MB dump (7,502×) on the 100k-cell fixture. This is the difference between "the
   agent can hold the workbook's structure in context" and "the workbook cannot be
   read at all". This claim needs no asterisks.
-- **Interactive-grade inspect latency:** 6–36 ms on realistic small workbooks, 0.96 s
+- **Interactive-grade inspect latency:** 7–24 ms on realistic small workbooks, 0.94 s
   on the 100k-cell one — cheap enough to run before and after every operation, which
   is what the receipt/journal design assumes.
-- **Raw parsing speed, now actually measured:** the dedicated `load-only` binary
-  puts ironcalc's parse/load of perf-large at 0.589 s vs openpyxl's 0.927 s —
-  roughly 1.6× faster. (An earlier revision called this "a tie" based on inferring
-  the load time from `xlq inspect`, which also hashes and censuses; the isolated
-  measurement shows the load is faster than that inference suggested.)
+- **Raw parsing speed:** the dedicated `load-only` binary puts ironcalc's parse/load
+  of perf-large at 0.611 s vs openpyxl's 0.900 s — roughly 1.5× faster. (An earlier
+  revision called this "a tie" based on inferring the load time from `xlq inspect`,
+  which also hashes and censuses; the isolated measurement shows the load is faster
+  than that inference suggested.)
+- **The engine upgrade cost nothing measurable:** despite adding ~150 functions,
+  spill semantics, and richer output parts, every section-A timing is within noise
+  of the 0.7.1 run.
 
 **Where it does not win — reported straight.**
 
 - **LibreOffice is genuinely fast.** A full process spawn + load + write of the
-  1.6 MB file in 1.59 s is only ~1.26× xlq's in-process calc, and LibreOffice ships
-  a battle-tested engine with far broader function and feature coverage. If a
-  workflow can tolerate ~1.6 s and LibreOffice's fidelity drift, raw speed alone is
-  not a reason to choose xlq. (Caveat: per caveat 1 the LO number likely excludes
-  real recalculation — Calc does not recalculate xlsx on load by default — so it is
-  NOT an upper bound on LO's load+recalc cost; an honest engine-vs-engine
-  comparison needs a UNO-scripted hard-recalc, which this harness does not do.)
+  1.6 MB file in 1.70 s is only ~1.33× xlq's in-process calc, and LibreOffice ships
+  a battle-tested engine with broad function and feature coverage. If a workflow can
+  tolerate ~1.7 s and LibreOffice's fidelity drift, raw speed alone is not a reason
+  to choose xlq. (Caveat: per caveat 1 the LO number likely excludes real
+  recalculation — Calc does not recalculate xlsx on load by default — so it is NOT
+  an upper bound on LO's load+recalc cost; an honest engine-vs-engine comparison
+  needs a UNO-scripted hard-recalc, which this harness does not do.)
 - **The preservation benchmark cannot yet show the headline failure mode.** The
-  fixtures carry no VBA/charts/pivots; openpyxl and ironcalc preserved cell content
-  exactly, while LibreOffice rewrote the text of 620 formulas (values preserved,
-  formula text canonicalized — see section D); and section D's perfect ironcalc
-  scores are provenance-biased (D2 corrects this). The catastrophic losses
-  documented in issue #22044 are real but not reproduced here — claiming otherwise
-  would be overclaiming.
+  fixtures carry no VBA/charts/pivots; ironcalc preserved cell content exactly,
+  openpyxl preserved formulas and values but stripped every cached result, and
+  LibreOffice rewrote the text of 620 formulas plus the last-ulp value drift flagged
+  above. Section D's perfect ironcalc scores are provenance-biased (D2 corrects
+  this). The catastrophic losses documented in issue #22044 are real but not
+  reproduced here — claiming otherwise would be overclaiming.
 
 **What the numbers justify for the roadmap.**
 
 Section D2 is the load-bearing result: **even ironcalc, xlq's own engine, rewrites
-every OOXML part of a file it didn't author and silently drops the ones it doesn't
-model** (`theme1.xml`, `docProps/custom.xml`). Every model-based writer measured
-here — openpyxl, LibreOffice, ironcalc — re-serializes the world on save; zero parts
-pass through untouched on any cross-tool roundtrip. Therefore xlq's planned write
-path cannot be "load into ironcalc, mutate, `save_to_xlsx`": that inherits exactly
-the fidelity model this project exists to escape. The design doc's **surgical OOXML
-patching** — open the original zip, rewrite only the worksheet XML fragments a
-patch actually touches, copy every other part through byte-for-byte — is the only
-write strategy consistent with these measurements, and it is also what would make
-the untestable column above (VBA/charts/pivots) safe *by construction* rather than
-by engine coverage: parts you never re-serialize are parts you cannot corrupt.
-Section A shows the recalc side is already fast enough for that architecture
-(sub-second audit loop after each patch); section B/C show the read side is cheap
-enough to run as a pre/post receipt on every write.
+every OOXML part of a file it didn't author, drops the parts it doesn't model**
+(`docProps/custom.xml`), **and injects the parts its writer always emits**
+(`xl/metadata.xml`, `xl/sharedStrings.xml`). Every model-based writer measured
+here — openpyxl, LibreOffice, ironcalc — re-serializes the world on save; the lone
+byte-identical part on any cross-tool roundtrip is a coincidence of two writers
+sharing default theme bytes. Therefore xlq's planned write path cannot be "load
+into ironcalc, mutate, `save_to_xlsx`": that inherits exactly the fidelity model
+this project exists to escape. The design doc's **surgical OOXML patching** — open
+the original zip, rewrite only the worksheet XML fragments a patch actually
+touches, copy every other part through byte-for-byte — is the only write strategy
+consistent with these measurements, and it is also what would make the untestable
+column above (VBA/charts/pivots) safe *by construction* rather than by engine
+coverage: parts you never re-serialize are parts you cannot corrupt. Section A
+shows the recalc side is already fast enough for that architecture (sub-second
+audit loop after each patch); sections B/C show the read side is cheap enough to
+run as a pre/post receipt on every write. The cached-value flag in section D adds
+one more requirement the 0.7.1 run couldn't see: the patch writer must copy
+stored `<v>` text verbatim for untouched cells, because even float re-formatting
+is detectable drift.
 
 ## Reproducing
 
