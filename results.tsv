@@ -1,0 +1,7 @@
+run_id	metric	predicted_value	predicted_direction	confidence	actual_value	signal	memory_gb	runtime_s	status	description
+probe-0.7.1	catalog_supported	-	unclear	-	345/522	null	-	-	keep	RETROSPECTIVE exploratory: no prediction recorded; motivated engine-upgrade decision
+probe-master	catalog_supported	~490/522	beat-baseline	medium	494/522	confirm	-	52	keep	predicted big jump from upstream diff (148 new fns observed in macro table before probing)
+residual-3fns	catalog_supported	497/522	beat-baseline	high	497/522	confirm	-	-	keep	ENCODEURL/HYPERLINK/AGGREGATE implemented; exact hit
+oracle-v1	both_value_agreement	high-but-imperfect (no number recorded)	unclear	low	89.1% (1270/1425 decided)	partial	-	-	keep	RETROSPECTIVE-INFORMAL: expected substantial agreement; 155 disagreements became findings
+catalog-100	locally_evaluable+policy	506+16	beat-baseline	medium	505+17	partial	-	-	keep	spec predicted 506/16; measured 505/17 — spec Tier II table off-by-one, documented
+oracle-v2	both_value_agreement	~97% (post lo_unsupported reclass)	match-baseline	medium	97.1% (1273/1311)	confirm	-	-	keep	predicted reclassification would isolate LO-missing fns; FILTERXML type finding caused -0.1pp
