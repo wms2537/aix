@@ -1,0 +1,44 @@
+[package]
+name = "xlq"
+version = "0.1.0"
+edition = "2021"
+description = "Agent-safe transactional runtime for Excel workbooks: inspect, diff, and recalculate .xlsx files with receipts. Read-only commands first; typed dry-run writes to follow."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/wmhy/xlq"
+
+[dependencies]
+# Pinned exactly: the "ironcalc 0.7.1" engine/provenance strings emitted by
+# inspect/calc (and recorded in receipts) must match the linked engine. A
+# caret requirement would let `cargo update` silently falsify them. Bump the
+# pin and those constants together (xlq/src/calc.rs ENGINE, xlq/src/inspect.rs).
+ironcalc = "=0.7.1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+anyhow = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[[bin]]
+name = "xlq"
+path = "src/main.rs"
+
+[[bin]]
+name = "xlq-fixtures"
+path = "src/bin/xlq_fixtures.rs"
+
+[[bin]]
+name = "roundtrip"
+path = "src/bin/roundtrip.rs"
+
+[[bin]]
+name = "coverage-probe"
+path = "src/bin/coverage_probe.rs"
+
+[[bin]]
+name = "load-only"
+path = "src/bin/load_only.rs"
+
+[profile.release]
+lto = true
+strip = true
