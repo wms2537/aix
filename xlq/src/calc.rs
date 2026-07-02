@@ -56,7 +56,7 @@ use std::collections::{HashMap, HashSet};
 // Kept truthful by pinning `ironcalc = "=0.7.1"` in Cargo.toml: a plain
 // caret requirement would let `cargo update` silently falsify this
 // provenance string. Bump both together.
-const ENGINE: &str = "ironcalc 0.7.1";
+const ENGINE: &str = "ironcalc 0.7.1+e50ccea8 (vendored master)";
 const CHANGED_CAP: usize = 10_000;
 
 // Same 8-name volatile set as census.rs (Excel semantics); census does not
@@ -392,7 +392,7 @@ mod tests {
 
     #[test]
     fn drift_below_display_precision_is_still_a_change() {
-        use ironcalc::base::types::Cell;
+        use ironcalc::base::types::{Cell, FormulaValue};
         let mut model = empty_model();
         model.set_user_input(0, 1, 1, "=1/3".to_string()).unwrap();
         model.evaluate();
@@ -402,7 +402,10 @@ mod tests {
         // both 1/3 and this value render as "0.333333333".
         let ws = model.workbook.worksheet_mut(0).unwrap();
         match ws.sheet_data.get_mut(&1).and_then(|row| row.get_mut(&1)) {
-            Some(Cell::CellFormulaNumber { v, .. }) => *v = 0.333_333_333_4,
+            Some(Cell::CellFormula {
+                v: v @ FormulaValue::Number(_),
+                ..
+            }) => *v = FormulaValue::Number(0.333_333_333_4),
             other => panic!("expected a formula-number cell, got {other:?}"),
         }
         assert_eq!(model.get_formatted_cell_value(0, 1, 1).unwrap(), "0.333333333");

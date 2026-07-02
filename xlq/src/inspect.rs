@@ -168,7 +168,7 @@ pub fn run(path: &str, redact: bool) -> Result<serde_json::Value> {
         })
     };
 
-    let mut coverage = json!({"engine": "ironcalc 0.7.1", "reliable": reliable});
+    let mut coverage = json!({"engine": "ironcalc 0.7.1+e50ccea8 (vendored master)", "reliable": reliable});
     if !unsupported_features.is_empty() {
         coverage["unsupported_features"] = json!(unsupported_features);
     }
@@ -378,7 +378,7 @@ mod tests {
         assert_eq!(report["defined_names"]["names"], json!(["SecretRegion"]));
         assert_eq!(report["ooxml_parts"]["has_vba"], json!(false));
         assert!(report["ooxml_parts"]["part_count"].as_u64().unwrap() > 0);
-        assert_eq!(report["coverage"]["engine"], json!("ironcalc 0.7.1"));
+        assert_eq!(report["coverage"]["engine"], json!("ironcalc 0.7.1+e50ccea8 (vendored master)"));
         assert_eq!(report["xlq"]["command"], json!("inspect"));
 
         let redacted = run(&path, true).expect("inspect redacted");
@@ -466,7 +466,7 @@ mod tests {
         // Function-bearing defined names arrive via import; push directly.
         model.workbook.defined_names.push(ironcalc::base::types::DefinedName {
             name: "HiddenCalc".to_string(),
-            formula: "SUMPRODUCT(Sheet1!$A$1:$A$2)".to_string(),
+            formula: "CUBEVALUE(Sheet1!$A$1:$A$2)".to_string(),
             sheet_id: None,
         });
         model
@@ -476,7 +476,7 @@ mod tests {
         let path = save_temp(&model, "dn-unsupported");
 
         let report = run(&path, false).expect("inspect");
-        assert_eq!(report["unsupported_functions"], json!(["SUMPRODUCT"]));
+        assert_eq!(report["unsupported_functions"], json!(["CUBEVALUE"]));
         assert_eq!(report["coverage"]["reliable"], json!(false));
 
         let _ = std::fs::remove_file(&path);
@@ -528,26 +528,31 @@ mod tests {
         model.evaluate();
         let path = save_temp(&model, "cse-array");
 
-        // Turn B1's formula into a legacy CSE array formula, which makes
-        // ironcalc's load_from_xlsx return NotImplemented("array formulas").
+        // Turn B1's formula into a legacy CSE array formula. Engines at or
+        // before ironcalc 0.7.1 rejected these with NotImplemented("array
+        // formulas") and inspect fell back to a stripped temp copy; the
+        // vendored master build (spill support landed upstream) loads them
+        // natively, so the census must succeed either way — the fallback
+        // stays in place as a guard for whatever the engine rejects next.
         patch_zip_part(&path, "xl/worksheets/sheet1.xml", |xml| {
             let xml = xml.expect("sheet1.xml present");
             assert!(xml.contains("<f>"), "expected a plain formula tag: {xml}");
             xml.replacen("<f>", "<f t=\"array\" ref=\"B1:B1\">", 1)
         });
-        assert!(
-            ironcalc::import::load_from_xlsx(&path, "en", "UTC", "en").is_err(),
-            "precondition: ironcalc rejects the CSE workbook directly"
-        );
+        let loads_natively = ironcalc::import::load_from_xlsx(&path, "en", "UTC", "en").is_ok();
 
         let report = run(&path, false).expect("inspect must survive CSE formulas");
         assert_eq!(report["functions"], json!({"MIN": 1}));
         assert_eq!(report["sheets"][0]["formulas"], json!(1));
-        assert_eq!(
-            report["coverage"]["unsupported_features"],
-            json!(["legacy array formulas (CSE)"])
-        );
-        assert_eq!(report["coverage"]["reliable"], json!(false));
+        if loads_natively {
+            assert_eq!(report["coverage"]["reliable"], json!(true));
+        } else {
+            assert_eq!(
+                report["coverage"]["unsupported_features"],
+                json!(["legacy array formulas (CSE)"])
+            );
+            assert_eq!(report["coverage"]["reliable"], json!(false));
+        }
 
         let _ = std::fs::remove_file(&path);
     }

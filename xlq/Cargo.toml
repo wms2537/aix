@@ -42,3 +42,7 @@ path = "src/bin/load_only.rs"
 [profile.release]
 lto = true
 strip = true
+
+[patch.crates-io]
+ironcalc = { path = "../vendor/upstream/xlsx" }
+ironcalc_base = { path = "../vendor/upstream/base" }

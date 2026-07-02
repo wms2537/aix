@@ -279,9 +279,9 @@ mod tests {
             .set_user_input(0, 1, 1, "=SUM(1,2)+SUM(3,4)".to_string())
             .unwrap();
         model.set_user_input(0, 2, 1, "=NOW()".to_string()).unwrap();
-        // SUMPRODUCT is Excel vocabulary but unsupported by ironcalc 0.7.1.
+        // CUBEVALUE is Excel vocabulary but unsupported by the vendored engine.
         model
-            .set_user_input(0, 3, 1, "=SUMPRODUCT(1)".to_string())
+            .set_user_input(0, 3, 1, "=CUBEVALUE(1)".to_string())
             .unwrap();
         model.set_user_input(0, 4, 1, "plain text".to_string()).unwrap();
         model.evaluate();
@@ -289,9 +289,9 @@ mod tests {
         let census = function_census(&model);
         assert_eq!(census.tallies.get("SUM"), Some(&2));
         assert_eq!(census.tallies.get("NOW"), Some(&1));
-        assert_eq!(census.tallies.get("SUMPRODUCT"), Some(&1));
+        assert_eq!(census.tallies.get("CUBEVALUE"), Some(&1));
         assert_eq!(census.tallies.len(), 3);
-        assert_eq!(census.unsupported, vec!["SUMPRODUCT"]);
+        assert_eq!(census.unsupported, vec!["CUBEVALUE"]);
         assert_eq!(census.volatile_present, vec!["NOW"]);
         assert!(census.user_defined.is_empty());
     }
@@ -331,7 +331,7 @@ mod tests {
     fn functions_inside_defined_name_formulas_are_counted() {
         use ironcalc::base::types::DefinedName;
         let mut model = Model::new_empty("t", "en", "UTC", "en").unwrap();
-        // OFFSET (volatile, supported) and SUMPRODUCT (unsupported) used ONLY
+        // OFFSET (volatile, supported) and CUBEVALUE (unsupported) used ONLY
         // inside defined names, never in a cell formula. new_defined_name
         // only accepts plain references, so push directly (as import does).
         model.workbook.defined_names.push(DefinedName {
@@ -341,7 +341,7 @@ mod tests {
         });
         model.workbook.defined_names.push(DefinedName {
             name: "HiddenCalc".to_string(),
-            formula: "SUMPRODUCT(Sheet1!$A$1:$A$2)".to_string(),
+            formula: "CUBEVALUE(Sheet1!$A$1:$A$2)".to_string(),
             sheet_id: None,
         });
         model
@@ -351,8 +351,8 @@ mod tests {
 
         let census = function_census(&model);
         assert_eq!(census.tallies.get("OFFSET"), Some(&1));
-        assert_eq!(census.tallies.get("SUMPRODUCT"), Some(&1));
-        assert_eq!(census.unsupported, vec!["SUMPRODUCT"]);
+        assert_eq!(census.tallies.get("CUBEVALUE"), Some(&1));
+        assert_eq!(census.unsupported, vec!["CUBEVALUE"]);
         assert_eq!(census.volatile_present, vec!["OFFSET"]);
     }
 }
