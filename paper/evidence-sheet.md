@@ -135,3 +135,61 @@ diff precisely because byte-identity and caches are untrustworthy.
 - Closest prior: Pista (2026, incl. Gulwani) — human step-level oversight,
   prompt-only constraints, no automated fidelity/coverage; its Limitations
   name our contribution as their future work.
+
+## v0.2 — the BUILT surgical write path (2026-07-03, reframe)
+The adversarial PC review (unanimous reject, mean -1.83) rejected v0.1's
+read-only "enforcement" framing. v0.2 builds the write path; the paper is
+re-centered on it. New frozen results:
+
+### The system (built, tested)
+- `xlq apply <file> <patch.json> [--dry-run]`: precondition base_hash check,
+  dry-run prediction (affected cells / new errors / watch / coverage),
+  surgical OOXML write, hash-chained receipt journal + advisory lock +
+  rev-files + atomic swap. 108 tests (96 unit + 5 + 7 integration). Coverage
+  gate refuses writes when predicted caches are unreliable.
+- THE PROVABLE PROPERTY (docs/FIDELITY.md): after apply, every OOXML part
+  without an edited cell is BYTE-IDENTICAL to the input.
+
+### E1 — fidelity preservation (per-file, docs/FIDELITY.md, benchmarks/fidelity.json)
+Same edit, three tools, byte-level part comparison:
+- pivot-chart.xlsx (2 charts + pivot): xlq 48/50 parts identical, charts+pivot
+  byte-identical, reloads; openpyxl 1/50, output does NOT reload; LibreOffice
+  0/50 (100% rewritten).
+- macro.xlsm (VBA): xlq 10/11 identical, vbaProject.bin byte-identical;
+  openpyxl 1/11, DROPS all VBA; LibreOffice 0/11.
+- payroll.xlsx: xlq 11/13 (only the 2 sheets with changed values rewritten);
+  openpyxl 1/13; LO 0/13. claims.xlsx: xlq 11/12; openpyxl 1/12; LO 0/12.
+
+### E2 — agent-in-the-loop A/B (docs/AGENT-AB.md, benchmarks/agent_ab.json)
+Real LLM agent, same task/file, only the edit tool varies:
+- t2-chart (charts+pivot): openpyxl-agent produced a CORRUPT non-reloadable
+  workbook (0/10 chart parts survive, 9 parts dropped) and FALSELY reported
+  success — the #22044 harm reproduced live; xlq-agent: charts+pivot
+  byte-identical (10/10), 48/50 parts, reloads, signed receipt. TASK: openpyxl
+  FAILED (output unreadable), xlq PASSED.
+- t1-vba: both completed; openpyxl volunteered keep_vba=True (charitable path)
+  so VBA survived but rewrote 9/11 parts + dropped sharedStrings; realistic
+  default keep_vba=False drops VBA. xlq: 10/11 identical, receipt.
+- Interventional finding: an agent confined to xlq could not commit the
+  corruption even attempting the identical edit. Threats: 2 tasks, set_cell
+  only, LLM-subagent-as-agent (stated), openpyxl keep_vba nuance.
+
+### E3 — independent financial cross-check (benchmarks/financial_crosscheck.json)
+numpy-financial + documented Treasury formulas (independent of the triage):
+CONFIRMS IronCalc on TBILLPRICE (97.7) and TBILLYIELD (0.0297947) — LibreOffice
+used DSM=181. DOWNGRADES TBILLEQ: the independent bond-equiv form matches
+LibreOffice not IronCalc, so that verdict -> UNDECIDABLE pending Excel (the
+cross-check caught one of our own verdicts; report honestly).
+
+### Threat model (docs/THREAT-MODEL.md)
+xlq is a boundary for an agent CONFINED to it (harness grants xlq, withholds
+raw write); within that confinement the #22044 corruption is unreachable and
+every change is previewed, attributable, reversible. NOT a defense against an
+agent with raw shell — stated as a scoping assumption, matching how the
+enforcement-wave papers scope their boundaries.
+
+### Retitle
+Drop the bare "Enforcement Boundary" overclaim only if keeping v0.1 framing;
+with v0.2 BUILT, "enforcement boundary" is now honest. Consider:
+"A Surgical Transactional Write Boundary that Lets LLM Agents Edit Spreadsheets
+without Corrupting Them."
