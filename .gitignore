@@ -2,3 +2,7 @@ target/
 *.xlq.jsonl
 .DS_Store
 benchmarks/work/
+paper/.aux
+paper/.toc
+paper/.out
+paper/.log
