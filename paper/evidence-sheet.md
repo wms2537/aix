@@ -10,7 +10,7 @@ All from benchmarks/*.json at commit 150fb66. Machine: Intel i7-8700K,
   review: "policy-limited" was hiding three different reasons):
   - **capability-limited (14)** — need network/live data the runtime has no
     local access to: WEBSERVICE #VALUE!; RTD #N/A; STOCKHISTORY/
-    DETECTLANGUAGE/TRANSLATE/COPILOT/IMAGE #CONNECT!; 7 CUBE functions #NAME!
+    DETECTLANGUAGE/TRANSLATE/COPILOT/IMAGE #CONNECT!; 7 CUBE functions #NAME?
   - **policy-blocked (2)** — deliberately refused for security (memo §16):
     CALL/REGISTER.ID (XLM) #BLOCKED!
   - **context-precondition (1)** — needs a workbook object the runtime
