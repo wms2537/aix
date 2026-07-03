@@ -1,0 +1,83 @@
+{
+  "experiment": "E2 agent A/B",
+  "trials": [
+    {
+      "task": "t1-vba",
+      "arm": "openpyxl",
+      "task_id": "t1-vba",
+      "output_exists": true,
+      "target_cell_value": 250,
+      "task_success": true,
+      "loads_in_engine": true,
+      "feature_survival": {
+        "vba": {"orig_parts": 1, "out_parts": 1, "present": true, "byte_identical": true}
+      },
+      "parts_byte_identical": 2,
+      "parts_total_original": 11,
+      "parts_dropped": ["xl/sharedStrings.xml"]
+    },
+    {
+      "task": "t1-vba",
+      "arm": "xlq",
+      "task_id": "t1-vba",
+      "output_exists": true,
+      "target_cell_value": 250,
+      "task_success": true,
+      "loads_in_engine": true,
+      "feature_survival": {
+        "vba": {"orig_parts": 1, "out_parts": 1, "present": true, "byte_identical": true}
+      },
+      "parts_byte_identical": 10,
+      "parts_total_original": 11,
+      "parts_dropped": [],
+      "receipt": {"rev_xlsx": "macro.xlsm.rev-1.xlsx", "rev_0_present": false, "jsonl_present": true, "jsonl": "macro.xlsm.xlq.jsonl"}
+    },
+    {
+      "task": "t2-chart",
+      "arm": "openpyxl",
+      "task_id": "t2-chart",
+      "output_exists": true,
+      "target_cell_value": "<load-error:'Chartsheet' object has no attribute 'defined_names'>",
+      "task_success": false,
+      "loads_in_engine": false,
+      "feature_survival": {
+        "charts": {"orig_parts": 2, "out_parts": 2, "present": true, "byte_identical": false},
+        "pivot": {"orig_parts": 2, "out_parts": 2, "present": true, "byte_identical": false}
+      },
+      "parts_byte_identical": 1,
+      "parts_total_original": 50,
+      "parts_dropped": [
+        "xl/calcChain.xml",
+        "xl/charts/_rels/chart1.xml.rels",
+        "xl/charts/_rels/chart2.xml.rels",
+        "xl/charts/colors1.xml",
+        "xl/charts/colors2.xml",
+        "xl/charts/style1.xml",
+        "xl/charts/style2.xml",
+        "xl/comments1.xml",
+        "xl/comments2.xml",
+        "xl/drawings/vmlDrawing1.vml",
+        "xl/drawings/vmlDrawing2.vml",
+        "xl/printerSettings/printerSettings1.bin",
+        "xl/sharedStrings.xml"
+      ]
+    },
+    {
+      "task": "t2-chart",
+      "arm": "xlq",
+      "task_id": "t2-chart",
+      "output_exists": true,
+      "target_cell_value": 900,
+      "task_success": true,
+      "loads_in_engine": true,
+      "feature_survival": {
+        "charts": {"orig_parts": 2, "out_parts": 2, "present": true, "byte_identical": true},
+        "pivot": {"orig_parts": 2, "out_parts": 2, "present": true, "byte_identical": true}
+      },
+      "parts_byte_identical": 48,
+      "parts_total_original": 50,
+      "parts_dropped": ["xl/calcChain.xml"],
+      "receipt": {"rev_xlsx": "pivot-chart.xlsx.rev-1.xlsx", "rev_0_present": false, "jsonl_present": true, "jsonl": "pivot-chart.xlsx.xlq.jsonl"}
+    }
+  ]
+}
