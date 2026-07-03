@@ -5,3 +5,4 @@ residual-3fns	catalog_supported	497/522	beat-baseline	high	497/522	confirm	-	-	k
 oracle-v1	both_value_agreement	high-but-imperfect (no number recorded)	unclear	low	89.1% (1270/1425 decided)	partial	-	-	keep	RETROSPECTIVE-INFORMAL: expected substantial agreement; 155 disagreements became findings
 catalog-100	locally_evaluable+policy	506+16	beat-baseline	medium	505+17	partial	-	-	keep	spec predicted 506/16; measured 505/17 — spec Tier II table off-by-one, documented
 oracle-v2	both_value_agreement	~97% (post lo_unsupported reclass)	match-baseline	medium	97.1% (1273/1311)	confirm	-	-	keep	predicted reclassification would isolate LO-missing fns; FILTERXML type finding caused -0.1pp
+oracle-triage	disagreement_fault_matrix	no prediction (analysis)	unclear	-	24 IC / 41 LO / 7 both / 13 spec / 0 undec	null	-	-	keep	Excel-arbitrated triage of 85 disagreements; harness indicts own engine 24x (anti-stacking)

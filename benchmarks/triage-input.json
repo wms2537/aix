@@ -1,0 +1,1796 @@
+{
+ "disagree": [
+  {
+   "formula": "=ACCRINT(DATE(2025,1,1),DATE(2025,7,1),DATE(2026,1,15),0.05,1000,4,1)",
+   "function": "ACCRINT",
+   "ironcalc": {
+    "formatted": "51.923076923",
+    "value": 51.92307692307692
+   },
+   "libreoffice": {
+    "formatted": "51.917808219",
+    "value": 51.9178082191781
+   },
+   "row": 6,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=AMORDEGRC(10000,DATE(2025,1,1),DATE(2025,12,31),1000,2,0.2,0)",
+   "function": "AMORDEGRC",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "1440",
+    "value": 1440.0
+   },
+   "row": 32,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=AREAS((A1:A5,C1:C5))",
+   "function": "AREAS",
+   "ironcalc": {
+    "formatted": "#ERROR!",
+    "value": "#ERROR!"
+   },
+   "libreoffice": {
+    "formatted": "2",
+    "value": 2.0
+   },
+   "row": 46,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=ATAN2(0,0)",
+   "function": "ATAN2",
+   "ironcalc": {
+    "formatted": "#DIV/0!",
+    "value": "#DIV/0!"
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 66,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=BESSELI(A1,0)",
+   "function": "BESSELI",
+   "ironcalc": {
+    "formatted": "2.279585307",
+    "value": 2.279585307296026
+   },
+   "libreoffice": {
+    "formatted": "2.279585302",
+    "value": 2.27958530233607
+   },
+   "row": 98,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=BETADIST(-1,2,3)",
+   "function": "BETADIST",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 118,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=BETAINV(0,2,3)",
+   "function": "BETAINV",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 121,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=BITLSHIFT(1,54)",
+   "function": "BITLSHIFT",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "1.80144E+16",
+    "value": 1.8014398509482e+16
+   },
+   "row": 150,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=BITOR(2.5,1)",
+   "function": "BITOR",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "3",
+    "value": 3.0
+   },
+   "row": 153,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=CHAR(0)",
+   "function": "CHAR",
+   "ironcalc": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "libreoffice": {
+    "formatted": "\u0000",
+    "value": "\u0000"
+   },
+   "row": 184,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=CHIDIST(-1,2)",
+   "function": "CHIDIST",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "1",
+    "value": 1.0
+   },
+   "row": 187,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=CHISQ.TEST(C1:C5,D1:D5)",
+   "function": "CHISQ.TEST",
+   "ironcalc": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "libreoffice": {
+    "formatted": "2.55415E-25",
+    "value": 2.55415463086148e-25
+   },
+   "row": 204,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=CHITEST(C1:C5,D1:D5)",
+   "function": "CHITEST",
+   "ironcalc": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "libreoffice": {
+    "formatted": "2.55415E-25",
+    "value": 2.55415463086148e-25
+   },
+   "row": 207,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=CODE(\"\")",
+   "function": "CODE",
+   "ironcalc": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 225,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=CONCATENATE(E1,\"x\")",
+   "function": "CONCATENATE",
+   "ironcalc": {
+    "formatted": "TRUEx",
+    "value": "TRUEx"
+   },
+   "libreoffice": {
+    "formatted": "1x",
+    "value": "1x"
+   },
+   "row": 248,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=CONVERT(1,\"lbm\",\"kg\")",
+   "function": "CONVERT",
+   "ironcalc": {
+    "formatted": "0.45359237",
+    "value": 0.45359237
+   },
+   "libreoffice": {
+    "formatted": "0.45359231",
+    "value": 0.453592309748811
+   },
+   "row": 258,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=CONVERT(68,\"F\",\"C\")",
+   "function": "CONVERT",
+   "ironcalc": {
+    "formatted": "19.65",
+    "value": 19.650000000000034
+   },
+   "libreoffice": {
+    "formatted": "20",
+    "value": 20.0
+   },
+   "row": 259,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=COUNT(E1:E2)",
+   "function": "COUNT",
+   "ironcalc": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "libreoffice": {
+    "formatted": "2",
+    "value": 2.0
+   },
+   "row": 280,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=CRITBINOM(10,0.5,0)",
+   "function": "CRITBINOM",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 324,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=DOLLAR(-1234.567,-2)",
+   "function": "DOLLAR",
+   "ironcalc": {
+    "formatted": "($1,200)",
+    "value": "($1,200)"
+   },
+   "libreoffice": {
+    "formatted": "-$1,200",
+    "value": "-$1,200"
+   },
+   "row": 410,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=DURATION(DATE(2026,1,1),DATE(2030,1,1),0.08,0.09,2,1)",
+   "function": "DURATION",
+   "ironcalc": {
+    "formatted": "3.491083302",
+    "value": 3.4910833018229606
+   },
+   "libreoffice": {
+    "formatted": "3.491630947",
+    "value": 3.49163094694892
+   },
+   "row": 434,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=EXPON.DIST(-1,1,TRUE)",
+   "function": "EXPON.DIST",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 483,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=COUNT(FILTER(C1:C5,D1:D5>25))",
+   "function": "FILTER",
+   "ironcalc": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "libreoffice": {
+    "formatted": "3",
+    "value": 3.0
+   },
+   "row": 518,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=FILTERXML(\"<a><b>5</b><b>7</b></a>\",\"//b[1]\")",
+   "function": "FILTERXML",
+   "ironcalc": {
+    "formatted": "5",
+    "value": 5.0
+   },
+   "libreoffice": {
+    "formatted": "5",
+    "value": "5"
+   },
+   "row": 521,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=FILTERXML(\"<a><b>5</b><b>7</b></a>\",\"//b[last()]\")",
+   "function": "FILTERXML",
+   "ironcalc": {
+    "formatted": "7",
+    "value": 7.0
+   },
+   "libreoffice": {
+    "formatted": "7",
+    "value": "7"
+   },
+   "row": 522,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=INDEX(GROWTH({2,4,8,16,32}, {1,2,3,4,5}, 6), 1, 1)",
+   "function": "GROWTH",
+   "ironcalc": {
+    "formatted": "#REF!",
+    "value": "#REF!"
+   },
+   "libreoffice": {
+    "formatted": "64",
+    "value": 64.0
+   },
+   "row": 620,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=IMCOT(\"0\")",
+   "function": "IMCOT",
+   "ironcalc": {
+    "formatted": "inf",
+    "value": "inf"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 696,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=IMCSC(\"0\")",
+   "function": "IMCSC",
+   "ironcalc": {
+    "formatted": "NaNNaNi",
+    "value": "NaNNaNi"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 699,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=IMCSCH(\"0\")",
+   "function": "IMCSCH",
+   "ironcalc": {
+    "formatted": "NaNNaNi",
+    "value": "NaNNaNi"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 702,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=IMLN(\"0\")",
+   "function": "IMLN",
+   "ironcalc": {
+    "formatted": "-inf",
+    "value": "-inf"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 711,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=IMPRODUCT(\"2\", \"3\", \"4\")",
+   "function": "IMPRODUCT",
+   "ironcalc": {
+    "formatted": "#ERROR!",
+    "value": "#ERROR!"
+   },
+   "libreoffice": {
+    "formatted": "24",
+    "value": "24"
+   },
+   "row": 723,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=INDIRECT(\"R3C1\", FALSE)",
+   "function": "INDIRECT",
+   "ironcalc": {
+    "formatted": "#N/IMPL!",
+    "value": "#N/IMPL!"
+   },
+   "libreoffice": {
+    "formatted": "6",
+    "value": 6.0
+   },
+   "row": 759,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=ISNUMBER(E1)",
+   "function": "ISNUMBER",
+   "ironcalc": {
+    "formatted": "FALSE",
+    "value": false
+   },
+   "libreoffice": {
+    "formatted": "TRUE",
+    "value": true
+   },
+   "row": 811,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=LAMBDA([x],ISOMITTED(x))()",
+   "function": "ISOMITTED",
+   "ironcalc": {
+    "formatted": "TRUE",
+    "value": true
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 820,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=LAMBDA([x],ISOMITTED(x))(5)",
+   "function": "ISOMITTED",
+   "ironcalc": {
+    "formatted": "FALSE",
+    "value": false
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 821,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=LAMBDA([x],IF(ISOMITTED(x),-1,x))(A1)",
+   "function": "ISOMITTED",
+   "ironcalc": {
+    "formatted": "2",
+    "value": 2.0
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 822,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=LAMBDA(x,y,x+y)(A1,A2)",
+   "function": "LAMBDA",
+   "ironcalc": {
+    "formatted": "6",
+    "value": 6.0
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 844,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=LAMBDA(x,x*x)(A5)",
+   "function": "LAMBDA",
+   "ironcalc": {
+    "formatted": "100",
+    "value": 100.0
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 845,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=LAMBDA(s,UPPER(s))(B1)",
+   "function": "LAMBDA",
+   "ironcalc": {
+    "formatted": "ALPHA",
+    "value": "ALPHA"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 846,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=INDEX(LINEST(D1:D5,C1:C5),1,2)",
+   "function": "LINEST",
+   "ironcalc": {
+    "formatted": "7.10543E-15",
+    "value": 7.105427357601002e-15
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 873,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=LOGNORM.DIST(0,0,1,TRUE)",
+   "function": "LOGNORM.DIST",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 895,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=LOGNORMDIST(0,0,1)",
+   "function": "LOGNORMDIST",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 901,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=MAXA(A6,E1)",
+   "function": "MAXA",
+   "ironcalc": {
+    "formatted": "-3",
+    "value": -3.0
+   },
+   "libreoffice": {
+    "formatted": "1",
+    "value": 1.0
+   },
+   "row": 925,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=MDURATION(DATE(2026,1,1),DATE(2031,1,1),0.05,0.06,1,1)",
+   "function": "MDURATION",
+   "ironcalc": {
+    "formatted": "4.277974104",
+    "value": 4.277974103565637
+   },
+   "libreoffice": {
+    "formatted": "4.278404681",
+    "value": 4.27840468148732
+   },
+   "row": 935,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=MINA(C1:C5,E2)",
+   "function": "MINA",
+   "ironcalc": {
+    "formatted": "1",
+    "value": 1.0
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 954,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=COUNT(MODE.MULT({1,1,2,2,3}))",
+   "function": "MODE.MULT",
+   "ironcalc": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "libreoffice": {
+    "formatted": "2",
+    "value": 2.0
+   },
+   "row": 981,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=MROUND(A1,-3)",
+   "function": "MROUND",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "3",
+    "value": 3.0
+   },
+   "row": 993,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=NUMBERVALUE(\"3.5%\")",
+   "function": "NUMBERVALUE",
+   "ironcalc": {
+    "formatted": "0.035",
+    "value": 0.035
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 1067,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=ODDFPRICE(DATE(2026,2,1),DATE(2031,3,1),DATE(2025,12,1),DATE(2026,9,1),0.05,0.06,100,2)",
+   "function": "ODDFPRICE",
+   "ironcalc": {
+    "formatted": "95.638718481",
+    "value": 95.63871848080437
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 1085,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=ODDFPRICE(DATE(2026,5,15),DATE(2031,3,1),DATE(2026,3,1),DATE(2027,3,1),0.05,0.06,100,1)",
+   "function": "ODDFPRICE",
+   "ironcalc": {
+    "formatted": "95.91405302",
+    "value": 95.91405301998944
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 1086,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=ODDFPRICE(DATE(2026,2,1),DATE(2031,3,1),DATE(2026,3,1),DATE(2026,9,1),0.05,0.06,100,2)",
+   "function": "ODDFPRICE",
+   "ironcalc": {
+    "formatted": "95.2644236",
+    "value": 95.2644236004297
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 1087,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=ODDFYIELD(DATE(2026,2,1),DATE(2031,3,1),DATE(2025,12,1),DATE(2026,9,1),0.05,95,100,2)",
+   "function": "ODDFYIELD",
+   "ironcalc": {
+    "formatted": "0.061519631",
+    "value": 0.06151963143529892
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 1088,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=ODDFYIELD(DATE(2026,5,15),DATE(2031,3,1),DATE(2026,3,1),DATE(2027,3,1),0.04,101.5,100,1)",
+   "function": "ODDFYIELD",
+   "ironcalc": {
+    "formatted": "0.036506006",
+    "value": 0.03650600623418319
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 1089,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=ODDLPRICE(DATE(2026,2,1),DATE(2026,6,15),DATE(2025,10,15),0.05,0.06,100,2,1)",
+   "function": "ODDLPRICE",
+   "ironcalc": {
+    "formatted": "99.608422575",
+    "value": 99.60842257486254
+   },
+   "libreoffice": {
+    "formatted": "99.60860784",
+    "value": 99.6086078396235
+   },
+   "row": 1092,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=ODDLPRICE(DATE(2026,2,1),DATE(2026,6,15),DATE(2026,3,1),0.05,0.06,100,2)",
+   "function": "ODDLPRICE",
+   "ironcalc": {
+    "formatted": "99.716033202",
+    "value": 99.71603320227172
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 1093,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=OR(C1:C5>4)",
+   "function": "OR",
+   "ironcalc": {
+    "formatted": "TRUE",
+    "value": true
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 1103,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=PERCENTRANK(A1:A10,6)",
+   "function": "PERCENTRANK",
+   "ironcalc": {
+    "formatted": "0.555",
+    "value": 0.555
+   },
+   "libreoffice": {
+    "formatted": "0.556",
+    "value": 0.556
+   },
+   "row": 1125,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=PERCENTRANK(A1:A10,7,5)",
+   "function": "PERCENTRANK",
+   "ironcalc": {
+    "formatted": "0.62962",
+    "value": 0.62962
+   },
+   "libreoffice": {
+    "formatted": "0.62963",
+    "value": 0.62963
+   },
+   "row": 1127,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=PERCENTRANK.EXC(A1:A10,-3)",
+   "function": "PERCENTRANK.EXC",
+   "ironcalc": {
+    "formatted": "0.09",
+    "value": 0.09
+   },
+   "libreoffice": {
+    "formatted": "0.0909",
+    "value": 0.0909
+   },
+   "row": 1131,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=PERCENTRANK.INC(A1:A10,10)",
+   "function": "PERCENTRANK.INC",
+   "ironcalc": {
+    "formatted": "0.888",
+    "value": 0.888
+   },
+   "libreoffice": {
+    "formatted": "0.889",
+    "value": 0.889
+   },
+   "row": 1132,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=POWER(0,0)",
+   "function": "POWER",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "1",
+    "value": 1.0
+   },
+   "row": 1163,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=PRICE(DATE(2026,3,15),DATE(2031,3,15),0.05,0.05,100,4,3)",
+   "function": "PRICE",
+   "ironcalc": {
+    "formatted": "100",
+    "value": 100.00000000000007
+   },
+   "libreoffice": {
+    "formatted": "99.989790231",
+    "value": 99.9897902308227
+   },
+   "row": 1169,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=PRICEMAT(DATE(2026,1,1),DATE(2027,1,1),DATE(2026,1,1),0.04,0.05,1)",
+   "function": "PRICEMAT",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "99.047619048",
+    "value": 99.0476190476191
+   },
+   "row": 1174,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=PRODUCT(C1:C3,\"2\")",
+   "function": "PRODUCT",
+   "ironcalc": {
+    "formatted": "12",
+    "value": 12.0
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 1181,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=RATE(10,-100,1000)",
+   "function": "RATE",
+   "ironcalc": {
+    "formatted": "-3.35125E-11",
+    "value": -3.351249888821255e-11
+   },
+   "libreoffice": {
+    "formatted": "0.00%",
+    "value": 6.1185791462466e-11
+   },
+   "row": 1222,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=SUM(ROW(C1:C5))",
+   "function": "ROW",
+   "ironcalc": {
+    "formatted": "1",
+    "value": 1.0
+   },
+   "libreoffice": {
+    "formatted": "15",
+    "value": 15.0
+   },
+   "row": 1275,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=SECOND(0.999999)",
+   "function": "SECOND",
+   "ironcalc": {
+    "formatted": "59",
+    "value": 59.0
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 1305,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=SHEET(A1)",
+   "function": "SHEET",
+   "ironcalc": {
+    "formatted": "#N/A",
+    "value": "#N/A"
+   },
+   "libreoffice": {
+    "formatted": "1",
+    "value": 1.0
+   },
+   "row": 1314,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=SHEETS(A1:A10)",
+   "function": "SHEETS",
+   "ironcalc": {
+    "formatted": "#N/IMPL!",
+    "value": "#N/IMPL!"
+   },
+   "libreoffice": {
+    "formatted": "1",
+    "value": 1.0
+   },
+   "row": 1316,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=SKEW.P(A1:A2)",
+   "function": "SKEW.P",
+   "ironcalc": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "libreoffice": {
+    "formatted": "#DIV/0!",
+    "value": "#DIV/0!"
+   },
+   "row": 1333,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=STDEVA(A1:A2,B9)",
+   "function": "STDEVA",
+   "ironcalc": {
+    "formatted": "1.414213562",
+    "value": 1.4142135623730951
+   },
+   "libreoffice": {
+    "formatted": "2",
+    "value": 2.0
+   },
+   "row": 1374,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=SUM(\"3\",2)",
+   "function": "SUM",
+   "ironcalc": {
+    "formatted": "5",
+    "value": 5.0
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 1395,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=SUMPRODUCT(--(A1:A10>5))",
+   "function": "SUMPRODUCT",
+   "ironcalc": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "libreoffice": {
+    "formatted": "5",
+    "value": 5.0
+   },
+   "row": 1406,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=SYD(1000,100,5,6)",
+   "function": "SYD",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "$0.00",
+    "value": 0.0
+   },
+   "row": 1427,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=TBILLEQ(DATE(2026,3,15),DATE(2026,9,15),0.045)",
+   "function": "TBILLEQ",
+   "ironcalc": {
+    "formatted": "0.046690193",
+    "value": 0.04669019304858653
+   },
+   "libreoffice": {
+    "formatted": "0.046681161",
+    "value": 0.0466811612738202
+   },
+   "row": 1463,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=TBILLEQ(DATE(2026,1,1),DATE(2026,12,1),0.05)",
+   "function": "TBILLEQ",
+   "ironcalc": {
+    "formatted": "0.05253457",
+    "value": 0.052534569916227875
+   },
+   "libreoffice": {
+    "formatted": "0.053137283",
+    "value": 0.0531372834473723
+   },
+   "row": 1464,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=TBILLPRICE(DATE(2026,3,15),DATE(2026,9,15),0.045)",
+   "function": "TBILLPRICE",
+   "ironcalc": {
+    "formatted": "97.7",
+    "value": 97.7
+   },
+   "libreoffice": {
+    "formatted": "97.7375",
+    "value": 97.7375
+   },
+   "row": 1466,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=TBILLYIELD(DATE(2026,3,15),DATE(2026,9,15),98.5)",
+   "function": "TBILLYIELD",
+   "ironcalc": {
+    "formatted": "0.029794747",
+    "value": 0.02979474729640256
+   },
+   "libreoffice": {
+    "formatted": "0.030288583",
+    "value": 0.0302885828869505
+   },
+   "row": 1469,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=COUNTA(TEXTSPLIT(\"a,b,c\",\",\"))",
+   "function": "TEXTSPLIT",
+   "ironcalc": {
+    "formatted": "3",
+    "value": 3.0
+   },
+   "libreoffice": {
+    "formatted": "1",
+    "value": 1.0
+   },
+   "row": 1493,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=TREND(D1:D5,C1:C5,0)",
+   "function": "TREND",
+   "ironcalc": {
+    "formatted": "7.10543E-15",
+    "value": 7.105427357601002e-15
+   },
+   "libreoffice": {
+    "formatted": "0",
+    "value": 0.0
+   },
+   "row": 1515,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=TRIM(\"  a   b  \")",
+   "function": "TRIM",
+   "ironcalc": {
+    "formatted": "a   b",
+    "value": "a   b"
+   },
+   "libreoffice": {
+    "formatted": "a b",
+    "value": "a b"
+   },
+   "row": 1517,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=TYPE(E1)",
+   "function": "TYPE",
+   "ironcalc": {
+    "formatted": "4",
+    "value": 4.0
+   },
+   "libreoffice": {
+    "formatted": "8",
+    "value": 8.0
+   },
+   "row": 1538,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=UNICHAR(0)",
+   "function": "UNICHAR",
+   "ironcalc": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "libreoffice": {
+    "formatted": "\u0000",
+    "value": "\u0000"
+   },
+   "row": 1543,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=ROWS(UNIQUE({1;2;2;3}))",
+   "function": "UNIQUE",
+   "ironcalc": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "libreoffice": {
+    "formatted": "3",
+    "value": 3.0
+   },
+   "row": 1550,
+   "verdict": "disagree"
+  },
+  {
+   "formula": "=XNPV(0.05,{-1000,500},{46204,46023})",
+   "function": "XNPV",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "-487.75518094",
+    "value": -487.755180940009
+   },
+   "row": 1633,
+   "verdict": "disagree"
+  }
+ ],
+ "both_error_sample": [
+  {
+   "error_codes_match": false,
+   "formula": "=ACCRINT(DATE(2025,1,1),DATE(2025,7,1),DATE(2024,10,1),0.05,1000,2,0)",
+   "function": "ACCRINT",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 7,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=ACCRINTM(DATE(2025,1,1),DATE(2025,10,1),-0.05,1000,0)",
+   "function": "ACCRINTM",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 10,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": true,
+   "formula": "=ACOS(2)",
+   "function": "ACOS",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "row": 14,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=ACOSH(0.5)",
+   "function": "ACOSH",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 17,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=ACOTH(0.5)",
+   "function": "ACOTH",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 25,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": true,
+   "formula": "=ARABIC(B1)",
+   "function": "ARABIC",
+   "ironcalc": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 43,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": true,
+   "formula": "=ASIN(1.2)",
+   "function": "ASIN",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "row": 56,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=ATANH(1)",
+   "function": "ATANH",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 70,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=AVEDEV(B1:B3)",
+   "function": "AVEDEV",
+   "ironcalc": {
+    "formatted": "#DIV/0!",
+    "value": "#DIV/0!"
+   },
+   "libreoffice": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "row": 73,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": true,
+   "formula": "=AVERAGE(B1:B3)",
+   "function": "AVERAGE",
+   "ironcalc": {
+    "formatted": "#DIV/0!",
+    "value": "#DIV/0!"
+   },
+   "libreoffice": {
+    "formatted": "#DIV/0!",
+    "value": "#DIV/0!"
+   },
+   "row": 77,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": true,
+   "formula": "=AVERAGEIF(A1:A10,\">1000\")",
+   "function": "AVERAGEIF",
+   "ironcalc": {
+    "formatted": "#DIV/0!",
+    "value": "#DIV/0!"
+   },
+   "libreoffice": {
+    "formatted": "#DIV/0!",
+    "value": "#DIV/0!"
+   },
+   "row": 84,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": true,
+   "formula": "=AVERAGEIFS(D1:D5,C1:C5,\">10\")",
+   "function": "AVERAGEIFS",
+   "ironcalc": {
+    "formatted": "#DIV/0!",
+    "value": "#DIV/0!"
+   },
+   "libreoffice": {
+    "formatted": "#DIV/0!",
+    "value": "#DIV/0!"
+   },
+   "row": 88,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BASE(-1,2)",
+   "function": "BASE",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 96,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BESSELI(1,-1)",
+   "function": "BESSELI",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 99,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BESSELJ(1,-1)",
+   "function": "BESSELJ",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 102,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BESSELK(-1,1)",
+   "function": "BESSELK",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 105,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BESSELY(0,1)",
+   "function": "BESSELY",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 108,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BETA.DIST(1.5,2,3,TRUE)",
+   "function": "BETA.DIST",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 112,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BETA.INV(1.5,2,3)",
+   "function": "BETA.INV",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 115,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BIN2DEC(102)",
+   "function": "BIN2DEC",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 125,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BIN2HEX(11111011,1)",
+   "function": "BIN2HEX",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 129,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BINOM.DIST(11,10,0.5,FALSE)",
+   "function": "BINOM.DIST",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 135,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BINOM.INV(6,0.5,1.5)",
+   "function": "BINOM.INV",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 141,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BINOMDIST(3,10,1.5,TRUE)",
+   "function": "BINOMDIST",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 144,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BITAND(-1,5)",
+   "function": "BITAND",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 147,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=BITXOR(-2,3)",
+   "function": "BITXOR",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 159,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=CHIINV(1.5,2)",
+   "function": "CHIINV",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 190,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=CHISQ.DIST(2,0,TRUE)",
+   "function": "CHISQ.DIST",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 193,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=CHISQ.DIST.RT(-1,2)",
+   "function": "CHISQ.DIST.RT",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 196,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=CHISQ.INV(1,2)",
+   "function": "CHISQ.INV",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 199,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=CHISQ.INV.RT(0,2)",
+   "function": "CHISQ.INV.RT",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 202,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": true,
+   "formula": "=CHISQ.TEST(C1:C5,D1:D4)",
+   "function": "CHISQ.TEST",
+   "ironcalc": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 205,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": true,
+   "formula": "=CHOOSE(0,\"a\",\"b\")",
+   "function": "CHOOSE",
+   "ironcalc": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 211,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=COMBIN(4,5)",
+   "function": "COMBIN",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 233,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=COMBINA(-1,2)",
+   "function": "COMBINA",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 237,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": true,
+   "formula": "=COMPLEX(1,2,\"k\")",
+   "function": "COMPLEX",
+   "ironcalc": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 241,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=CONFIDENCE(0,1,10)",
+   "function": "CONFIDENCE",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 251,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=CONFIDENCE.NORM(1.2,1,10)",
+   "function": "CONFIDENCE.NORM",
+   "ironcalc": {
+    "formatted": "#NUM!",
+    "value": "#NUM!"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 254,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": true,
+   "formula": "=CONFIDENCE.T(0.05,1,1)",
+   "function": "CONFIDENCE.T",
+   "ironcalc": {
+    "formatted": "#DIV/0!",
+    "value": "#DIV/0!"
+   },
+   "libreoffice": {
+    "formatted": "#DIV/0!",
+    "value": "#DIV/0!"
+   },
+   "row": 257,
+   "verdict": "both_error"
+  },
+  {
+   "error_codes_match": false,
+   "formula": "=CONVERT(1,\"g\",\"sec\")",
+   "function": "CONVERT",
+   "ironcalc": {
+    "formatted": "#N/A",
+    "value": "#N/A"
+   },
+   "libreoffice": {
+    "formatted": "#VALUE!",
+    "value": "#VALUE!"
+   },
+   "row": 261,
+   "verdict": "both_error"
+  }
+ ]
+}

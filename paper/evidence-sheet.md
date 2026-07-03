@@ -36,10 +36,21 @@ All from benchmarks/*.json at commit 150fb66. Machine: Intel i7-8700K,
 - inter-engine concordance: **1,273/1,311 = 97.1%** on value-producing
   cases (935 exact + 338 within tolerance); 1,273/1,358 = 93.7% including
   one-side-error rows — report as concordance, demoted beneath the matrix.
-- **Disagreement confusion matrix (Excel-arbitrated triage of the 85
-  value-vs-value disagreements):** see benchmarks/triage — classes
-  IRONCALC_WRONG / LIBREOFFICE_WRONG / BOTH_WRONG / SPEC_AMBIGUOUS /
-  UNDECIDABLE. This is what C3 LEADS with.
+- **Disagreement confusion matrix (Excel-arbitrated; benchmarks/
+  triage-analysis.md) — THE HEADLINE RESULT C3 LEADS WITH:** of the 85
+  value-vs-value disagreements — IRONCALC_WRONG 24, LIBREOFFICE_WRONG 41,
+  BOTH_WRONG 7, SPEC_AMBIGUOUS 13, UNDECIDABLE 0. So 72/85 (85%) got a
+  decidable Excel-arbitrated fault assignment. Core-semantics families (18
+  cases, zero ambiguity): 8 IronCalc-wrong vs 10 LibreOffice-wrong.
+  Financial (21): 13 LO-wrong / 3 IC-wrong. The harness indicts its OWN
+  engine 24 times — anti-stacking evidence it is not rigged to flatter
+  IronCalc. both_error signal: LibreOffice collapses Excel's #NUM!/#N/A into
+  #VALUE! while IronCalc preserves Excel's taxonomy (genuine oracle signal).
+  Named real bugs both directions — IronCalc: CONVERT F→C=19.65 (should 20),
+  TRIM no internal-collapse, ROW-not-array, SUMPRODUCT boolean coercion,
+  A-family ignore text cells, SECOND truncates, PRICE basis-3 par bug.
+  LibreOffice: booleans-as-numbers (4-fn cluster), TBILL day-count bugs
+  (DSM 181 vs 184), DURATION/MDURATION off, POWER(0,0)→1 vs Excel #NUM!.
 - **Missing oracle, stated honestly:** Excel-the-binary is an executable
   oracle via COM/Office-JS but we lack a licensed Excel environment on this
   Linux machine; Excel *documentation* is the arbiter, and adding Excel as
