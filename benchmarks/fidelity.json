@@ -1,0 +1,532 @@
+{
+  "experiment": "E1 fidelity-preservation",
+  "meta": {
+    "engine": "ironcalc 0.7.1+e50ccea8 (vendored master)",
+    "xlq": "/home/soh/aix/xlq/target/release/xlq",
+    "python": "/tmp/claude-1000/-home-soh-aix/a1b7f99e-cc58-4254-b95a-10d56f89029d/scratchpad/pyenv/bin/python",
+    "soffice": "/usr/bin/soffice",
+    "methodology": {
+      "part_diff": "byte-level comparison of every OOXML part (zip member) in the output vs the untouched original.",
+      "openpyxl_macro": "macro.xlsm uses openpyxl's DEFAULT keep_vba=False (realistic agent path): the workbook is re-saved as .xlsx and the macro is dropped.",
+      "libreoffice_caveat": "LibreOffice has no CLI cell-edit; the LibreOffice column is a `soffice --convert-to` RE-SAVE proxy (open + write-back to the same format), NOT the targeted edit the other two tools perform. Its rewrite counts are an upper bound on re-save churn, not a like-for-like edit.",
+      "calcchain": "xl/calcChain.xml is a derived formula-dependency CACHE. Dropping it is lossless: Excel/LibreOffice regenerate it on open. xlq deliberately drops it because a surgical edit makes it stale.",
+      "feature_survival": "A feature counts as surviving only if it was present in the original AND a core part for it (xl/charts/chartN.xml, xl/pivotTables/pivotTableN.xml, xl/vbaProject.bin) is present in the output. Presence does NOT imply the feature is byte-identical - see parts_rewritten.",
+      "ironcalc_load": "output re-opened with the ironcalc engine (load-only helper); nonzero exit = load failure.",
+      "soffice_load": "best-effort: output re-converted to xlsx by LibreOffice; a non-empty result = LibreOffice opened it."
+    }
+  },
+  "fixtures": {
+    "pivot-chart.xlsx": {
+      "edit": {
+        "sheet": "Sheet1",
+        "cell": "A2",
+        "from": 222,
+        "to": 999,
+        "kind": "charts + pivot cache"
+      },
+      "original": {
+        "parts_total": 50,
+        "features": {
+          "charts": true,
+          "pivot": true,
+          "vba": false
+        }
+      },
+      "tools": {
+        "xlq": {
+          "parts_total": 50,
+          "parts_byte_identical": 48,
+          "parts_rewritten": 1,
+          "parts_dropped": [
+            "xl/calcChain.xml"
+          ],
+          "parts_added": [],
+          "parts_rewritten_names": [
+            "xl/worksheets/sheet1.xml"
+          ],
+          "feature_survival": {
+            "charts": true,
+            "pivot": true,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true,
+          "self_reported_fidelity": {
+            "parts_byte_identical": 48,
+            "parts_rewritten": 2,
+            "parts_total": 50
+          },
+          "result_hash": "fa6dde2c38d8cfc372fb732786980594b2d5d786943fca81c784c5ece915c51b"
+        },
+        "openpyxl": {
+          "parts_total": 50,
+          "parts_byte_identical": 1,
+          "parts_rewritten": 36,
+          "parts_dropped": [
+            "xl/calcChain.xml",
+            "xl/charts/_rels/chart1.xml.rels",
+            "xl/charts/_rels/chart2.xml.rels",
+            "xl/charts/colors1.xml",
+            "xl/charts/colors2.xml",
+            "xl/charts/style1.xml",
+            "xl/charts/style2.xml",
+            "xl/comments1.xml",
+            "xl/comments2.xml",
+            "xl/drawings/vmlDrawing1.vml",
+            "xl/drawings/vmlDrawing2.vml",
+            "xl/printerSettings/printerSettings1.bin",
+            "xl/sharedStrings.xml"
+          ],
+          "parts_added": [
+            "xl/comments/comment1.xml",
+            "xl/comments/comment2.xml",
+            "xl/drawings/commentsDrawing1.vml",
+            "xl/drawings/commentsDrawing2.vml"
+          ],
+          "parts_rewritten_names": [
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "docProps/app.xml",
+            "docProps/core.xml",
+            "xl/_rels/workbook.xml.rels",
+            "xl/charts/chart1.xml",
+            "xl/charts/chart2.xml",
+            "xl/chartsheets/_rels/sheet1.xml.rels",
+            "xl/chartsheets/sheet1.xml",
+            "xl/drawings/_rels/drawing1.xml.rels",
+            "xl/drawings/_rels/drawing2.xml.rels",
+            "xl/drawings/drawing1.xml",
+            "xl/drawings/drawing2.xml",
+            "xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels",
+            "xl/pivotCache/pivotCacheDefinition1.xml",
+            "xl/pivotCache/pivotCacheRecords1.xml",
+            "xl/pivotTables/_rels/pivotTable1.xml.rels",
+            "xl/pivotTables/pivotTable1.xml",
+            "xl/styles.xml",
+            "xl/tables/table1.xml",
+            "xl/workbook.xml",
+            "xl/worksheets/_rels/sheet1.xml.rels",
+            "xl/worksheets/_rels/sheet3.xml.rels",
+            "xl/worksheets/_rels/sheet5.xml.rels",
+            "xl/worksheets/_rels/sheet6.xml.rels",
+            "xl/worksheets/_rels/sheet7.xml.rels",
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet10.xml",
+            "xl/worksheets/sheet2.xml",
+            "xl/worksheets/sheet3.xml",
+            "xl/worksheets/sheet4.xml",
+            "xl/worksheets/sheet5.xml",
+            "xl/worksheets/sheet6.xml",
+            "xl/worksheets/sheet7.xml",
+            "xl/worksheets/sheet8.xml",
+            "xl/worksheets/sheet9.xml"
+          ],
+          "feature_survival": {
+            "charts": true,
+            "pivot": true,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": false,
+          "output_loads_in_soffice": true
+        },
+        "libreoffice": {
+          "parts_total": 50,
+          "parts_byte_identical": 0,
+          "parts_rewritten": 37,
+          "parts_dropped": [
+            "xl/calcChain.xml",
+            "xl/charts/_rels/chart1.xml.rels",
+            "xl/charts/_rels/chart2.xml.rels",
+            "xl/charts/colors1.xml",
+            "xl/charts/colors2.xml",
+            "xl/charts/style1.xml",
+            "xl/charts/style2.xml",
+            "xl/chartsheets/_rels/sheet1.xml.rels",
+            "xl/chartsheets/sheet1.xml",
+            "xl/comments2.xml",
+            "xl/printerSettings/printerSettings1.bin",
+            "xl/worksheets/_rels/sheet3.xml.rels",
+            "xl/worksheets/_rels/sheet5.xml.rels"
+          ],
+          "parts_added": [
+            "docProps/custom.xml",
+            "xl/comments8.xml",
+            "xl/worksheets/_rels/sheet2.xml.rels",
+            "xl/worksheets/_rels/sheet4.xml.rels",
+            "xl/worksheets/_rels/sheet8.xml.rels",
+            "xl/worksheets/sheet11.xml"
+          ],
+          "parts_rewritten_names": [
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "docProps/app.xml",
+            "docProps/core.xml",
+            "xl/_rels/workbook.xml.rels",
+            "xl/charts/chart1.xml",
+            "xl/charts/chart2.xml",
+            "xl/comments1.xml",
+            "xl/drawings/_rels/drawing1.xml.rels",
+            "xl/drawings/_rels/drawing2.xml.rels",
+            "xl/drawings/drawing1.xml",
+            "xl/drawings/drawing2.xml",
+            "xl/drawings/vmlDrawing1.vml",
+            "xl/drawings/vmlDrawing2.vml",
+            "xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels",
+            "xl/pivotCache/pivotCacheDefinition1.xml",
+            "xl/pivotCache/pivotCacheRecords1.xml",
+            "xl/pivotTables/_rels/pivotTable1.xml.rels",
+            "xl/pivotTables/pivotTable1.xml",
+            "xl/sharedStrings.xml",
+            "xl/styles.xml",
+            "xl/tables/table1.xml",
+            "xl/theme/theme1.xml",
+            "xl/workbook.xml",
+            "xl/worksheets/_rels/sheet1.xml.rels",
+            "xl/worksheets/_rels/sheet6.xml.rels",
+            "xl/worksheets/_rels/sheet7.xml.rels",
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet10.xml",
+            "xl/worksheets/sheet2.xml",
+            "xl/worksheets/sheet3.xml",
+            "xl/worksheets/sheet4.xml",
+            "xl/worksheets/sheet5.xml",
+            "xl/worksheets/sheet6.xml",
+            "xl/worksheets/sheet7.xml",
+            "xl/worksheets/sheet8.xml",
+            "xl/worksheets/sheet9.xml"
+          ],
+          "feature_survival": {
+            "charts": true,
+            "pivot": true,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true,
+          "filter": "xlsx:Calc MS Excel 2007 XML",
+          "note": "re-save proxy, not a targeted edit"
+        }
+      }
+    },
+    "macro.xlsm": {
+      "edit": {
+        "sheet": "Data",
+        "cell": "B2",
+        "from": 100,
+        "to": 200,
+        "kind": "VBA macros"
+      },
+      "original": {
+        "parts_total": 11,
+        "features": {
+          "charts": false,
+          "pivot": false,
+          "vba": true
+        }
+      },
+      "tools": {
+        "xlq": {
+          "parts_total": 11,
+          "parts_byte_identical": 10,
+          "parts_rewritten": 1,
+          "parts_dropped": [],
+          "parts_added": [],
+          "parts_rewritten_names": [
+            "xl/worksheets/sheet1.xml"
+          ],
+          "feature_survival": {
+            "charts": false,
+            "pivot": false,
+            "vba": true
+          },
+          "output_ext": ".xlsm",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true,
+          "self_reported_fidelity": {
+            "parts_byte_identical": 10,
+            "parts_rewritten": 1,
+            "parts_total": 11
+          },
+          "result_hash": "eee2f1670caab65ae2579c7d7ccb3b309cbaa650d95a2e5711d340f182863be6"
+        },
+        "openpyxl": {
+          "parts_total": 11,
+          "parts_byte_identical": 1,
+          "parts_rewritten": 8,
+          "parts_dropped": [
+            "xl/sharedStrings.xml",
+            "xl/vbaProject.bin"
+          ],
+          "parts_added": [],
+          "parts_rewritten_names": [
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "docProps/app.xml",
+            "docProps/core.xml",
+            "xl/_rels/workbook.xml.rels",
+            "xl/styles.xml",
+            "xl/workbook.xml",
+            "xl/worksheets/sheet1.xml"
+          ],
+          "feature_survival": {
+            "charts": false,
+            "pivot": false,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true
+        },
+        "libreoffice": {
+          "parts_total": 11,
+          "parts_byte_identical": 0,
+          "parts_rewritten": 11,
+          "parts_dropped": [],
+          "parts_added": [
+            "docProps/custom.xml"
+          ],
+          "parts_rewritten_names": [
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "docProps/app.xml",
+            "docProps/core.xml",
+            "xl/_rels/workbook.xml.rels",
+            "xl/sharedStrings.xml",
+            "xl/styles.xml",
+            "xl/theme/theme1.xml",
+            "xl/vbaProject.bin",
+            "xl/workbook.xml",
+            "xl/worksheets/sheet1.xml"
+          ],
+          "feature_survival": {
+            "charts": false,
+            "pivot": false,
+            "vba": true
+          },
+          "output_ext": ".xlsm",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true,
+          "filter": "xlsm:Calc MS Excel 2007 VBA XML",
+          "note": "re-save proxy, not a targeted edit"
+        }
+      }
+    },
+    "payroll.xlsx": {
+      "edit": {
+        "sheet": "Rates",
+        "cell": "B2",
+        "from": 16,
+        "to": 25,
+        "kind": "base: multi-sheet formulas"
+      },
+      "original": {
+        "parts_total": 13,
+        "features": {
+          "charts": false,
+          "pivot": false,
+          "vba": false
+        }
+      },
+      "tools": {
+        "xlq": {
+          "parts_total": 13,
+          "parts_byte_identical": 11,
+          "parts_rewritten": 2,
+          "parts_dropped": [],
+          "parts_added": [],
+          "parts_rewritten_names": [
+            "xl/worksheets/sheet2.xml",
+            "xl/worksheets/sheet3.xml"
+          ],
+          "feature_survival": {
+            "charts": false,
+            "pivot": false,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true,
+          "self_reported_fidelity": {
+            "parts_byte_identical": 11,
+            "parts_rewritten": 2,
+            "parts_total": 13
+          },
+          "result_hash": "cc01474abd686dc220f745aa6aee1adf3d626badd6d996b91d2091158ac7b82d"
+        },
+        "openpyxl": {
+          "parts_total": 13,
+          "parts_byte_identical": 1,
+          "parts_rewritten": 10,
+          "parts_dropped": [
+            "xl/metadata.xml",
+            "xl/sharedStrings.xml"
+          ],
+          "parts_added": [],
+          "parts_rewritten_names": [
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "docProps/app.xml",
+            "docProps/core.xml",
+            "xl/_rels/workbook.xml.rels",
+            "xl/styles.xml",
+            "xl/workbook.xml",
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet2.xml",
+            "xl/worksheets/sheet3.xml"
+          ],
+          "feature_survival": {
+            "charts": false,
+            "pivot": false,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true
+        },
+        "libreoffice": {
+          "parts_total": 13,
+          "parts_byte_identical": 0,
+          "parts_rewritten": 12,
+          "parts_dropped": [
+            "xl/metadata.xml"
+          ],
+          "parts_added": [
+            "docProps/custom.xml"
+          ],
+          "parts_rewritten_names": [
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "docProps/app.xml",
+            "docProps/core.xml",
+            "xl/_rels/workbook.xml.rels",
+            "xl/sharedStrings.xml",
+            "xl/styles.xml",
+            "xl/theme/theme1.xml",
+            "xl/workbook.xml",
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet2.xml",
+            "xl/worksheets/sheet3.xml"
+          ],
+          "feature_survival": {
+            "charts": false,
+            "pivot": false,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true,
+          "filter": "xlsx:Calc MS Excel 2007 XML",
+          "note": "re-save proxy, not a targeted edit"
+        }
+      }
+    },
+    "claims.xlsx": {
+      "edit": {
+        "sheet": "Claims",
+        "cell": "D2",
+        "from": 13335,
+        "to": 20000,
+        "kind": "base: 1.3k formulas"
+      },
+      "original": {
+        "parts_total": 12,
+        "features": {
+          "charts": false,
+          "pivot": false,
+          "vba": false
+        }
+      },
+      "tools": {
+        "xlq": {
+          "parts_total": 12,
+          "parts_byte_identical": 11,
+          "parts_rewritten": 1,
+          "parts_dropped": [],
+          "parts_added": [],
+          "parts_rewritten_names": [
+            "xl/worksheets/sheet1.xml"
+          ],
+          "feature_survival": {
+            "charts": false,
+            "pivot": false,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true,
+          "self_reported_fidelity": {
+            "parts_byte_identical": 11,
+            "parts_rewritten": 1,
+            "parts_total": 12
+          },
+          "result_hash": "ef3d780b83d7017ce9bcebc18eb41ee1fd96b2be093bdb939ec90083700136cb"
+        },
+        "openpyxl": {
+          "parts_total": 12,
+          "parts_byte_identical": 1,
+          "parts_rewritten": 9,
+          "parts_dropped": [
+            "xl/metadata.xml",
+            "xl/sharedStrings.xml"
+          ],
+          "parts_added": [],
+          "parts_rewritten_names": [
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "docProps/app.xml",
+            "docProps/core.xml",
+            "xl/_rels/workbook.xml.rels",
+            "xl/styles.xml",
+            "xl/workbook.xml",
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet2.xml"
+          ],
+          "feature_survival": {
+            "charts": false,
+            "pivot": false,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true
+        },
+        "libreoffice": {
+          "parts_total": 12,
+          "parts_byte_identical": 0,
+          "parts_rewritten": 11,
+          "parts_dropped": [
+            "xl/metadata.xml"
+          ],
+          "parts_added": [
+            "docProps/custom.xml"
+          ],
+          "parts_rewritten_names": [
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "docProps/app.xml",
+            "docProps/core.xml",
+            "xl/_rels/workbook.xml.rels",
+            "xl/sharedStrings.xml",
+            "xl/styles.xml",
+            "xl/theme/theme1.xml",
+            "xl/workbook.xml",
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet2.xml"
+          ],
+          "feature_survival": {
+            "charts": false,
+            "pivot": false,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true,
+          "filter": "xlsx:Calc MS Excel 2007 XML",
+          "note": "re-save proxy, not a targeted edit"
+        }
+      }
+    }
+  }
+}

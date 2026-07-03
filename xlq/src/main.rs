@@ -1,8 +1,12 @@
+mod apply;
 mod calc;
 mod census;
 mod diff;
 mod hash;
 mod inspect;
+mod journal;
+mod ooxml;
+mod patch;
 mod value;
 
 use clap::{Parser, Subcommand};
@@ -42,6 +46,22 @@ enum Command {
         /// Path to the .xlsx file
         file: String,
     },
+    /// Apply a typed patch surgically: rewrites only the sheet parts that
+    /// contain a changed cell, leaving every other OOXML part (charts,
+    /// pivots, VBA, styles) byte-identical to the input. --dry-run predicts
+    /// the effect without writing.
+    Apply {
+        /// Path to the .xlsx file to modify
+        file: String,
+        /// Path to the patch JSON (base_hash + typed ops); see patch.rs
+        patch: String,
+        /// Predict affected cells / new errors / watch values without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Actor recorded in the receipt (falls back to $XLQ_ACTOR, else "unknown")
+        #[arg(long)]
+        actor: Option<String>,
+    },
 }
 
 fn main() {
@@ -50,6 +70,12 @@ fn main() {
         Command::Inspect { file, redact } => inspect::run(&file, redact),
         Command::Diff { old, new } => diff::run(&old, &new),
         Command::Calc { file } => calc::run(&file),
+        Command::Apply {
+            file,
+            patch,
+            dry_run,
+            actor,
+        } => apply::run(&file, &patch, dry_run, actor.as_deref()),
     };
     match result {
         Ok(value) => {
