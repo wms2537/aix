@@ -560,6 +560,49 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
     }
     let parts_rewritten = parts_total - parts_byte_identical;
 
+    // ENFORCE the fidelity property (not merely report it). The ONLY parts
+    // allowed to differ from the input are (a) sheet parts that received an
+    // edit and (b) xl/calcChain.xml (deliberately dropped). If any OTHER part
+    // changed, was dropped, or was added, the surgical write did not preserve
+    // fidelity — abort the commit (original untouched). This makes the fidelity
+    // property a per-apply CHECK, not just a by-construction argument.
+    let edited_sheet_parts: BTreeSet<String> = {
+        let mut s = BTreeSet::new();
+        for e in &edits {
+            if let Ok(part) = ooxml::sheet_part(&original_bytes, &e.sheet) {
+                s.insert(part);
+            }
+        }
+        s
+    };
+    let mut fidelity_violations: Vec<Value> = Vec::new();
+    let all_names: BTreeSet<&String> = original_parts.keys().chain(written_parts.keys()).collect();
+    for name in all_names {
+        let before = original_parts.get(name);
+        let after = written_parts.get(name);
+        if before == after {
+            continue;
+        }
+        let allowed = edited_sheet_parts.contains(name) || name == "xl/calcChain.xml";
+        if !allowed {
+            let kind = match (before.is_some(), after.is_some()) {
+                (true, false) => "dropped",
+                (false, true) => "added",
+                _ => "changed",
+            };
+            fidelity_violations.push(json!({"part": name, "kind": kind}));
+        }
+    }
+    if !fidelity_violations.is_empty() {
+        return Ok(json!({
+            "command": "apply",
+            "dry_run": false,
+            "error": "fidelity_violation",
+            "reason": "a part that contains no edited cell was not preserved byte-identical",
+            "violations": fidelity_violations,
+        }));
+    }
+
     let rev = journal::next_rev(file)?;
     let ops_json = raw_ops(patch_path).unwrap_or_else(|| Value::Array(Vec::new()));
     let receipt = journal::commit(
@@ -592,6 +635,8 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
             "reopened": true,
             "cells_checked": predicted.len(),
             "all_landed": true,
+            "fidelity_enforced": true,
+            "non_edited_parts_byte_identical": true,
         },
         "receipt": {
             "rev": receipt.rev,
