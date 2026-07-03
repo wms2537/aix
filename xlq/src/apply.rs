@@ -64,6 +64,29 @@ const VOLATILE_FUNCTIONS: [&str; 8] = [
 // recalc sense but produce deterministic values, so they do not block a write.
 const NONDETERMINISTIC_VOLATILE: [&str; 4] = ["NOW", "TODAY", "RAND", "RANDBETWEEN"];
 
+// Functions where our own differential oracle (benchmarks/agreement.json,
+// triage-analysis.md) found the prediction engine SILENTLY computes a value
+// that disagrees with Excel — i.e. it returns a wrong number, not an error the
+// coverage gate would already catch. A real apply must NOT persist an
+// engine-computed cached <v> for a cell whose formula uses one of these: the
+// cache could be wrong, reopening the value-corruption class the boundary
+// exists to prevent. This is the differential oracle made load-bearing for
+// write safety, not merely for validation: the oracle's confusion matrix IS
+// the write-reliability gate. (Error/coverage-gap functions like AREAS, GROWTH,
+// FILTER are already refused by the unsupported/policy gate.)
+const ENGINE_DIVERGENT: [&str; 10] = [
+    "CONVERT",     // CONVERT(68,"F","C") = 19.65 vs Excel 20 (additive offset)
+    "TRIM",        // does not collapse internal whitespace runs
+    "ROW",         // ROW(range) returns a scalar, not the array Excel spills
+    "SUMPRODUCT",  // does not coerce boolean arrays
+    "MAXA",        // A-family: ignores text/boolean cells Excel counts as 0/1
+    "MINA",
+    "STDEVA",
+    "SECOND",      // truncates instead of rounding sub-second times
+    "PRICE",       // basis-3 returns exact par instead of Excel's value
+    "PERCENTRANK.EXC", // truncates to decimal places, not significant digits
+];
+
 type Pos = (u32, i32, i32);
 
 fn basename(path: &str) -> String {
@@ -253,12 +276,17 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
     }
 
     // Build the affected list + gather the functions the affected cells use.
+    // `predicted` records, per affected cell, the raw value the dry-run model
+    // computes. A real apply must re-load its own surgical output and prove
+    // every one of these landed (proof-carrying apply) before committing.
     let mut affected_json: Vec<Value> = Vec::with_capacity(affected.len());
     let mut affected_functions: BTreeSet<String> = BTreeSet::new();
+    let mut predicted: BTreeMap<Pos, Value> = BTreeMap::new();
     for &pos in &affected {
         let (s, row, col) = pos;
         let stored = before_raw.get(&pos).cloned().unwrap_or(Value::Null);
         let recomputed = raw(&model, pos)?;
+        predicted.insert(pos, recomputed.clone());
         let formula = model
             .get_cell_formula(s, row, col)
             .map_err(|e| anyhow!(e))
@@ -334,8 +362,16 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
         .filter(|n| NONDETERMINISTIC_VOLATILE.contains(&n.as_str()))
         .cloned()
         .collect();
-    let write_reliable =
-        unreliable_in_affected.is_empty() && nondeterministic_in_affected.is_empty();
+    // Oracle-divergent functions in the affected graph: the engine may compute
+    // a silently-wrong cached value here, so a real apply must refuse.
+    let oracle_divergent_in_affected: Vec<String> = affected_functions
+        .iter()
+        .filter(|n| ENGINE_DIVERGENT.contains(&n.as_str()))
+        .cloned()
+        .collect();
+    let write_reliable = unreliable_in_affected.is_empty()
+        && nondeterministic_in_affected.is_empty()
+        && oracle_divergent_in_affected.is_empty();
     let coverage = json!({
         "engine": ENGINE,
         "reliable": census.unsupported.is_empty()
@@ -348,6 +384,7 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
         "write_reliable": write_reliable,
         "unreliable_in_affected": unreliable_in_affected.clone(),
         "nondeterministic_in_affected": nondeterministic_in_affected.clone(),
+        "oracle_divergent_in_affected": oracle_divergent_in_affected.clone(),
     });
 
     if dry_run {
@@ -372,6 +409,7 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
             "error": "coverage_unreliable",
             "unreliable_functions": unreliable_in_affected,
             "nondeterministic_functions": nondeterministic_in_affected,
+            "oracle_divergent_functions": oracle_divergent_in_affected,
             "affected_count": affected_json.len(),
             "coverage": coverage,
         }));
@@ -466,6 +504,46 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
     let new_bytes = ooxml::surgical_write(&original_bytes, &edits)?;
     let result_hash = sha256_bytes(&new_bytes);
 
+    // PROOF-CARRYING APPLY. Nothing is on disk yet (commit does the write), so
+    // if this verification fails the original file is untouched. We re-load the
+    // surgical output the SAME way a downstream consumer would (as an .xlsx on
+    // disk), evaluate it, and prove every predicted affected cell landed with
+    // the value the dry-run predicted. This closes the gap between "the writer
+    // intended the edit" and "the written file verifiably computes the edit":
+    // a subtly-malformed <c>, a wrong cached value, or a corrupt insertion is
+    // caught HERE and aborts the commit, rather than being asserted by a
+    // result_hash the consumer cannot check.
+    {
+        let verify_dir = std::path::Path::new(file)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        match verify_output(&new_bytes, &predicted, &sheet_names, &verify_dir, &result_hash)? {
+            VerifyOutcome::LoadFailed(detail) => {
+                // The output does not even re-open: the strongest failure.
+                return Ok(json!({
+                    "command": "apply",
+                    "dry_run": false,
+                    "error": "verification_failed",
+                    "reason": "surgical output does not re-open in the engine",
+                    "detail": detail,
+                }));
+            }
+            VerifyOutcome::Mismatch(mismatches) => {
+                // The output re-opened but at least one predicted cell did not
+                // land: refuse to commit and leave the original untouched.
+                return Ok(json!({
+                    "command": "apply",
+                    "dry_run": false,
+                    "error": "verification_failed",
+                    "reason": "re-loaded output disagrees with the dry-run prediction",
+                    "mismatches": mismatches,
+                }));
+            }
+            VerifyOutcome::Verified => {}
+        }
+    }
+
     // Fidelity proof: every input part that is NOT a rewritten sheet part must
     // survive byte-for-byte (a dropped calcChain counts as rewritten). Count on
     // the SAME files-only basis read_parts uses (zip directory entries are
@@ -510,6 +588,11 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
             "parts_rewritten": parts_rewritten,
             "parts_byte_identical": parts_byte_identical,
         },
+        "verified": {
+            "reopened": true,
+            "cells_checked": predicted.len(),
+            "all_landed": true,
+        },
         "receipt": {
             "rev": receipt.rev,
             "kind": receipt.kind,
@@ -530,6 +613,58 @@ fn sha256_bytes(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     format!("{:x}", hasher.finalize())
+}
+
+/// Proof-carrying verification outcome.
+enum VerifyOutcome {
+    Verified,
+    Mismatch(Vec<Value>),
+    LoadFailed(String),
+}
+
+/// Re-load the surgical output as a real .xlsx (the way a consumer would) and
+/// prove every predicted affected cell holds the predicted value. Writes a
+/// temp copy in `dir` (removed before returning). This is the proof the
+/// receipt's result_hash cannot itself provide: that the written file actually
+/// re-opens and computes what the dry-run predicted.
+fn verify_output(
+    new_bytes: &[u8],
+    predicted: &BTreeMap<Pos, Value>,
+    sheet_names: &[String],
+    dir: &std::path::Path,
+    tag: &str,
+) -> Result<VerifyOutcome> {
+    let verify_path = dir.join(format!(".xlq-verify-{tag}.xlsx"));
+    let verify_str = verify_path.to_string_lossy().into_owned();
+    std::fs::write(&verify_path, new_bytes).with_context(|| "write verification copy".to_string())?;
+    let loaded = ironcalc::import::load_from_xlsx(&verify_str, "en", "UTC", "en").map_err(|e| anyhow!(e));
+    let outcome = match loaded {
+        Err(e) => VerifyOutcome::LoadFailed(format!("{e:#}")),
+        Ok(mut vmodel) => {
+            vmodel.evaluate();
+            let mut mismatches: Vec<Value> = Vec::new();
+            for (&(s, row, col), want) in predicted {
+                let got = crate::value::raw_cell_value(&vmodel, s, row, col).unwrap_or(Value::Null);
+                if &got != want {
+                    let sheet = sheet_names
+                        .get(s as usize)
+                        .cloned()
+                        .unwrap_or_else(|| format!("sheet_{s}"));
+                    mismatches.push(json!({
+                        "sheet": sheet, "cell": cell_ref(col, row),
+                        "predicted": want, "actual_in_output": got,
+                    }));
+                }
+            }
+            if mismatches.is_empty() {
+                VerifyOutcome::Verified
+            } else {
+                VerifyOutcome::Mismatch(mismatches)
+            }
+        }
+    };
+    let _ = std::fs::remove_file(&verify_path);
+    Ok(outcome)
 }
 
 /// Receipt timestamp as ISO-8601 UTC. Determinism: when the patch pins a
@@ -606,6 +741,93 @@ mod tests {
             "seed": null,
         });
         std::fs::write(path, serde_json::to_vec_pretty(&patch).unwrap()).unwrap();
+    }
+
+    // Author a workbook and return its bytes; A1=v. Unique temp path per call
+    // (parallel tests must not share a file).
+    fn book_bytes(v: &str) -> Vec<u8> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let dir = tmpdir("vbytes");
+        let uniq = N.fetch_add(1, Ordering::Relaxed);
+        let p = dir.join(format!("b-{v}-{uniq}.xlsx"));
+        let ps = p.to_str().unwrap();
+        let mut model = Model::new_empty("f", "en", "UTC", "en").unwrap();
+        model.set_user_input(0, 1, 1, v.to_string()).unwrap();
+        model.evaluate();
+        let _ = std::fs::remove_file(ps);
+        ironcalc::export::save_to_xlsx(&model, ps).unwrap();
+        let b = std::fs::read(ps).unwrap();
+        let _ = std::fs::remove_file(ps);
+        b
+    }
+
+    #[test]
+    fn real_apply_refuses_when_affected_uses_an_oracle_divergent_function() {
+        // The differential oracle is load-bearing for write safety: a formula
+        // using CONVERT (where the engine is known to disagree with Excel) must
+        // not have its engine-computed cache committed.
+        let dir = tmpdir("divergent");
+        let book = dir.join("book.xlsx");
+        let book = book.to_str().unwrap();
+        build_fixture(book);
+        let base = crate::hash::sha256_file(book).unwrap();
+        let patch = dir.join("p.json");
+        let patch = patch.to_str().unwrap();
+        std::fs::write(
+            patch,
+            serde_json::to_vec(&json!({
+                "base_hash": base,
+                "ops": [{"type":"set_formula","sheet":"Sheet1","cell":"B1","formula":"CONVERT(68,\"F\",\"C\")"}],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let before = crate::hash::sha256_file(book).unwrap();
+        let report = run(book, patch, false, None).unwrap();
+        assert_eq!(report["error"], json!("coverage_unreliable"));
+        assert_eq!(report["oracle_divergent_functions"], json!(["CONVERT"]));
+        // The file was NOT written.
+        assert_eq!(crate::hash::sha256_file(book).unwrap(), before);
+    }
+
+    #[test]
+    fn verify_output_passes_when_prediction_matches() {
+        let dir = tmpdir("v-ok");
+        let bytes = book_bytes("42");
+        let mut predicted: BTreeMap<Pos, Value> = BTreeMap::new();
+        predicted.insert((0, 1, 1), json!(42.0));
+        let out = verify_output(&bytes, &predicted, &["Sheet1".into()], &dir, "ok").unwrap();
+        assert!(matches!(out, VerifyOutcome::Verified));
+    }
+
+    #[test]
+    fn verify_output_catches_a_wrong_landed_value() {
+        // The output really holds A1=42, but we predicted 999: proof-carrying
+        // apply must catch the disagreement and refuse (this is the guarantee
+        // that a subtly-wrong surgical write cannot be committed).
+        let dir = tmpdir("v-bad");
+        let bytes = book_bytes("42");
+        let mut predicted: BTreeMap<Pos, Value> = BTreeMap::new();
+        predicted.insert((0, 1, 1), json!(999.0));
+        let out = verify_output(&bytes, &predicted, &["Sheet1".into()], &dir, "bad").unwrap();
+        match out {
+            VerifyOutcome::Mismatch(m) => {
+                assert_eq!(m.len(), 1);
+                assert_eq!(m[0]["predicted"], json!(999.0));
+                assert_eq!(m[0]["actual_in_output"], json!(42.0));
+            }
+            _ => panic!("expected Mismatch, prediction disagreed with output"),
+        }
+    }
+
+    #[test]
+    fn verify_output_catches_unloadable_output() {
+        let dir = tmpdir("v-corrupt");
+        let mut predicted: BTreeMap<Pos, Value> = BTreeMap::new();
+        predicted.insert((0, 1, 1), json!(1.0));
+        let out = verify_output(b"not a zip at all", &predicted, &["Sheet1".into()], &dir, "corrupt").unwrap();
+        assert!(matches!(out, VerifyOutcome::LoadFailed(_)));
     }
 
     #[test]

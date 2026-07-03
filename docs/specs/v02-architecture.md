@@ -102,3 +102,45 @@ by coverage-honesty), not the preservation guarantee, which is engine-
 independent. Corpus is still small but now contains the real T1 features;
 we scope fidelity claims to "these workbooks / these substrates," not to the
 field.
+
+## v0.2.1 — two first-principles hardenings (from the re-review at mean -1.0)
+
+### Proof-carrying apply
+Every real apply re-loads its own surgical output the way a consumer would
+(as an .xlsx on disk), evaluates it, and PROVES each predicted affected cell
+landed with the predicted value BEFORE committing. If the output does not
+re-open (`verification_failed: does not re-open`) or any cell disagrees with
+the dry-run (`verification_failed: mismatches[...]`), the commit is aborted
+and the original file is untouched (nothing is on disk yet — commit is the
+only writer). This closes the gap between "the writer intended the edit" and
+"the written file verifiably computes the edit": a malformed <c>, a wrong
+cached value, or a corrupt insertion is caught here, not asserted by a
+result_hash the consumer cannot check. The apply response carries
+`verified: {reopened, cells_checked, all_landed}`. Tested positive + both
+negative paths (wrong value caught; unloadable output caught).
+
+### The differential oracle as the write-reliability gate
+Addresses the sharpest re-review finding (systems-security): the surgical
+writer persists engine-computed cached values on touched sheets, and the
+oracle proved the engine computes some functions wrong — reopening the
+value-corruption class and contradicting engine-independence. Fix: the
+oracle's confusion matrix is now LOAD-BEARING for write safety. A real apply
+refuses (`coverage_unreliable`, `oracle_divergent_functions: [...]`) when the
+affected dependency graph uses a function where our own differential oracle
+found the engine silently disagrees with Excel (CONVERT, TRIM, ROW,
+SUMPRODUCT, MAXA/MINA/STDEVA, SECOND, PRICE, PERCENTRANK.EXC). So xlq never
+commits a cached value it has reason to believe is wrong; the oracle is not
+just validation, it is the safety gate — unifying the paper's pieces the
+re-review called "loosely coupled." Literal user edits (set_cell) remain
+engine-independent (we write exactly what the user typed); only engine-
+computed formula caches are gated.
+
+### Still open (honest, from the re-review)
+- Structural edits (insert row/column) are out of scope — set_cell/set_formula
+  only. The corruption-prone structural ops are named as future work.
+- Non-bypassability is argued (confined harness) but not demonstrated by an
+  adversarial bypass experiment.
+- The agent A/B is n=2, single operation type, one model.
+- The oracle is a hand-authored conformance suite, not a generator.
+- E3's financial cross-check reimplements the same documentation; a truly
+  external reference (a bond library / Excel itself) is still needed.
