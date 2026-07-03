@@ -1,0 +1,38 @@
+{
+ "experiment": "E3 independent financial cross-check",
+ "source": "numpy-financial + documented Treasury formulas (independent of the triage reimplementation)",
+ "checks": [
+  {
+   "fn": "RATE(10,-100,1000)",
+   "independent": -9.487046124859531e-11,
+   "ironcalc": -3.35e-11,
+   "libreoffice": 6.12e-11,
+   "triage": "SPEC_AMBIGUOUS",
+   "crosscheck": "CONFIRMS both ~0 (true rate=0); independent -9.49e-11"
+  },
+  {
+   "fn": "TBILLPRICE 184d 0.045",
+   "independent": 97.7,
+   "ironcalc": 97.7,
+   "libreoffice": 97.7375,
+   "triage": "LIBREOFFICE_WRONG (DSM=181)",
+   "crosscheck": "CONFIRMS IronCalc (97.7000); LO uses DSM=181"
+  },
+  {
+   "fn": "TBILLYIELD 184d 98.5",
+   "independent": 0.029794747296402562,
+   "ironcalc": 0.0297947,
+   "libreoffice": 0.0302886,
+   "triage": "LIBREOFFICE_WRONG (DSM=181)",
+   "crosscheck": "CONFIRMS IronCalc (0.0297947); LO uses DSM=181"
+  },
+  {
+   "fn": "TBILLEQ 184d 0.045",
+   "independent": 0.04668131404301309,
+   "ironcalc": 0.0466902,
+   "libreoffice": 0.0466812,
+   "triage": "LIBREOFFICE_WRONG",
+   "crosscheck": "CONTRADICTS TRIAGE: independent 0.0466813 matches LibreOffice, not IronCalc. Verdict DOWNGRADED to UNDECIDABLE_HERE pending Excel; the independent bond-equiv form may itself differ from Excel's exact algorithm."
+  }
+ ]
+}
