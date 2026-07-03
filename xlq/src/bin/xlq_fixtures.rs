@@ -599,7 +599,7 @@ fn build_perf_large(dir: &str) -> Result<()> {
 fn run() -> Result<()> {
     let out_dir = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "/home/soh/aix/fixtures".to_string());
+        .unwrap_or_else(|| "fixtures".to_string());
     std::fs::create_dir_all(&out_dir).with_context(|| format!("create {out_dir}"))?;
     let mut defects: Vec<Value> = Vec::new();
     build_branch_consolidation(&out_dir, &mut defects)?;
