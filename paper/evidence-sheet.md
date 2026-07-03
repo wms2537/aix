@@ -6,18 +6,44 @@ All from benchmarks/*.json at commit 150fb66. Machine: Intel i7-8700K,
 ## Coverage (coverage.json)
 - catalog recognized: **522 / 522** (100%)
 - locally evaluable: **505**
-- policy-limited: **17** (WEBSERVICE #VALUE!; RTD #N/A; STOCKHISTORY/
-  DETECTLANGUAGE/TRANSLATE/COPILOT/IMAGE #CONNECT!; CALL/REGISTER.ID
-  #BLOCKED!; 7 CUBE functions #NAME!; GETPIVOTDATA #REF!)
+- policy-limited: **17** — REFRAMED into three honest sub-reasons (theory
+  review: "policy-limited" was hiding three different reasons):
+  - **capability-limited (14)** — need network/live data the runtime has no
+    local access to: WEBSERVICE #VALUE!; RTD #N/A; STOCKHISTORY/
+    DETECTLANGUAGE/TRANSLATE/COPILOT/IMAGE #CONNECT!; 7 CUBE functions #NAME!
+  - **policy-blocked (2)** — deliberately refused for security (memo §16):
+    CALL/REGISTER.ID (XLM) #BLOCKED!
+  - **context-precondition (1)** — needs a workbook object the runtime
+    doesn't model: GETPIVOTDATA #REF!
+- catalog pinned: the 522 worksheet functions in Microsoft's alphabetical
+  function list, fetched 2026-07-02 (benchmarks/excel-functions.txt).
+  "Recognized" = the name parses and dispatches to defined behavior (not a
+  parser unknown-name rejection).
+- GUARD: "locally evaluable" ≠ "correct." Evaluability is coverage (C2);
+  correctness is the oracle's burden (C3). Never read 505 as "505 correct."
 - history: 345/522 (66.1%) on IronCalc 0.7.1 release → 494 (94.6%) on
   vendored master → 497 after 3 residuals → 505 after Tier-I implementations
 
 ## Differential oracle (agreement.json)
-- **1,659 cases across 492 functions**
-- agree: **1,273** (exact 935 + within-tolerance 338)
-- both-value agreement: **97.1%** (1273/1311, cases where both engines
-  return a value)
-- including one-side-error rows: **93.7%** (1273/1358)
+- **1,659 cases across 492 functions** (~3.4 cases/function — modest input
+  diversity; state this openly, it means the disagreement rate is a LOWER
+  bound; cases are hand-authored per-function, not coverage-guided fuzzing)
+- **FRAMING (theory review): "agreement" is CONCORDANCE, not accuracy.**
+  Two engines agreeing is necessary-not-sufficient for correctness (they
+  read the same ECMA-376 + vendor prose and can share a wrong behavior).
+  The scientific result is the DISAGREEMENT confusion matrix (below), NOT
+  the concordance percentage. Never write "IronCalc is 97.1% correct."
+- inter-engine concordance: **1,273/1,311 = 97.1%** on value-producing
+  cases (935 exact + 338 within tolerance); 1,273/1,358 = 93.7% including
+  one-side-error rows — report as concordance, demoted beneath the matrix.
+- **Disagreement confusion matrix (Excel-arbitrated triage of the 85
+  value-vs-value disagreements):** see benchmarks/triage — classes
+  IRONCALC_WRONG / LIBREOFFICE_WRONG / BOTH_WRONG / SPEC_AMBIGUOUS /
+  UNDECIDABLE. This is what C3 LEADS with.
+- **Missing oracle, stated honestly:** Excel-the-binary is an executable
+  oracle via COM/Office-JS but we lack a licensed Excel environment on this
+  Linux machine; Excel *documentation* is the arbiter, and adding Excel as
+  a third differential peer is the clearest strengthening (future work).
 - disagree: 85; both_error: 196 (code-match 58, mismatch 138);
   lo_unsupported: 105 (LO lacks the function; +15 also IronCalc-errored);
   engine_error: 0
@@ -31,15 +57,40 @@ All from benchmarks/*.json at commit 150fb66. Machine: Intel i7-8700K,
   value-producing cases; the 85 disagreements were triaged with Excel
   documentation as arbiter, yielding bugs in both."
 
-## Fidelity / preservation (results.json, D + D2)
-- openpyxl single re-save across the 5-fixture corpus strips **101,961
-  cached formula values** and drops xl/sharedStrings.xml + xl/metadata.xml;
-  on branch-consolidation: 442 cached_value changes, parts 16→14.
-- LibreOffice convert drifts **90,448 cached values** (15- vs 17-sig-digit
-  serialization) and rewrites 100% of OOXML parts.
-- IronCalc-master round-trips its own files near-byte-identical; on FOREIGN
-  (openpyxl-authored) files it rewrites parts and re-adds sharedStrings/
-  metadata — stated honestly, motivates surgical-patch roadmap (v0.2).
+## Fidelity / preservation (results.json, D + D2) — REFRAMED per theory review
+CRITICAL: do NOT call all byte-mutation "damage." Three distinct tiers
+(theory review, 2026-07-03); the honest framing motivates xlq's SEMANTIC
+diff precisely because byte-identity and caches are untrustworthy.
+- **T1 (irreversible loss):** NOT measured on our corpus. openpyxl is
+  documented to strip charts/pivots/VBA on real financial models (issue
+  #22044), but our fixtures have none (IronCalc cannot author them) — so we
+  do NOT claim a measured T1 result; it is stated as a limitation + the
+  external #22044 evidence.
+- **T2 (semantics-preserving normalization; lossless but defeats
+  byte-provenance):** openpyxl re-inlines shared strings (VERIFIED: 170
+  shared-ref cells → 170 inline-string cells, every text value present — so
+  "drops sharedStrings.xml" is NORMALIZATION, not loss; corrected). Both
+  openpyxl and LibreOffice rewrite ~100% of OOXML parts, so byte-diffing is
+  useless as an integrity oracle. IronCalc round-trips its own files
+  near-byte-identical but rewrites foreign files similarly.
+- **T2.5 (recoverable-but-breaks-cache-consumers):** openpyxl blanks ALL
+  cached formula results — **101,961 `<v/>` cells across the corpus** (442
+  on branch-consolidation). Recoverable by recomputation IF formulas are
+  intact (they are), but any consumer that trusts caches sees nothing. This
+  is the real, measured motivation for xlq's recompute-aware diff and the
+  `cached_value` change-kind.
+- **T3 (cosmetic sub-precision drift):** LibreOffice writes caches at 15 vs
+  17 significant digits — **90,448 cells**. Below the semantic precision of
+  an IEEE-754 double and recomputed on open. NOT damage; a legitimate
+  serialization choice. Its only real consequence: it too defeats naive
+  byte-provenance.
+- **The defensible claim:** across every substrate, byte-identity is
+  destroyed and cached values are untrustworthy (blanked by openpyxl,
+  drifted by LibreOffice), so a correct integrity check must be SEMANTIC and
+  recompute-aware — which is what xlq's diff/calc are. Report each tier
+  separately with per-file distribution; state versions inline (openpyxl
+  3.1.5, LibreOffice 24.8.7.2, IronCalc master e50ccea8); 5-file corpus is a
+  stated external-validity limitation.
 
 ## Efficiency (results.json, A) — median-of-3 warm, perf-large.xlsx (~100k formulas)
 - xlq calc (load + full recalc + stored-vs-recomputed audit): **1.264 s**
