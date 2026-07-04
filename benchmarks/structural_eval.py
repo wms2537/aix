@@ -111,6 +111,18 @@ def arm_xlq():
          "--at", "5", "--count", "1", "--actor", "eval"],
         capture_output=True, text=True)
     rep = json.loads(out.stdout) if out.stdout.strip().startswith("{") else {"error": out.stderr}
+    # RECOMPUTE (executed, not asserted): reopen the committed file in the
+    # engine via `xlq calc` and confirm the SUM recomputes to its pre-edit value
+    # (760); the inserted blank row contributes 0, data shifts, total unchanged.
+    calc = subprocess.run([XLQ, "calc", dst], capture_output=True, text=True)
+    recompute_sum = None
+    try:
+        cj = json.loads(calc.stdout)
+        for c in cj.get("changed", []):
+            if isinstance(c.get("formula"), str) and c["formula"].startswith("=SUM"):
+                recompute_sum = c.get("recomputed")
+    except Exception:
+        pass
     got = formulas_present(dst)
     correct, tot, per = score_correctness(got)
     same, changed, dropped, added = byte_identical(FIX, dst)
@@ -124,6 +136,8 @@ def arm_xlq():
     return {
         "tool": "xlq restructure",
         "correctness": f"{correct}/{tot}", "per_ref": per,
+        "recompute_sum": recompute_sum, "recompute_expected": "760",
+        "recompute_ok": recompute_sum == "760",
         "committed": "rev" in rep, "residuals": rep.get("edit", {}).get("residuals"),
         "parts_byte_identical": len(same), "parts_total": len(same) + len(changed) + len(dropped),
         "parts_changed": changed, "parts_dropped": dropped,

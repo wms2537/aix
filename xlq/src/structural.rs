@@ -59,6 +59,14 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
 
     let mut report = StructuralReport::default();
 
+    // Conservative pre-scan: constructs the current σ-application cannot
+    // guarantee to shift correctly must be REFUSED, never silently corrupted.
+    // (a) Tables carry an extent + structured refs we do not yet rewrite.
+    // (b) A 3D span not anchored on the edited sheet may cover it as an interior
+    //     tab, which we cannot verify. Both are reported as residuals so the
+    //     command layer declines the edit — preserving "never silently wrong".
+    scan_extra_residuals(&archive_names(input)?, input, edit, &mut report);
+
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| anyhow!("zip entry: {e}"))?;
         let name = file.name().to_string();
@@ -121,6 +129,49 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
     report.parts_touched.insert(0, edited_part);
     let cur = writer.finish().map_err(|e| anyhow!("finalize: {e}"))?;
     Ok((cur.into_inner(), report))
+}
+
+fn archive_names(input: &[u8]) -> Result<Vec<String>> {
+    let mut a = zip::ZipArchive::new(Cursor::new(input)).map_err(|e| anyhow!("zip: {e}"))?;
+    Ok((0..a.len())
+        .filter_map(|i| a.by_index(i).ok().map(|f| f.name().to_string()))
+        .collect())
+}
+
+/// Populate residuals for constructs the current implementation cannot safely
+/// shift: table parts (unsupported extent/structured refs) and 3D spans not
+/// anchored on the edited sheet (interior-tab shift is unverifiable).
+fn scan_extra_residuals(names: &[String], input: &[u8], edit: &StructuralEdit, report: &mut StructuralReport) {
+    for n in names {
+        if n.starts_with("xl/tables/") && n.ends_with(".xml") {
+            report.residuals.push(Residual {
+                part: n.clone(),
+                reason: "table_unsupported".into(),
+                detail: "structured table extent/refs are not shifted; edit refused".into(),
+            });
+        }
+    }
+    // scan formula text across sheets, charts, workbook for unverifiable 3D spans
+    let scan_parts: Vec<&String> = names
+        .iter()
+        .filter(|n| {
+            (n.starts_with("xl/worksheets/sheet") && n.ends_with(".xml"))
+                || (n.starts_with("xl/charts/") && n.ends_with(".xml"))
+                || *n == "xl/workbook.xml"
+        })
+        .collect();
+    for n in scan_parts {
+        if let Ok(bytes) = crate::ooxml::read_part(input, n) {
+            let text = String::from_utf8_lossy(&bytes);
+            if refshift::has_unverifiable_3d_span(&text, &edit.sheet) {
+                report.residuals.push(Residual {
+                    part: n.clone(),
+                    reason: "threeD_span_unverifiable".into(),
+                    detail: "a 3D span not anchored on the edited sheet may cover it as an interior tab".into(),
+                });
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -230,7 +281,7 @@ fn rewrite_edited_sheet(
             }
 
             Event::Start(e) => {
-                if e.name().as_ref() == b"f" {
+                if is_formula_tag(e.name().as_ref()) {
                     in_f = true;
                     f_residual = detect_residual(&e).is_some();
                     if f_residual {
@@ -256,7 +307,7 @@ fn rewrite_edited_sheet(
                 writer.write_event(Event::Empty(transform_tag(&e, &sheet, edit, report)))?;
             }
             Event::End(e) => {
-                if e.name().as_ref() == b"f" {
+                if is_formula_tag(e.name().as_ref()) {
                     in_f = false;
                     f_residual = false;
                 }
@@ -370,6 +421,16 @@ fn shift_cell_tag(e: &BytesStart, edit: &StructuralEdit) -> BytesStart<'static> 
         }
     }
     set_attrs(e, &repl)
+}
+
+/// Formula-bearing element local names whose TEXT carries A1 references:
+/// `<f>` (cell), `<formula>` (cfRule), `<formula1>`/`<formula2>` (dataValidation).
+fn is_formula_tag(name: &[u8]) -> bool {
+    let local = match name.iter().rposition(|&b| b == b':') {
+        Some(i) => &name[i + 1..],
+        None => name,
+    };
+    matches!(local, b"f" | b"formula" | b"formula1" | b"formula2")
 }
 
 fn has_ref_attr(name: &[u8]) -> bool {
@@ -738,6 +799,47 @@ mod tests {
             }
         }
         m
+    }
+
+    #[test]
+    fn cf_and_dv_formula_bodies_shift() {
+        // conditional-formatting rule body + data-validation formula must shift,
+        // not just their sqref (the confirmed half-shift bug).
+        let xml = br#"<worksheet><sheetData><row r="1"><c r="A1"/></row></sheetData><conditionalFormatting sqref="B5:B20"><cfRule type="expression"><formula>$A5&gt;0</formula></cfRule></conditionalFormatting><dataValidation sqref="C5:C20"><formula1>$D5</formula1></dataValidation></worksheet>"#;
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(s.contains(r#"sqref="B6:B21""#), "CF sqref shifts: {s}");
+        assert!(s.contains("$A6"), "CF formula body shifts ($A5->$A6): {s}");
+        assert!(s.contains(r#"sqref="C6:C21""#), "DV sqref shifts");
+        assert!(s.contains("$D6"), "DV formula1 body shifts ($D5->$D6): {s}");
+    }
+
+    #[test]
+    fn table_part_forces_residual() {
+        // a workbook containing a table part must be REFUSED (we don't shift
+        // table extents), never silently corrupted.
+        let py = "/home/soh/aix/fixtures/structural/table.xlsx";
+        if !std::path::Path::new(py).exists() {
+            return;
+        }
+        let input = std::fs::read(py).unwrap();
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 3, 1);
+        let (_out, report) = structural_edit(&input, &e).unwrap();
+        assert!(
+            report.residuals.iter().any(|r| r.reason == "table_unsupported"),
+            "table must force a residual"
+        );
+    }
+
+    #[test]
+    fn threeD_interior_span_forces_residual() {
+        assert!(crate::refshift::has_unverifiable_3d_span("=SUM(Sheet1:Sheet3!A5)", "Sheet2"));
+        assert!(!crate::refshift::has_unverifiable_3d_span("=SUM(Sheet1:Sheet3!A5)", "Sheet1"));
+        assert!(!crate::refshift::has_unverifiable_3d_span("=A5+B10", "Sheet2"));
+        // string literal with a colon-bang must not false-positive
+        assert!(!crate::refshift::has_unverifiable_3d_span(r#"=IF(A1,"Sheet1:Sheet3!x","")"#, "Sheet2"));
     }
 
     #[test]

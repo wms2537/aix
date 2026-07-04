@@ -21,6 +21,9 @@
         "defined": true,
         "chart_ref": true
       },
+      "recompute_sum": "760",
+      "recompute_expected": "760",
+      "recompute_ok": true,
       "committed": true,
       "residuals": [],
       "parts_byte_identical": 10,

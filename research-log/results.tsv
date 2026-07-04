@@ -7,3 +7,6 @@ e-struct	correctness_xlq	6/6	beat-baseline	high	6/6	confirm	keep	xlq shifts all 
 e-struct	correctness_openpyxl	0/6	match-literature	high	0/6	confirm	keep	openpyxl insert_rows shifts 0 refs -> silently wrong (=B5*2 reads blank row)
 e-struct	minimal_patch	true	match-baseline	high	true	confirm	keep	xlq changed 4 ref-bearing parts only; non-sheet parts digit-stripped-identical (coord-only)
 e-struct	libreoffice_fidelity	0/14	match-literature	medium	0/14	confirm	keep	LO round-trip rewrites all 14 parts (fidelity destroyed before any edit)
+adv-review	confirmed_defects	unknown	unclear	low	9	disconfirm	keep	28-agent adversarial review found 9 real defects (whole-column FATAL, CF/DV bodies, tables, 3D-interior); all fixed
+adv-review	invariant_restored	true	beat-baseline	high	true	confirm	keep	never-silently-wrong restored: every construct shifted-correctly OR refused; 184 tests
+e-struct	recompute_executed	760	match-baseline	high	760	confirm	keep	xlq calc on committed file recomputes SUM=760 (executed not asserted)

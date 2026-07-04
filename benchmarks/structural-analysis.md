@@ -59,11 +59,28 @@ openpyxl preserves bytes but breaks references (correctness lost); LibreOffice i
 correct but rewrites everything. The reference-shift algebra σ + minimal-patch
 OOXML surgery resolves the conflict.
 
-## Honest scope
-- Residuals (shared/array formulas crossing the edit) are DETECTED and the
-  commit is REFUSED (`residual_unreachable`) — never silently wrong. Expanding
-  shared-formula groups is future work.
-- One fixture, one operation (insert-row); delete-row and column ops share the
-  same σ (unit-tested) but are not in this end-to-end table yet.
+## Coverage (after adversarial review — research-log/014)
+A 28-agent adversarial review found 9 confirmed defects, all now fixed. The
+invariant is: for every reference-bearing construct, xlq EITHER shifts it
+correctly OR refuses the edit — never silently wrong.
+
+**Shifts correctly:** cell `<f>` formulas, `<c r>`/`<row r>` coordinates,
+cross-sheet refs (sheet-scoped), defined names, chart `<c:f>`, pivot
+`worksheetSource`, mergeCell/CF/DV/dimension/selection `sqref`, CF `<formula>` +
+DV `<formula1/2>` bodies, whole-column/whole-row refs, absolute refs, 3D spans
+anchored on the edited sheet. Recompute is EXECUTED in the eval (`xlq calc` →
+SUM = 760, matching the pre-edit total).
+
+**Refuses (residual — never silently wrong):** shared-formula groups, array
+formulas, workbooks containing table parts, 3D spans not anchored on the edited
+sheet.
+
+## Honest scope / limitations
+- **Shared formulas are the key limitation.** They are common (Excel/autofill
+  emit them), and xlq REFUSES any edit touching them — safe but limiting.
+  Shared-formula EXPANSION (materialize → shift) is the clear next contribution.
+- One end-to-end fixture, one operation (insert-row); delete-row and column ops
+  share the same σ (unit-tested, incl. the whole-column column-op cases) but are
+  not yet in this end-to-end table.
 - LibreOffice's insert-row (vs round-trip) needs a Basic macro; its
   reference-shift correctness is stated by engine, not measured here.

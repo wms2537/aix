@@ -491,17 +491,77 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
     if s.as_bytes().get(l1) == Some(&b':') {
         let (l2, c2, r2) = scan_endpoint(&s[l1 + 1..]);
         if l2 > 0 {
-            // valid range if both endpoints parse; whole-row (rows only) or
-            // whole-col (cols only) or full cells
+            // A valid range is one of three KINDS, both endpoints the same kind:
+            //   full-cell : A1:B2  (col AND row on both)
+            //   whole-col : A:C    (col only on both)   -> shifts under col ops
+            //   whole-row : 1:5    (row only on both)   -> shifts under row ops
+            // Mixed forms (A1:B, A:B2) are not valid Excel refs.
             let total = l1 + 1 + l2;
-            let ok = (r1 || !c1) && (r2 || !c2); // each endpoint is col-only or has row
-            // require columns match kind: A:A (col-only) or 1:1 (row-only) or A1:B2
-            let coherent = (c1 == c2) || (r1 && r2);
-            return (total, ok && coherent);
+            let both_full = (c1 && r1) && (c2 && r2);
+            let both_wholecol = (c1 && !r1) && (c2 && !r2);
+            let both_wholerow = (!c1 && r1) && (!c2 && r2);
+            return (total, both_full || both_wholecol || both_wholerow);
         }
     }
     // single endpoint: a real cell ref needs a row number (else it's a name)
     (l1, c1 && r1)
+}
+
+/// Detect a 3D span reference (`SheetA:SheetB!…`) in a formula whose endpoint
+/// sheets do NOT include the edited sheet. Such a span may cover the edited
+/// sheet as an INTERIOR tab (which we cannot verify without workbook order), so
+/// its shift is unverifiable and the edit must be refused rather than silently
+/// left stale. Returns true if such an unverifiable 3D span is present.
+pub fn has_unverifiable_3d_span(formula: &str, edited_sheet: &str) -> bool {
+    let b = formula.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'"' {
+            // skip string literal
+            i += 1;
+            while i < b.len() {
+                if b[i] == b'"' {
+                    i += 1;
+                    if i < b.len() && b[i] == b'"' {
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        // look for a bang; the token before it may be a 3D span "A:B"
+        if b[i] == b'!' {
+            // walk back over the sheet qualifier (letters/digits/_/./:/space/')
+            let mut j = i;
+            while j > 0 {
+                let c = b[j - 1];
+                if c.is_ascii_alphanumeric()
+                    || c == b'_'
+                    || c == b'.'
+                    || c == b':'
+                    || c == b' '
+                    || c == b'\''
+                {
+                    j -= 1;
+                } else {
+                    break;
+                }
+            }
+            let qual = &formula[j..i];
+            if let Some((s1, s2)) = qual.split_once(':') {
+                let s1 = s1.trim().trim_matches('\'');
+                let s2 = s2.trim().trim_matches('\'');
+                if !s1.eq_ignore_ascii_case(edited_sheet) && !s2.eq_ignore_ascii_case(edited_sheet) {
+                    return true; // 3D span not anchored on the edited sheet
+                }
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 /// Residual detection: does this formula body use a construct the minimal-patch
@@ -730,6 +790,23 @@ mod tests {
         assert_eq!(sf("SUM(A:A)", "Sheet1", &row_edit(Op::Insert, 5, 1)), "SUM(A:A)");
     }
     #[test]
+    fn formula_whole_column_under_col_op_shifts() {
+        // the FATAL scanner-routing bug: SUM(A:A) under a column insert must
+        // become SUM(B:B), not stay unchanged.
+        assert_eq!(sf("SUM(A:A)", "Sheet1", &col_edit(Op::Insert, 1, 1)), "SUM(B:B)");
+        assert_eq!(sf("SUM(A:C)", "Sheet1", &col_edit(Op::Insert, 1, 1)), "SUM(B:D)");
+        assert_eq!(sf("SUM($A:$C)", "Sheet1", &col_edit(Op::Insert, 1, 1)), "SUM($B:$D)");
+    }
+    #[test]
+    fn formula_whole_column_delete_consumed_is_ref() {
+        // deleting column A entirely consumes SUM(A:A) -> #REF!
+        assert_eq!(sf("SUM(A:A)", "Sheet1", &col_edit(Op::Delete, 1, 1)), "SUM(#REF!)");
+    }
+    #[test]
+    fn formula_whole_row_under_row_op_shifts() {
+        assert_eq!(sf("SUM(5:5)", "Sheet1", &row_edit(Op::Insert, 2, 1)), "SUM(6:6)");
+    }
+    #[test]
     fn formula_quoted_sheet() {
         let mut e = row_edit(Op::Insert, 5, 1);
         e.sheet = "My Sheet".into();
@@ -750,3 +827,4 @@ mod tests {
         assert_eq!(residual_reason(""), None);
     }
 }
+
