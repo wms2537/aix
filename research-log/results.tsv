@@ -1,0 +1,3 @@
+run_id	metric	predicted_value	predicted_direction	confidence	actual_value	signal	status	description
+poc-insert-row	sigma_correct_classes	6/7	beat-baseline	medium		 	planned	insert 1 row: shift in-sheet-rel, abs, straddle-range, cross-sheet, named-range, chart; recompute==engine
+poc-insert-row	minimal_patch_holds	true	match-baseline	medium		 	planned	every non-coordinate byte identical after insert-row
