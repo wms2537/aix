@@ -1,16 +1,50 @@
-# xlq
+# xlq — a safe-write boundary for LLM agents editing spreadsheets
 
-Agent-safe CLI for Excel workbooks. Single Rust binary, wraps
-[IronCalc](https://github.com/ironcalc/IronCalc). Every command emits
-machine-readable JSON on stdout; logs and diagnostics go to stderr. Read
-commands never modify the target file.
+Single Rust binary, wraps [IronCalc](https://github.com/ironcalc/IronCalc).
+Machine-readable JSON on stdout. An agent editing a spreadsheet today uses
+"generate openpyxl code that loads → mutates → saves the whole file," which
+rewrites the entire container and silently destroys everything the library
+can't model — charts, pivots, VBA. xlq gives the agent a **surgical write**
+instead: it edits only the cells you asked for and leaves every other part of
+the file byte-identical.
 
-xlq is the enforcement boundary for agents operating on Excel files. A skill
-or prompt can *tell* an agent to be careful with a workbook; it cannot make
-carelessness impossible. xlq makes the safe path the only path: reads are
-guaranteed side-effect-free, output states explicitly what the engine could
-and could not evaluate, and (roadmap) writes go through hash-checked patches
-with dry-runs and receipts instead of in-place file mutation.
+## What it guarantees (v0.2, built and tested — 121 tests)
+
+- **`xlq apply` is surgical.** It rewrites only the OOXML parts that contain a
+  changed cell and copies every other part byte-for-byte. Measured
+  (`docs/FIDELITY.md`): on a real charts+pivot workbook xlq preserves **48/50
+  parts byte-identical**; on a macro workbook it keeps `vbaProject.bin`
+  **byte-identical** — where openpyxl preserves 1/N, drops the VBA, and its
+  output often won't even re-open.
+- **The fidelity property is enforced, not hoped.** Every real `apply`
+  re-loads its own output, proves the edited cells landed, and aborts if *any*
+  non-edited part changed (`fidelity_violation`).
+- **Precondition + preview + receipt.** `apply` checks a `base_hash`, offers
+  `--dry-run` (predicts affected cells / new errors / watch values), and
+  records a hash-chained receipt (`book.xlsx.xlq.jsonl`) with rev-files and an
+  advisory lock.
+- **The differential oracle gates the write.** xlq refuses to persist an
+  engine-computed cached value for any cell whose formula uses a function its
+  own cross-engine oracle found the engine computes wrong (CONVERT, TRIM,
+  ROW, SUMPRODUCT…). See `benchmarks/agreement.json`, `docs/AGREEMENT.md`.
+- **Read commands (`inspect`, `diff`, `calc`) never write.** `inspect` is a
+  privacy-safe census (structure, not content).
+- **Non-bypassability, tested adversarially.** In a confined harness where
+  xlq is the only reachable write tool, an agent that tried to bypass it could
+  not forge or (with the read-only broker deployment) destroy the file —
+  `docs/NON-BYPASS.md`, `harness/`.
+
+**Interventional result (`docs/AGENT-AB.md`):** same task, same file, only the
+tool varies — the status-quo openpyxl agent produced a corrupt, non-reloadable
+workbook it *reported as success*; the xlq-confined agent made the identical
+edit with charts/pivots/VBA intact and a receipt.
+
+**Also shipped:** a cross-engine differential oracle that found real bugs in
+**both** IronCalc and LibreOffice (`docs/upstream/`), 522/522 Excel-function
+catalog coverage with an honest 3-number taxonomy (`docs/COVERAGE.md`), and
+the AXLE-bench evaluation suite (`benchmarks/README.md`). Paper:
+`paper/paper-v2.md`. Scope: `apply` covers in-place cell/formula edits;
+structural edits (row/column insert-delete) are the named open problem.
 
 ## Why
 
@@ -33,7 +67,7 @@ xlq's answer is a purpose-built binary with three properties:
 3. **Local-only.** No network calls, no telemetry, no daemon. Plain files in,
    JSON out.
 
-## The three v0.1 commands
+## The read commands: inspect / diff / calc
 
 ### `xlq inspect` — privacy-safe workbook census
 
@@ -163,29 +197,35 @@ behavior exactly. When `reliable` is `false`, treat value-level results
 "no silent incorrectness" rule made mechanical: the tool reports its own
 blind spots instead of papering over them.
 
+## `xlq apply` — the surgical write (v0.2, built)
+
+```
+# patch.json: base_hash + typed ops
+{ "base_hash": "<xlq inspect file | .file.sha256>",
+  "actor": "agent",
+  "ops": [ { "type": "set_cell", "sheet": "Sheet1", "cell": "A2", "value": 900 } ] }
+
+xlq apply book.xlsx patch.json --dry-run      # predict, write nothing
+xlq apply book.xlsx patch.json --actor agent  # surgical write + receipt
+```
+
+`apply` checks the `base_hash` (else `revision_mismatch`), predicts the effect
+(dry-run: affected cells, new errors, `watch` before/after), then — for a real
+write — surgically edits only the affected sheet parts, re-loads its own output
+to prove the edit landed and no other part changed (`fidelity_violation`
+aborts, original untouched), writes an immutable `book.rev-N.xlsx`, atomically
+swaps it onto the working file, and appends a hash-chained receipt to
+`book.xlsx.xlq.jsonl`. It refuses (`coverage_unreliable`) when the affected
+formulas use functions the differential oracle flagged as engine-divergent, or
+nondeterministic volatiles. See [docs/specs/v02-architecture.md](docs/specs/v02-architecture.md).
+
 ## Roadmap
 
-Next, per [docs/receipt-journal-spec.md](docs/receipt-journal-spec.md) (draft,
-v0.2):
-
-- `xlq apply book.xlsx patch.json --dry-run` — typed operations (`set_cell`,
-  `set_formula`) against a file-hash revision. The patch carries a
-  `base_hash`; if the file on disk has changed, apply refuses with
-  `revision_mismatch` instead of clobbering. Dry-run predicts affected cells,
-  new formula errors, and before/after values for a `watch` list of named
-  outputs.
-- Receipts in a hash-chained sidecar journal (`book.xlsx.xlq.jsonl`), one per
-  workbook: each receipt's `base_hash` must equal the previous receipt's
-  `result_hash`, so any out-of-band edit is detected and recorded, never
-  silently absorbed.
-- Immutable `book.rev-N.xlsx` history files plus atomic replacement of the
-  original — the working file stays authoritative; history is beside it, not
-  competing with it.
-- `xlq calc --write` routing through the same rev-file + swap + receipt path.
-  There will never be a bare in-place write.
-
-Further out: ranged/paged reads, BYO-cloud sync (`xlq push/pull` against your
-own S3 bucket or git remote — never a third-party tenant).
+- **Structural edits** (`insert_row`/`insert_column`/`delete`) — the named open
+  problem: preserving fidelity while shifting references, calcChain, shared
+  strings, and pivot caches. This is the next research + engineering push.
+- Ranged/paged reads; BYO-cloud sync (`xlq push/pull` against your own S3
+  bucket or git remote — never a third-party tenant).
 
 ## Design principles
 
