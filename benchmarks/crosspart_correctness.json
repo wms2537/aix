@@ -1,0 +1,29 @@
+{
+  "corpus": "10 cross-part fixtures (chart + cross-sheet + defined-name + CF + DV + merged), x 4 ops",
+  "per_op": {
+    "insert-row": {
+      "checked": 90,
+      "correct": 90,
+      "pct": 100.0
+    },
+    "delete-row": {
+      "checked": 90,
+      "correct": 90,
+      "pct": 100.0
+    },
+    "insert-col": {
+      "checked": 90,
+      "correct": 90,
+      "pct": 100.0
+    },
+    "delete-col": {
+      "checked": 90,
+      "correct": 90,
+      "pct": 100.0
+    }
+  },
+  "total_reference_checks": 360,
+  "correct": 360,
+  "correctness_pct": 100.0,
+  "failures": []
+}

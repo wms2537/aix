@@ -1,0 +1,522 @@
+[
+  {
+    "file": "cp01.xlsx",
+    "edited_sheet": "Data",
+    "ndata": 6,
+    "references": {
+      "insheet_sum": {
+        "cell": "B8",
+        "ref": "B2:B7"
+      },
+      "insheet_single": {
+        "cell": "B9",
+        "ref": "B4"
+      },
+      "insheet_abs": {
+        "cell": "D10",
+        "ref": "$B$8"
+      },
+      "chart": {
+        "part": "chart",
+        "ref": "Data!$B$2:$B$6"
+      },
+      "cf": {
+        "part": "cf",
+        "sqref": "B3:B6",
+        "formula": "$B$3"
+      },
+      "dv": {
+        "part": "dv",
+        "sqref": "F2:F5",
+        "formula": "$A$2:$A$5"
+      },
+      "merged": {
+        "part": "merged",
+        "ref": "D3:E3"
+      },
+      "xref_single": {
+        "part": "Report",
+        "cell": "A1",
+        "ref": "Data!B8"
+      },
+      "xref_range": {
+        "part": "Report",
+        "cell": "A2",
+        "ref": "Data!B2:B7"
+      },
+      "defined": {
+        "part": "workbook",
+        "ref": "Data!$B$8"
+      }
+    },
+    "sum_row": 8
+  },
+  {
+    "file": "cp02.xlsx",
+    "edited_sheet": "Data",
+    "ndata": 8,
+    "references": {
+      "insheet_sum": {
+        "cell": "B10",
+        "ref": "B2:B9"
+      },
+      "insheet_single": {
+        "cell": "B11",
+        "ref": "B5"
+      },
+      "insheet_abs": {
+        "cell": "D12",
+        "ref": "$B$10"
+      },
+      "chart": {
+        "part": "chart",
+        "ref": "Data!$B$2:$B$8"
+      },
+      "cf": {
+        "part": "cf",
+        "sqref": "B4:B8",
+        "formula": "$B$4"
+      },
+      "dv": {
+        "part": "dv",
+        "sqref": "F2:F7",
+        "formula": "$A$2:$A$7"
+      },
+      "merged": {
+        "part": "merged",
+        "ref": "D4:E4"
+      },
+      "xref_single": {
+        "part": "Report",
+        "cell": "A1",
+        "ref": "Data!B10"
+      },
+      "xref_range": {
+        "part": "Report",
+        "cell": "A2",
+        "ref": "Data!B2:B9"
+      },
+      "defined": {
+        "part": "workbook",
+        "ref": "Data!$B$10"
+      }
+    },
+    "sum_row": 10
+  },
+  {
+    "file": "cp03.xlsx",
+    "edited_sheet": "Data",
+    "ndata": 5,
+    "references": {
+      "insheet_sum": {
+        "cell": "B7",
+        "ref": "B2:B6"
+      },
+      "insheet_single": {
+        "cell": "B8",
+        "ref": "B3"
+      },
+      "insheet_abs": {
+        "cell": "D9",
+        "ref": "$B$7"
+      },
+      "chart": {
+        "part": "chart",
+        "ref": "Data!$B$2:$B$5"
+      },
+      "cf": {
+        "part": "cf",
+        "sqref": "B2:B5",
+        "formula": "$B$2"
+      },
+      "dv": {
+        "part": "dv",
+        "sqref": "F3:F5",
+        "formula": "$A$3:$A$5"
+      },
+      "merged": {
+        "part": "merged",
+        "ref": "D2:E2"
+      },
+      "xref_single": {
+        "part": "Report",
+        "cell": "A1",
+        "ref": "Data!B7"
+      },
+      "xref_range": {
+        "part": "Report",
+        "cell": "A2",
+        "ref": "Data!B2:B6"
+      },
+      "defined": {
+        "part": "workbook",
+        "ref": "Data!$B$7"
+      }
+    },
+    "sum_row": 7
+  },
+  {
+    "file": "cp04.xlsx",
+    "edited_sheet": "Data",
+    "ndata": 10,
+    "references": {
+      "insheet_sum": {
+        "cell": "B12",
+        "ref": "B2:B11"
+      },
+      "insheet_single": {
+        "cell": "B13",
+        "ref": "B6"
+      },
+      "insheet_abs": {
+        "cell": "D14",
+        "ref": "$B$12"
+      },
+      "chart": {
+        "part": "chart",
+        "ref": "Data!$B$2:$B$10"
+      },
+      "cf": {
+        "part": "cf",
+        "sqref": "B5:B10",
+        "formula": "$B$5"
+      },
+      "dv": {
+        "part": "dv",
+        "sqref": "F2:F9",
+        "formula": "$A$2:$A$9"
+      },
+      "merged": {
+        "part": "merged",
+        "ref": "D5:E5"
+      },
+      "xref_single": {
+        "part": "Report",
+        "cell": "A1",
+        "ref": "Data!B12"
+      },
+      "xref_range": {
+        "part": "Report",
+        "cell": "A2",
+        "ref": "Data!B2:B11"
+      },
+      "defined": {
+        "part": "workbook",
+        "ref": "Data!$B$12"
+      }
+    },
+    "sum_row": 12
+  },
+  {
+    "file": "cp05.xlsx",
+    "edited_sheet": "Data",
+    "ndata": 7,
+    "references": {
+      "insheet_sum": {
+        "cell": "B9",
+        "ref": "B2:B8"
+      },
+      "insheet_single": {
+        "cell": "B10",
+        "ref": "B7"
+      },
+      "insheet_abs": {
+        "cell": "D11",
+        "ref": "$B$9"
+      },
+      "chart": {
+        "part": "chart",
+        "ref": "Data!$B$2:$B$7"
+      },
+      "cf": {
+        "part": "cf",
+        "sqref": "B3:B7",
+        "formula": "$B$3"
+      },
+      "dv": {
+        "part": "dv",
+        "sqref": "F2:F6",
+        "formula": "$A$2:$A$6"
+      },
+      "merged": {
+        "part": "merged",
+        "ref": "D3:E3"
+      },
+      "xref_single": {
+        "part": "Report",
+        "cell": "A1",
+        "ref": "Data!B9"
+      },
+      "xref_range": {
+        "part": "Report",
+        "cell": "A2",
+        "ref": "Data!B2:B8"
+      },
+      "defined": {
+        "part": "workbook",
+        "ref": "Data!$B$9"
+      }
+    },
+    "sum_row": 9
+  },
+  {
+    "file": "cp06.xlsx",
+    "edited_sheet": "Data",
+    "ndata": 12,
+    "references": {
+      "insheet_sum": {
+        "cell": "B14",
+        "ref": "B2:B13"
+      },
+      "insheet_single": {
+        "cell": "B15",
+        "ref": "B8"
+      },
+      "insheet_abs": {
+        "cell": "D16",
+        "ref": "$B$14"
+      },
+      "chart": {
+        "part": "chart",
+        "ref": "Data!$B$2:$B$12"
+      },
+      "cf": {
+        "part": "cf",
+        "sqref": "B6:B12",
+        "formula": "$B$6"
+      },
+      "dv": {
+        "part": "dv",
+        "sqref": "F4:F11",
+        "formula": "$A$4:$A$11"
+      },
+      "merged": {
+        "part": "merged",
+        "ref": "D6:E6"
+      },
+      "xref_single": {
+        "part": "Report",
+        "cell": "A1",
+        "ref": "Data!B14"
+      },
+      "xref_range": {
+        "part": "Report",
+        "cell": "A2",
+        "ref": "Data!B2:B13"
+      },
+      "defined": {
+        "part": "workbook",
+        "ref": "Data!$B$14"
+      }
+    },
+    "sum_row": 14
+  },
+  {
+    "file": "cp07.xlsx",
+    "edited_sheet": "Data",
+    "ndata": 4,
+    "references": {
+      "insheet_sum": {
+        "cell": "B6",
+        "ref": "B2:B5"
+      },
+      "insheet_single": {
+        "cell": "B7",
+        "ref": "B2"
+      },
+      "insheet_abs": {
+        "cell": "D8",
+        "ref": "$B$6"
+      },
+      "chart": {
+        "part": "chart",
+        "ref": "Data!$B$2:$B$4"
+      },
+      "cf": {
+        "part": "cf",
+        "sqref": "B2:B4",
+        "formula": "$B$2"
+      },
+      "dv": {
+        "part": "dv",
+        "sqref": "F2:F4",
+        "formula": "$A$2:$A$4"
+      },
+      "merged": {
+        "part": "merged",
+        "ref": "D2:E2"
+      },
+      "xref_single": {
+        "part": "Report",
+        "cell": "A1",
+        "ref": "Data!B6"
+      },
+      "xref_range": {
+        "part": "Report",
+        "cell": "A2",
+        "ref": "Data!B2:B5"
+      },
+      "defined": {
+        "part": "workbook",
+        "ref": "Data!$B$6"
+      }
+    },
+    "sum_row": 6
+  },
+  {
+    "file": "cp08.xlsx",
+    "edited_sheet": "Data",
+    "ndata": 9,
+    "references": {
+      "insheet_sum": {
+        "cell": "B11",
+        "ref": "B2:B10"
+      },
+      "insheet_single": {
+        "cell": "B12",
+        "ref": "B4"
+      },
+      "insheet_abs": {
+        "cell": "D13",
+        "ref": "$B$11"
+      },
+      "chart": {
+        "part": "chart",
+        "ref": "Data!$B$2:$B$9"
+      },
+      "cf": {
+        "part": "cf",
+        "sqref": "B3:B9",
+        "formula": "$B$3"
+      },
+      "dv": {
+        "part": "dv",
+        "sqref": "F5:F9",
+        "formula": "$A$5:$A$9"
+      },
+      "merged": {
+        "part": "merged",
+        "ref": "D3:E3"
+      },
+      "xref_single": {
+        "part": "Report",
+        "cell": "A1",
+        "ref": "Data!B11"
+      },
+      "xref_range": {
+        "part": "Report",
+        "cell": "A2",
+        "ref": "Data!B2:B10"
+      },
+      "defined": {
+        "part": "workbook",
+        "ref": "Data!$B$11"
+      }
+    },
+    "sum_row": 11
+  },
+  {
+    "file": "cp09.xlsx",
+    "edited_sheet": "Data",
+    "ndata": 6,
+    "references": {
+      "insheet_sum": {
+        "cell": "B8",
+        "ref": "B2:B7"
+      },
+      "insheet_single": {
+        "cell": "B9",
+        "ref": "B5"
+      },
+      "insheet_abs": {
+        "cell": "D10",
+        "ref": "$B$8"
+      },
+      "chart": {
+        "part": "chart",
+        "ref": "Data!$B$2:$B$6"
+      },
+      "cf": {
+        "part": "cf",
+        "sqref": "B4:B6",
+        "formula": "$B$4"
+      },
+      "dv": {
+        "part": "dv",
+        "sqref": "F2:F6",
+        "formula": "$A$2:$A$6"
+      },
+      "merged": {
+        "part": "merged",
+        "ref": "D4:E4"
+      },
+      "xref_single": {
+        "part": "Report",
+        "cell": "A1",
+        "ref": "Data!B8"
+      },
+      "xref_range": {
+        "part": "Report",
+        "cell": "A2",
+        "ref": "Data!B2:B7"
+      },
+      "defined": {
+        "part": "workbook",
+        "ref": "Data!$B$8"
+      }
+    },
+    "sum_row": 8
+  },
+  {
+    "file": "cp10.xlsx",
+    "edited_sheet": "Data",
+    "ndata": 11,
+    "references": {
+      "insheet_sum": {
+        "cell": "B13",
+        "ref": "B2:B12"
+      },
+      "insheet_single": {
+        "cell": "B14",
+        "ref": "B9"
+      },
+      "insheet_abs": {
+        "cell": "D15",
+        "ref": "$B$13"
+      },
+      "chart": {
+        "part": "chart",
+        "ref": "Data!$B$2:$B$11"
+      },
+      "cf": {
+        "part": "cf",
+        "sqref": "B2:B11",
+        "formula": "$B$2"
+      },
+      "dv": {
+        "part": "dv",
+        "sqref": "F3:F10",
+        "formula": "$A$3:$A$10"
+      },
+      "merged": {
+        "part": "merged",
+        "ref": "D2:E2"
+      },
+      "xref_single": {
+        "part": "Report",
+        "cell": "A1",
+        "ref": "Data!B13"
+      },
+      "xref_range": {
+        "part": "Report",
+        "cell": "A2",
+        "ref": "Data!B2:B12"
+      },
+      "defined": {
+        "part": "workbook",
+        "ref": "Data!$B$13"
+      }
+    },
+    "sum_row": 13
+  }
+]
