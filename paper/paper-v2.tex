@@ -132,7 +132,21 @@ formula engine validated by a documentation-arbitered differential
 oracle over 1,659 cases; an independent financial cross-check confirms
 two of the oracle\textquotesingle s Treasury-bill verdicts and
 \emph{downgrades} a third, which we report as a strength of the method
-rather than hide. All artifacts are reproducible.
+rather than hide. We then carry the same surgical discipline to the
+operation this work had named its own key open problem ---
+\emph{structural edits}, row and column insert and delete, where
+fidelity and correctness genuinely conflict because a correct edit
+\emph{must} rewrite the reference-bearing parts a chart or cross-sheet
+formula depends on: a total reference-shift algebra applied uniformly
+across every reference-bearing OOXML part under a machine-checkable
+minimal-patch invariant, so the only bytes that change are reference
+coordinates and physically inserted rows, with shared-formula expansion
+and a never-silently-wrong refusal discipline --- in a controlled trial
+xlq shifts 6 of 6 reference classes correctly where
+openpyxl\textquotesingle s \texttt{insert\_rows} silently corrupts all
+six, and across 231 real workbooks 78.8\% are safely edited and 21.2\%
+refused with a truthful reason, none silently corrupted, an engine-free
+round-trip oracle passing 182 of 182. All artifacts are reproducible.
 
 \subsection{1. Introduction}\label{1-introduction}
 
@@ -153,7 +167,7 @@ library that models a subset of the format, mutate a cell, and
 re-serialize the entire container --- discarding everything the library
 does not model as a side effect of saving.
 
-An earlier version of this work (§9) diagnosed that failure and built a
+An earlier version of this work (§10) diagnosed that failure and built a
 read-only inspector that could \emph{observe} the damage but not prevent
 it: a boundary that cannot write cannot corrupt, but it also cannot let
 an agent do the job it was asked to do. That is not an enforcement
@@ -192,7 +206,7 @@ of their relationships, 13 of 50 parts dropped, 1 of 50 byte-identical
 --- and reported success anyway, having read the raw sheet XML and seen
 its target cell written; through xlq the agent made the identical edit
 with the charts and pivot byte-identical, 48 of 50 parts untouched, the
-file reloadable, and a hash-chained receipt on disk (§4). The agent,
+file reloadable, and a hash-chained receipt on disk (§5). The agent,
 prompt, input file, and environment were held fixed; only the write tool
 varied, so in this pair of trials the difference in outcome is
 attributable to the tool boundary. In the trial, an agent confined to
@@ -215,11 +229,11 @@ dependency graph, so a write whose predicted values cannot be trusted is
 refused rather than shipped. The formula engine that powers both the
 dry-run prediction and the differential comparisons is validated by a
 documentation-arbitered differential oracle over 1,659 hand-authored
-cases; a new independent financial cross-check (§7) confirms two of its
+cases; a new independent financial cross-check (§8) confirms two of its
 Treasury-bill verdicts and downgrades a third, which we report openly
 because the cross-check caught one of our own calls.
 
-This paper makes five contributions. \textbf{First}, the surgical write
+This paper makes six contributions. \textbf{First}, the surgical write
 primitive and its fidelity property --- enforced and \emph{checked per
 apply}, each write re-loading its own output as an on-disk
 \texttt{.xlsx} to confirm every predicted cell landed \emph{and}
@@ -232,7 +246,7 @@ interventional case study --- n = 2 tasks, one model, one trajectory per
 arm --- that reproduces the \#22044 corruption in a single observed
 instance under a status-quo agent and shows an xlq-confined agent
 mechanically unable to commit it, including the false-success failure
-where the agent believed it had succeeded (§4); this is
+where the agent believed it had succeeded (§5); this is
 demonstration-scale evidence that the harm and its prevention exist, not
 a rate or a generality claim. \textbf{Third}, an explicit threat model
 whose non-bypassability we tested adversarially in a single
@@ -241,19 +255,38 @@ inside a confined harness could not forge a valid-but-wrong workbook by
 any route but xlq, surfaced a blunt-destruction hole, and had it closed
 by a read-only authoritative store and a receipt-gated broker --- the
 boundary confines an agent routed through it, not one handed raw shell
-(§5). One trial that found and closed a real hole is evidence, not a
+(§6). One trial that found and closed a real hole is evidence, not a
 proof. \textbf{Fourth}, the format-aware reading layer --- the
 privacy-safe census and the three-number coverage taxonomy --- that lets
-a write be previewed and its trustworthiness declared per file (§6).
+a write be previewed and its trustworthiness declared per file (§7).
 \textbf{Fifth}, a documentation-arbitered differential oracle for a
 domain with no mechanized specification, now cross-checked against an
 independent financial reference that retires the circularity objection
 for two verdicts and honestly downgrades a third --- and whose confusion
 matrix is now \emph{load-bearing for write safety}, the write refusing
 to persist any engine-computed cache whose formula uses an
-oracle-divergent function (§7), packaged with the rest as AXLE-bench,
+oracle-divergent function (§8), packaged with the rest as AXLE-bench,
 whose fidelity axis measures the dimension current agent benchmarks omit
-(§8). We are explicit about what we did not invent: receipts,
+(§9). \textbf{Sixth}, a \emph{surgical structural-edit} primitive ---
+row and column insert and delete --- that closes the operation this
+paper\textquotesingle s own earlier scope named as its key open problem:
+a total reference-shift algebra σ (a faithful re-encoding of documented
+Excel semantics, and itself \emph{not} billed as the novelty) applied
+\emph{uniformly} across every reference-bearing OOXML part --- sheet and
+cross-sheet formulas, defined names, chart data refs, pivot sources, and
+the \texttt{sqref} and formula bodies of merged cells, conditional
+formatting, and data validation --- under a machine-checkable
+\emph{minimal-patch invariant} in which the only bytes that may differ
+are reference coordinates and physically inserted or removed rows, with
+shared-formula expansion for the dominant real-world construct and a
+\emph{never-silently-wrong} discipline that either shifts a construct
+correctly or refuses it with a truthful reason; in a controlled
+experiment xlq shifts 6 of 6 reference classes to their documented
+target while openpyxl\textquotesingle s \texttt{insert\_rows} corrupts
+all 6 silently, and across a 231-workbook real corpus 78.8\% are safely
+edited (up from 22.5\% before expansion) and 21.2\% refused, none
+silently corrupted, with an engine-free round-trip oracle passing 182 of
+182 (§4). We are explicit about what we did not invent: receipts,
 transactional isolation, and differential testing are established
 {[}Notarized Agents 2026; Fault-Tolerant Sandboxing 2025; Yang et al.
 2011{]}; the contribution is folding the artifact\textquotesingle s
@@ -274,17 +307,26 @@ interventional case study (n = 2 tasks, one model, one trajectory per
 arm) that reproduces the \#22044 corruption in a single observed
 instance and shows an xlq-confined agent mechanically unable to repeat
 it; (c) an adversarially-tested confinement mechanism, exercised in one
-adversarial-agent trial that found and closed a single real hole; and
-(d) concrete formula bugs surfaced in two independent engines. What is
-\emph{not} here: the primitive covers only value and formula edits ---
-\emph{structural edits (row/column insert and delete, sheet add/remove,
-range moves), the operations most likely to corrupt a workbook, are
-unbuilt and are named as the key open problem}; and the agent evidence
-is demonstration-scale --- an existence demonstration that the harm and
-its prevention are real and reproducible under a real agent, never a
-corruption rate or a claim of generality. We write "enforced" and
-"checked" where the code enforces and checks, "case study" and "trial"
-where n is small, and we claim no formal proof anywhere.
+adversarial-agent trial that found and closed a single real hole; (d)
+concrete formula bugs surfaced in two independent engines; and (e) a
+\emph{surgical structural-edit} primitive --- row and column insert and
+delete --- that shifts every reference-bearing construct through a total
+algebra σ under a machine-checkable minimal-patch invariant, or refuses
+the edit with a truthful reason, shifting 6 of 6 reference classes
+correctly on a controlled fixture where openpyxl silently corrupts all
+six, and safely editing 78.8\% of a 231-workbook real corpus (182 of 182
+round-trip-correct) while refusing the rest, with zero silent
+corruptions. What is \emph{not} here: the two write primitives between
+them cover in-place cell/formula edits and row/column insert-delete, but
+\emph{sheet add/remove and range moves remain unbuilt, and array
+formulas and table-bearing workbooks are refused rather than shifted}
+(§4, §12); and the agent evidence is demonstration-scale --- an
+existence demonstration that the harm and its prevention are real and
+reproducible under a real agent, never a corruption rate or a claim of
+generality, and it exercises value edits only, not the structural
+primitive. We write "enforced" and "checked" where the code enforces and
+checks, "case study" and "trial" where n is small, and we claim no
+formal proof anywhere.
 
 \subsection{2. The Fidelity Gap}\label{2-the-fidelity-gap}
 
@@ -312,7 +354,7 @@ through three substrates: openpyxl 3.1.5, LibreOffice 24.8.7.2
 engine (master \texttt{e50ccea8}). Each output was compared to its input
 at two levels: an OOXML part census (part names, uncompressed sizes, and
 content CRC32s from the zip central directory) and a cell-level
-\emph{recompute-aware} semantic diff (§6), which recomputes every
+\emph{recompute-aware} semantic diff (§7), which recomputes every
 formula in the vendored engine and reports a distinct
 \texttt{cached\_value} change-kind when a cell\textquotesingle s stored
 cache differs from its input while its live recomputed value does not.
@@ -523,10 +565,10 @@ A single \texttt{apply} runs seven steps
   coverage flag degrades when a volatile or unsupported function lies in
   the affected dependency graph, and a real apply whose predicted cached
   values are unreliable is \emph{refused} --- the write is
-  coverage-gated (§6). A second, sharper gate refuses the write
+  coverage-gated (§7). A second, sharper gate refuses the write
   (\texttt{coverage\_unreliable},
   \texttt{oracle\_divergent\_functions:\ {[}...{]}}) when the affected
-  dependency graph uses a function our own differential oracle (§7)
+  dependency graph uses a function our own differential oracle (§8)
   caught the engine computing wrong: xlq will not persist an
   engine-computed cache it has documented reason to believe diverges
   from Excel. Both gates fire only on \emph{engine-computed} caches; a
@@ -590,7 +632,7 @@ A single \texttt{apply} runs seven steps
 \end{enumerate}
 
 None of these ingredients is individually new, and the paper claims none
-of them (§9). Append-only hash-chained receipts descend from
+of them (§10). Append-only hash-chained receipts descend from
 forward-secure logging {[}Nitro 2025{]}, Certificate Transparency
 {[}Certificate Transparency 2022{]}, and W3C PROV {[}Moreau et al.
 2013{]}; agent-action receipts from Notarized Agents {[}Notarized Agents
@@ -758,10 +800,299 @@ fixture, and drops all VBA and all chart-support parts on the fixtures
 that have them. Against every whole-file substrate, then, the surgical
 writer is the only tool that leaves the parts an edit did not touch
 exactly as it found them --- which is the property that makes the
-boundary of §5 meaningful.
+boundary of §6 meaningful.
 
-\subsection{4. Does It Work For an
-Agent?}\label{4-does-it-work-for-an-agent}
+\subsection{4. Surgical Structural
+Edits}\label{4-surgical-structural-edits}
+
+The primitive of §3 edits \texttt{\textless{}c\textgreater{}} elements
+in place; it cannot insert or delete a row. That limit is not an
+accident of implementation but the paper\textquotesingle s own named
+frontier, and this section closes it. Structural edits --- row and
+column insert and delete --- are where the fidelity property of §3 and
+correctness genuinely \emph{conflict}, and only in spreadsheets.
+Inserting a row above a chart\textquotesingle s data range does not
+leave the chart untouched: a \emph{correct} edit \textbf{must} grow a
+chart plotted on \texttt{B2:B7} to \texttt{B2:B8}, move a cross-sheet
+\texttt{=Data!B8} to \texttt{=Data!B9}, and rewrite every
+reference-bearing coordinate that crosses the insert line. Byte-identity
+of those parts --- the exact half of the §3 property that made it a
+boundary --- is therefore \emph{impossible} for a correct structural
+edit. A tool that preserves those bytes is wrong; a tool that
+regenerates the file to get them right loses everything else. This
+section builds the primitive that occupies the cell neither escape
+reaches: correct reference shifting \emph{and} byte-minimal fidelity,
+under a machine-checkable invariant, with an honest refusal for the
+constructs it does not yet shift.
+
+\subsubsection{The prior-work gap}\label{the-prior-work-gap}
+
+Three lines of prior work each reach part of this cell and miss it on a
+different axis (research-log/011). \textbf{Excelsior} {[}Excelsior
+2008{]} performs exactly this operation set --- insert and delete rows
+and columns, resize and move tables --- and shifts the dependent
+formulae correctly, generating "a spreadsheet with different structure
+but identical outputs." But it works by discovering a high-level model
+(\texttt{tables\ +\ equations}) and \emph{regenerating} the workbook
+from it, and it explicitly sacrifices fidelity: by its
+authors\textquotesingle{} account it "did not try to reproduce
+properties such as cell formats and colours, input menus, and charts,"
+and "cell styles were lost by the structure discovery stage." Excelsior
+\emph{is} the load-into-a-model-and-regenerate approach whose fidelity
+loss this whole paper targets --- it does the structural edit and
+destroys everything not in its model. \textbf{TACO} {[}TACO 2023{]}
+formalizes precisely the relative/absolute reference algebra a correct
+shift needs --- the fixed-versus-relative relationship of a formula to
+the head and tail of each referenced range, and incremental maintenance
+under insert and delete --- but only for an \emph{in-memory dependency
+graph} built for fast recalculation. It never touches the file, never
+shifts a reference in a chart, a pivot cache, or a defined name, and has
+no notion of fidelity. \textbf{PPTArena / PPTPilot} {[}PPTArena 2025{]}
+is the closest on fidelity-aware agentic OOXML editing, explicitly
+targeting "non-destructive modification" and routing between a library
+and "deterministic OOXML patching" --- but for PowerPoint, which has
+\emph{no formula-reference-shift problem} (slides do not cross-reference
+cells), so the hard part is simply absent; its preservation is measured
+by a VLM-as-judge over screenshots and structural diffs, not a provable
+invariant, and its XML patches are model-generated, with no formal shift
+algebra and no proof-carrying check. No prior tool occupies the
+\emph{correct + byte-minimal + fidelity-preserving} cell: Excelsior
+shifts references but regenerates the file, TACO has the algebra but
+never leaves memory, PPTArena is fidelity-aware but for a format without
+the shift problem and without a checkable guarantee.
+
+\subsubsection{The reference-shift algebra
+σ}\label{the-reference-shift-algebra-ux3c3}
+
+The correctness core is a total function σ that maps any A1 reference to
+its post-edit target. On \textbf{insert} of \emph{n} rows at \emph{k},
+each range endpoint moves independently ---
+\texttt{r\textquotesingle{}\ =\ r\ +\ n\ if\ r\ ≥\ k\ else\ r}, applied
+to head and tail separately --- which reproduces every boundary case for
+free: an insert above a range shifts both endpoints and moves it down;
+an insert strictly inside holds the head and shifts the tail, so the
+range \emph{grows}. On \textbf{delete} of rows \texttt{{[}k,\ k+n)}, a
+six-case clamp governs: a range clipped at one endpoint \emph{shrinks}
+--- \texttt{=SUM(A5:A10)} deleting rows 5--6 becomes
+\texttt{=SUM(A5:A8)}, not \texttt{\#REF!} --- and \texttt{\#REF!} is
+emitted \emph{only} when the reference is entirely consumed. σ is
+sheet-scoped (a token shifts only if its resolved target is the edited
+sheet, or a 3D span containing it --- never an external or
+unrelated-sheet reference), transparent to the absolute flag
+(\texttt{\$A\$5\ →\ \$A\$6} on an insert above row 5; the \texttt{\$}
+governs fill and copy, never insert and delete --- confirmed against
+Excel, which is exactly why the documented \texttt{INDIRECT("A5")} pin
+workaround has to exist), and axis-selective (a row operation leaves
+whole-column refs like \texttt{A:A} untouched, and a column operation
+leaves whole-row refs untouched). σ is validated by 46 unit tests that
+encode documented Excel semantics.
+
+We do not bill σ as the novelty, and the honest reason is on the record.
+A predict-then-run theory-review gate \emph{failed} the first version of
+σ on three decisive counts (research-log/013): the delete path emitted
+\texttt{\#REF!} for the common clip case that should shrink; the scoping
+was unsound (shifting every cross-sheet token would corrupt references
+into non-edited sheets and external workbooks); and shared formulas
+broke the coordinate model. Had we built before that gate, the delete
+path would have silently corrupted files. σ as it now stands is a
+\emph{faithful re-encoding of documented Excel semantics} --- the
+correctness it carries is Excel\textquotesingle s, not ours. The
+contribution is what σ is applied \emph{through}.
+
+\subsubsection{The minimal-patch
+invariant}\label{the-minimal-patch-invariant}
+
+The novelty is a system property. σ is applied \emph{uniformly} across
+every reference-bearing OOXML part --- sheet
+\texttt{\textless{}f\textgreater{}} formulas and
+\texttt{\textless{}c\ r\textgreater{}}/\texttt{\textless{}row\ r\textgreater{}}
+coordinates, cross-sheet references, defined names, chart
+\texttt{\textless{}c:f\textgreater{}} data references, pivot-cache
+\texttt{worksheetSource}, and the \texttt{sqref} of merged cells,
+conditional formatting, and data validation \emph{as well as the formula
+bodies} inside \texttt{\textless{}cfRule\textgreater{}} and
+\texttt{\textless{}dataValidation\textgreater{}} --- by \emph{raw
+attribute-value surgery}, so that the only bytes that differ between
+input and output are reference coordinates and the physically inserted
+or removed rows. This is the \textbf{minimal-patch invariant}, and it is
+machine-checkable: the changed non-sheet parts are
+digit-stripped-identical to their originals, and it is proof-carrying in
+the §3 sense --- the output must re-open and evaluate before the write
+commits. It is the refinement the §3 property could not be ---
+byte-identity-\emph{except-coordinates} rather than byte-identity ---
+and it is what resolves the fidelity-versus-correctness conflict none of
+Excelsior, TACO, or PPTArena occupies. That "applied uniformly across
+all parts" is an easy claim to overstate, and a 28-agent adversarial
+review (research-log/014) confirmed and fixed nine defects in an earlier
+version of this coverage --- among them whole-column refs left silently
+unshifted under column operations, and CF/DV formula bodies shifted only
+in their \texttt{sqref} and not their body --- several of which had
+violated the never-silently-wrong invariant below. The coverage above is
+the post-fix set (192 tests, 0 failures), and the
+review\textquotesingle s novelty verdict --- all four
+novelty-versus-prior findings returned \emph{partial}, none confirmed as
+obvious or known --- is what the minimal-patch invariant survived.
+
+\subsubsection{Shared-formula expansion}\label{shared-formula-expansion}
+
+The dominant real-world construct is the \emph{shared formula}: Excel
+and autofill emit a single master formula plus lightweight
+\texttt{\textless{}f\ t="shared"\ si=…\textgreater{}} stubs for the
+filled range, and coordinate surgery on a stub cannot express a shift
+whose relative reference crosses the group interior. xlq
+\emph{materializes} the group --- each dependent is reconstructed from
+the master plus its offset, then shifted with σ --- which is what Excel
+does internally. This is the key lever: it trades strict minimal-patch
+purity on those cells (the stubs become full formula bodies) for
+correctness on the construct that appears in most real workbooks, and it
+lifted the safe envelope on the real corpus below from \textbf{22.5\% to
+78.8\%}.
+
+\subsubsection{Never silently wrong}\label{never-silently-wrong}
+
+The discipline that makes the primitive a boundary rather than a
+best-effort transform is §3\textquotesingle s, sharpened: for every
+reference-bearing construct, xlq \emph{either} shifts it correctly
+\emph{or} refuses the edit with a truthful residual reason --- never a
+silent off-by-\emph{n}. Array formulas (which Excel itself forbids
+splitting across an insert line) and workbooks carrying table parts are
+\emph{refused}, as are 3D spans not anchored on the edited sheet. The
+adversarial review\textquotesingle s most important finding was
+constructs that did \emph{neither} --- silently corrupted --- and every
+one is now shifted-correctly or refused; the invariant is restored, not
+asserted.
+
+\subsubsection{E4 --- the controlled
+result}\label{e4--the-controlled-result}
+
+E4 (benchmarks/structural.json) inserts one row at row 5 of sheet
+\texttt{Data} in a fixture carrying a bar chart, a straddling
+\texttt{=SUM(B2:B7)}, a single-reference \texttt{=B5*2} at the insert
+row, an absolute \texttt{=\$B\$8}, a merged region, a cross-sheet
+\texttt{Report!A1\ =\ Data!B8}, a defined name
+\texttt{Total\ =\ Data!\$B\$8}, and a chart data reference
+\texttt{Data!\$B\$2:\$B\$7} --- one instance of each reference class a
+row insert must move.
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}llll@{}}
+\toprule\noalign{}
+Tool & References shifted correctly & Fidelity & Recompute \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{xlq restructure} & \textbf{6 / 6} & 10 / 14 parts
+byte-identical; the 4 changed parts differ \emph{only} in coordinates &
+correct (IronCalc, executed: \texttt{SUM\ =\ 760}) \\
+openpyxl \texttt{insert\_rows} & \textbf{0 / 6} & 12 / 14 parts, but
+every reference left unshifted & \textbf{silently wrong} \\
+LibreOffice round-trip & correct-by-engine & \textbf{0 / 14} parts
+byte-identical & correct-by-engine \\
+\end{longtable}
+}
+
+\emph{Table 2. E-structural: one row insert, correctness × fidelity ×
+recompute (structural.json).}
+
+xlq shifts all six references to their documented target ---
+\texttt{=SUM(B2:B7)} grows to \texttt{=SUM(B2:B8)}, \texttt{=B5*2}
+becomes \texttt{=B6*2}, \texttt{=\$B\$8\ →\ =\$B\$9}, the cross-sheet
+\texttt{Data!B8\ →\ Data!B9}, the defined name
+\texttt{Data!\$B\$8\ →\ Data!\$B\$9}, and the chart range grows to
+\texttt{Data!\$B\$2:\$B\$8} --- and only four parts change (the edited
+sheet, the cross-referencing sheet, the chart, and \texttt{workbook.xml}
+for the defined name); the three non-sheet changed parts are
+digit-stripped-identical to the originals, and the recompute is
+\emph{executed}, not asserted --- \texttt{xlq\ calc} on the committed
+file returns \texttt{SUM\ =\ 760}, the pre-edit total.
+openpyxl\textquotesingle s \texttt{insert\_rows} moves the cells but
+rewrites \emph{not a single reference}: \texttt{=SUM(B2:B7)} still reads
+the pre-insert range, \texttt{=B5*2} now multiplies the \textbf{blank
+inserted row} (→ 0), the cross-sheet ref, the defined name, and the
+chart all point at stale cells, and the file opens without complaint and
+computes \emph{silently wrong} --- its 12/14 preserved parts are
+irrelevant when every number is wrong. LibreOffice shifts references
+correctly by engine but rewrites all 14 parts on a bare round-trip,
+before any edit --- correct arithmetic, destroyed provenance.
+
+\subsubsection{E5 --- the honest real-corpus
+envelope}\label{e5--the-honest-real-corpus-envelope}
+
+E4 is a single controlled fixture, and the sharpest review objection was
+survivorship bias: it is one openpyxl-authored file in which shared
+formulas --- the dominant construct --- never appear. E5 answers it by
+running xlq restructure across the \textbf{231 vendored IronCalc test
+workbooks}, real files authored in Excel and LibreOffice rather than by
+openpyxl (benchmarks/corpus\_coverage.json).
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}llr@{}}
+\toprule\noalign{}
+Outcome & Files & \% \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{Safely edited} (shifted correctly, reopens, no residual) & 182 &
+\textbf{78.8\%} \\
+\textbf{Refused} (residual, never silently wrong) & 49 &
+\textbf{21.2\%} \\
+--- array formula present (Excel forbids splitting) & 47 & 20.3\% \\
+--- table part present & 2 & 0.9\% \\
+\end{longtable}
+}
+
+\emph{Table 3. E-structural real-corpus envelope, 231 workbooks, with
+shared-formula expansion (corpus\_coverage.json).}
+
+Every one of the 231 files is \emph{either} safely shifted \emph{or}
+refused with a truthful reason; \textbf{zero are silently corrupted}.
+The refusals are array formulas --- which Excel forbids editing through
+--- and the two table-bearing files. Correctness is checked
+\emph{engine-free} (benchmarks/roundtrip\_correctness.json): for each of
+the 182 safe files, insert a blank row at \emph{k} then delete row
+\emph{k} --- a net identity that must return every Excel-authored cached
+value to its original cell, so any wrong shift on either the insert or
+the delete would move a value --- and \textbf{182 of 182 (100\%)
+preserve every Excel cached value cell-for-cell}, proving
+σ\textquotesingle s insert and delete are exact inverses on real files
+with real shared formulas, cross-sheet references, and mixed
+absolute/relative references. One finding runs in xlq\textquotesingle s
+favor and explains a design choice. An earlier version of this oracle
+used LibreOffice\textquotesingle s recompute as the reference and
+reported 16 "mismatches," all in precision-sensitive financial and
+statistical files; investigation showed these were \emph{not} xlq errors
+but that \emph{LibreOffice reconstructs shared formulas differently from
+Excel} --- an NPV over a shared range where Excel\textquotesingle s
+cache is 11.78 and LibreOffice\textquotesingle s on-the-fly
+reconstruction is 11.41 --- and that xlq\textquotesingle s expansion
+produces the formula matching Excel\textquotesingle s cached value
+(LibreOffice run on xlq\textquotesingle s \emph{expanded} output also
+computes 11.78). xlq\textquotesingle s shared-formula handling agrees
+with Excel where LibreOffice\textquotesingle s own reconstruction does
+not, which is exactly why the correctness oracle is anchored on
+Excel\textquotesingle s caches rather than a LibreOffice recompute.
+
+\subsubsection{Honest scope}\label{honest-scope}
+
+Three edges bound the primitive, stated plainly and revisited in §12.
+Array formulas and table-bearing workbooks are \emph{refused}, not
+shifted --- 21.2\% of the corpus (arrays 20.3\%, tables 0.9\%) ---
+declined with a truthful reason rather than silently corrupted, and
+named as future work. The minimal-patch purity of §3 is \emph{relaxed}
+for shared cells, which are materialized into full formula bodies before
+shifting --- a deliberate trade of byte-minimality on those cells for
+correctness on the dominant construct. And the end-to-end evaluation
+exercises one operation family, insert and delete of a row; column
+operations share the same σ and are unit-tested (including the
+whole-column cases the adversarial review surfaced) but are not in the
+end-to-end corpus table, while sheet add/remove and range moves are not
+built. The primitive is also unexercised under the agent case study
+(§5), which remains scoped to value edits.
+
+\subsection{5. Does It Work For an
+Agent?}\label{5-does-it-work-for-an-agent}
 
 A static fidelity benchmark (§3) shows the writer preserves parts when
 \emph{we} drive it. It cannot show that the property survives contact
@@ -876,7 +1207,7 @@ container.
 \subsubsection{Threats to validity}\label{threats-to-validity}
 
 We state these plainly so the reader does not over-generalize
-(docs/AGENT-AB.md §4):
+(docs/AGENT-AB.md §5):
 
 \begin{itemize}
 \tightlist
@@ -887,9 +1218,10 @@ We state these plainly so the reader does not over-generalize
   claim "openpyxl corrupts X\% of workbooks."
 \item
   \textbf{T2 --- single operation type.} Both tasks are one
-  \texttt{set\_cell} each. Structural edits (insert/delete rows, add
-  sheets, formula rewrites) are not exercised under the case study; the
-  causal claim is scoped to value edits.
+  \texttt{set\_cell} each. The structural-edit primitive of §4 (row and
+  column insert and delete) is built but \emph{unexercised under the
+  case study}, and sheet add/remove and formula rewrites are neither
+  built nor exercised; the causal claim is scoped to value edits.
 \item
   \textbf{T3 --- the "agent" is an LLM subagent with a bounded tool
   surface.} It is a real model making real tool calls, but not a full
@@ -927,7 +1259,7 @@ that this mechanism survives contact with a real agent --- which the
 static benchmark of §3 could not show --- while the two-trajectory
 sample size is exactly why we call it a case study and not a rate.
 
-\subsection{5. Threat Model}\label{5-threat-model}
+\subsection{6. Threat Model}\label{6-threat-model}
 
 A built write path invites a sharper objection than a read-only one:
 even a surgical, receipted write is \emph{opt-in} --- nothing forces an
@@ -956,7 +1288,7 @@ rewritten; charts, pivots, VBA, styles, external links byte-identical
 new errors first), precondition-checked (\texttt{base\_hash} must match
 under an advisory lock, no TOCTOU), coverage-gated (a write whose
 predicted cached values are unreliable, or whose formulas use a function
-the differential oracle found divergent, is refused --- §6, §7),
+the differential oracle found divergent, is refused --- §7, §8),
 proof-carried and fidelity-enforced (before commit the output is
 re-loaded and every predicted cell re-verified, \emph{and} every
 non-edited part is byte-diffed against the input, aborting with
@@ -965,7 +1297,7 @@ hash-chained journal entry records base/result hash, ops, and actor;
 out-of-band edits are detected, not silently absorbed). So an agent
 confined to xlq \textbf{cannot reach the \#22044 corruption}: it has no
 operation that rewrites the whole container or drops a chart/pivot/VBA
-part. That is the enforcement claim, and §4 is its interventional
+part. That is the enforcement claim, and §5 is its interventional
 case-study evidence.
 
 \textbf{What the boundary is \emph{not}.} It is not a guarantee against
@@ -1012,7 +1344,7 @@ Out-of-band edit between ops & Detected & Hash-chain
 \end{longtable}
 }
 
-\emph{Table 2. Threat actors and coverage (THREAT-MODEL.md).}
+\emph{Table 4. Threat actors and coverage (THREAT-MODEL.md).}
 
 \textbf{Non-bypassability, tested adversarially --- not merely argued.}
 The re-review\textquotesingle s standing objection was that this
@@ -1084,8 +1416,8 @@ harness\textquotesingle s responsibility, and the two-tier
 read-only-store-plus-broker mechanism above is exactly how a harness
 discharges it, stated as a scoping assumption rather than a guarantee.}
 
-\subsection{6. Reading Without Writing: The Census and Coverage
-Honesty}\label{6-reading-without-writing-the-census-and-coverage-honesty}
+\subsection{7. Reading Without Writing: The Census and Coverage
+Honesty}\label{7-reading-without-writing-the-census-and-coverage-honesty}
 
 The write path of §3 is only trustworthy if the read that precedes it
 is: an agent must see the workbook to build a patch, the dry-run must
@@ -1165,7 +1497,7 @@ depends on something the runtime does not have & \textbf{17} \\
 \end{longtable}
 }
 
-\emph{Table 3. The three-number coverage taxonomy (coverage.json). 505 +
+\emph{Table 5. The three-number coverage taxonomy (coverage.json). 505 +
 17 = 522.}
 
 The numbers are exhaustive and disjoint over the recognized set. A guard
@@ -1173,7 +1505,7 @@ states what number 2 does \emph{not} mean: \emph{locally evaluable is
 not correct.} Evaluability is coverage --- the engine will compute a
 defined value from workbook data --- whereas correctness, whether that
 value matches Excel, is the oracle\textquotesingle s burden and is
-measured separately in §7. The 505 must never be read as "505 correct."
+measured separately in §8. The 505 must never be read as "505 correct."
 The 17 policy-limited functions decompose, on the same honesty the
 taxonomy exists to enforce, into three reasons a reader would act on
 differently (coverage.json):
@@ -1198,7 +1530,7 @@ PivotTable the engine does not model) & \texttt{\#REF!} \\
 \end{longtable}
 }
 
-\emph{Table 4. The 17 policy-limited functions, decomposed by reason
+\emph{Table 6. The 17 policy-limited functions, decomposed by reason
 (coverage.json).}
 
 Coverage honesty is a \emph{per-file} property, and this is what ties it
@@ -1214,7 +1546,7 @@ edit\textquotesingle s affected dependency graph, the
 prediction\textquotesingle s coverage flag degrades and the write is
 refused, so the boundary never commits an edit whose predicted
 downstream values it cannot stand behind. A companion gate driven by the
-differential oracle\textquotesingle s confusion matrix (§7) refuses the
+differential oracle\textquotesingle s confusion matrix (§8) refuses the
 write on the same principle when a formula uses a function the engine is
 known to compute wrong --- the two gates together bound both what the
 engine \emph{cannot} evaluate and what it evaluates \emph{incorrectly}.
@@ -1233,10 +1565,10 @@ three-number partition with a per-function literal for every
 non-evaluable case, rather than as a single supported-count that
 conflates recognition, evaluability, and correctness.
 
-\subsection{7. Documentation-Arbitered Differential
-Validation}\label{7-documentation-arbitered-differential-validation}
+\subsection{8. Documentation-Arbitered Differential
+Validation}\label{8-documentation-arbitered-differential-validation}
 
-The census (§6), the coverage report (§6), and above all the dry-run
+The census (§7), the coverage report (§7), and above all the dry-run
 prediction that gates every write (§3) are only as trustworthy as the
 formula engine beneath them: a vendored engine that computes a wrong
 value will have the runtime faithfully report a wrong value, and predict
@@ -1283,7 +1615,7 @@ Undecidable here & 0 \\
 \end{longtable}
 }
 
-\emph{Table 5. Excel-arbitrated triage of the 85 value-vs-value
+\emph{Table 7. Excel-arbitrated triage of the 85 value-vs-value
 disagreements (triage-analysis.md).}
 
 Seventy-two of the 85 (85\%) received a decidable,
@@ -1386,7 +1718,7 @@ CONFIRMS both ≈ 0 (true rate 0) \\
 \end{longtable}
 }
 
-\emph{Table 6. Independent financial cross-check
+\emph{Table 8. Independent financial cross-check
 (financial\_crosscheck.json).}
 
 For \textbf{TBILLPRICE} and \textbf{TBILLYIELD}, the independent
@@ -1437,8 +1769,8 @@ on them --- are trusted because they are differentially validated with
 documentation arbitration and, for the financial functions, an
 independent cross-check, not because IronCalc is assumed correct.
 
-\subsection{8. AXLE-bench: Measuring the Omitted
-Dimension}\label{8-axle-bench-measuring-the-omitted-dimension}
+\subsection{9. AXLE-bench: Measuring the Omitted
+Dimension}\label{9-axle-bench-measuring-the-omitted-dimension}
 
 Prior agent benchmarks score whether the task cells came out right; none
 reports whether the file survived. AXLE-bench (Agent-safe eXcel Layer
@@ -1451,18 +1783,20 @@ against them symmetrically. Every number traces to a JSON artifact in
 \texttt{benchmarks/}, and one meta-runner reproduces them on a single
 commodity machine (Intel i7-8700K, 12 logical cores, Linux). The five
 axes are: \textbf{Correctness} --- the differential oracle and its
-disagreement triage, headline being the confusion matrix of §7 (now
+disagreement triage, headline being the confusion matrix of §8 (now
 load-bearing for write safety: it gates which engine-computed caches a
 real apply may persist), not the 97.1\% concordance; \textbf{Fidelity}
 --- the omitted dimension, now measured two ways: the whole-file re-save
 tiers of §2 (101,961 blanked by openpyxl, 90,448 drifted by LibreOffice)
 \emph{and} the per-file surgical-preservation results of §3 (E1) on real
-charts/pivots/VBA, plus the interventional case study of §4 (E2);
-\textbf{Efficiency} --- median-of-3 warm wall time on the
-\textasciitilde100k-formula fixture (\texttt{xlq\ calc}, which loads,
-fully recalculates, audits stored-vs-recomputed, hashes, and reports, at
-1.264 s; isolated engine load 0.599 s;
-\texttt{libreoffice\ -\/-convert-to} 1.494 s; openpyxl
+charts/pivots/VBA, plus the interventional case study of §5 (E2) and the
+structural reference-shift envelope of §4 (E4, the controlled
+6/6-vs-0/6; E5, the 231-workbook corpus at 78.8\% safe, 182/182
+round-trip-correct, zero silent corruptions); \textbf{Efficiency} ---
+median-of-3 warm wall time on the \textasciitilde100k-formula fixture
+(\texttt{xlq\ calc}, which loads, fully recalculates, audits
+stored-vs-recomputed, hashes, and reports, at 1.264 s; isolated engine
+load 0.599 s; \texttt{libreoffice\ -\/-convert-to} 1.494 s; openpyxl
 \texttt{load\_workbook} 0.875 s with recalc n/a --- it has no formula
 engine); \textbf{Agent-ergonomics} --- the census token ratio (999 B vs
 7,239,303 B, 7,246.5×); and \textbf{Catalog} --- the three-number
@@ -1474,7 +1808,7 @@ their outputs. The correctness axis has no live Excel oracle; the 1,659
 cases are hand-authored at \textasciitilde3.4 per function, making the
 disagreement rate a \emph{lower bound}; and, new in this version, an
 independent financial cross-check \emph{overturned one of the
-oracle\textquotesingle s own verdicts} (TBILLEQ, §7) --- the sharpest
+oracle\textquotesingle s own verdicts} (TBILLEQ, §8) --- the sharpest
 instrument-validation point available, because the tool caught its own
 error. The fidelity axis compares zip central-directory part names,
 sizes, and CRC32s, a byte-level basis that is exactly why cosmetic drift
@@ -1500,7 +1834,7 @@ in the "fidelity by construction" cell, which the whole-file substrates
 cannot occupy however careful their save. That gap --- not raw speed ---
 is the dimension AXLE-bench exists to measure and to keep honest.
 
-\subsection{9. Related Work}\label{9-related-work}
+\subsection{10. Related Work}\label{10-related-work}
 
 We place related work after the mechanism so the reader meets the
 boundary before the literature it draws on. We did not invent receipts,
@@ -1526,7 +1860,7 @@ SAFEFLOW 2025{]} extend it to multi-step actions. We adopt the shared
 finding that a runtime is the only place a guarantee can live, and we
 scope our boundary the way this wave scopes its own --- non-bypassable
 \emph{within the harness}, not against an agent handed raw capability
-(§5). The shared blind spot we differentiate against is that every one
+(§6). The shared blind spot we differentiate against is that every one
 of these systems is \emph{format-blind}: it can gate a filesystem write
 or a shell command, but none understands the artifact it guards, so none
 can answer \emph{will this edit corrupt the workbook\textquotesingle s
@@ -1546,7 +1880,7 @@ et al. 2013{]} supply the provenance ancestry. Our receipt journal is a
 domain instantiation --- a single-writer local sidecar with a hash chain
 and out-of-band edit-adoption semantics, targeting custody of a file a
 human co-edits --- now \emph{exercised} by the built \texttt{apply} path
-(a receipt per revision in §3--§4) rather than specified only.
+(a receipt per revision in §3--§5) rather than specified only.
 
 \textbf{Differential testing.} The oracle-construction menu is mature:
 cross-vote generation in a well-defined subset {[}Yang et al. 2011{]},
@@ -1559,7 +1893,7 @@ adopts. Each spec-as-arbiter technique presupposes a mechanized or
 normative specification the spreadsheet domain lacks. Our instantiation
 contributes documentation-arbitered triage over 1,659 curated cases, now
 with an independent financial cross-check that corroborated two verdicts
-and overturned a third (§7); while cross-engine spreadsheet-accuracy
+and overturned a third (§8); while cross-engine spreadsheet-accuracy
 comparisons against certified reference values exist {[}Almiron et al.
 2010; McCullough 2008{]}, no prior work applies generative differential
 testing with automated documentation-grounded triage to spreadsheet
@@ -1584,6 +1918,27 @@ third representation design point distinct from model-side encoders
 understanding {[}Dong et al. 2024{]}: a tool-side, structure-only
 summary for mutation safety.
 
+\textbf{Structural spreadsheet editing.} The structural-edit primitive
+of §4 sits in a gap three prior lines leave open, each missing on a
+different axis. Excelsior {[}Excelsior 2008{]} performs the same
+insert/delete/resize/move operations and shifts the dependent formulae
+correctly, but by discovering a high-level model and \emph{regenerating}
+the file --- explicitly discarding "cell formats and colours, input
+menus, and charts," precisely the fidelity our surgery keeps. TACO
+{[}TACO 2023{]} formalizes the relative/absolute reference-shift algebra
+our σ re-encodes, but maintains it over an \emph{in-memory} dependency
+graph for recalculation and never edits the file, a chart, or a defined
+name. PPTArena / PPTPilot {[}PPTArena 2025{]} brings fidelity-aware,
+deterministic OOXML patching to agentic editing --- but for PowerPoint,
+which has \emph{no} formula-reference-shift problem, and measures
+preservation with a VLM-judge over screenshots rather than a checkable
+invariant. None occupies the
+correct-plus-byte-minimal-plus-fidelity-preserving cell §4 targets, and
+none carries a proof that the output re-opens and computes; the
+contribution is the uniform algebra under a machine-checkable
+minimal-patch invariant with a never-silently-wrong refusal, not the
+reference algebra itself, which is Excel\textquotesingle s.
+
 \textbf{Pista --- the closest prior.} Pista {[}Pista 2026{]}, with
 Gulwani among its authors, is the nearest system: step-level human
 oversight of a spreadsheet agent with model-generated explanations of
@@ -1596,7 +1951,7 @@ boundary that operates unattended, and it supplies what a synchronous
 human auditor cannot certify: that the artifact the user is accountable
 for is still byte-for-byte intact where the edit did not reach.
 
-\subsection{10. Discussion}\label{10-discussion}
+\subsection{11. Discussion}\label{11-discussion}
 
 \subsubsection{The journey: from a read-only boundary that was rejected
 to a built write path with an enforced fidelity
@@ -1620,12 +1975,12 @@ explicit one whose non-bypassability was \emph{tested in a single
 adversarial trial} in which an adversarial agent could not bypass the
 confined harness --- forgery blocked, and the one destruction hole it
 found closed by a read-only authoritative store and a receipt-gated
-broker --- rather than merely argued (§5). No agent was ever run; in a
+broker --- rather than merely argued (§6). No agent was ever run; in a
 single observed trajectory a real LLM agent has now reproduced the
 \#22044 corruption live through the status-quo tool --- including the
 false-success failure where it reported success on a non-reloadable file
 --- and been shown mechanically unable to commit it when confined to xlq
-(§4). We keep these claims at the scale of their evidence: a case study
+(§5). We keep these claims at the scale of their evidence: a case study
 of two tasks, one adversarial trial, four fidelity fixtures. The
 property that ties them together is that the write does \emph{not}
 rewrite the whole file: because the surgical writer copies un-edited
@@ -1647,7 +2002,7 @@ corruption visible was itself rendering corruption invisible. Surface
 verification, not code review, caught it --- running the tool end to end
 and reading its output against the file, the same discipline the
 boundary imposes on an agent --- and the fix added the recompute-aware
-\texttt{cached\_value} change-kind. The TBILLEQ downgrade in §7 is the
+\texttt{cached\_value} change-kind. The TBILLEQ downgrade in §8 is the
 same discipline applied to the oracle: an independent cross-check
 overturning one of our own verdicts is the strongest evidence that the
 method is falsifiable rather than self-flattering.
@@ -1673,7 +2028,7 @@ coverage-honesty and the coverage gate), not the preservation guarantee,
 which is engine-independent --- and, for computed caches, the
 engine\textquotesingle s reach is bounded further by the oracle
 write-gate, which refuses to persist an engine-computed value whose
-function the differential oracle found divergent (§7). \emph{Engine
+function the differential oracle found divergent (§8). \emph{Engine
 trust is differential-earned, not assumed}, and for the financial
 functions now independently cross-checked, with the one overturned
 verdict reported. \emph{Non-bypassability is a property of the harness},
@@ -1681,7 +2036,7 @@ which xlq enables but does not itself enforce; we claim it within the
 harness, tested it in one adversarial trial, and say exactly where it
 stops.
 
-\subsection{11. Limitations}\label{11-limitations}
+\subsection{12. Limitations}\label{12-limitations}
 
 Each limitation is tied to a specific mechanism; where it bounds a
 headline number, we name the number and direction.
@@ -1696,12 +2051,13 @@ re-save proxy, an \emph{upper bound on re-save churn}, not a
 like-for-like single-cell edit.
 
 \emph{The agent case study is two tasks, one model, one trajectory per
-arm.} E2 (§4) is an interventional case study that demonstrates the harm
+arm.} E2 (§5) is an interventional case study that demonstrates the harm
 and its prevention exist and are reproducible under a real agent; it is
 not a corruption rate and implies no generality. Both tasks are single
-\texttt{set\_cell} edits --- structural mutations (row insert/delete,
-formula rewrites, sheet add) are unexercised --- the "agent" is a
-bounded LLM subagent rather than a full autonomous IDE agent, one
+\texttt{set\_cell} edits --- the structural-edit primitive of §4
+(row/column insert and delete) is built but unexercised under the case
+study, and formula rewrites and sheet add are neither --- the "agent" is
+a bounded LLM subagent rather than a full autonomous IDE agent, one
 trajectory was observed per arm rather than a distribution over agent
 skill, and the openpyxl arm is the \emph{charitable} openpyxl (the
 realistic \texttt{keep\_vba=False} default is strictly worse), so the
@@ -1733,29 +2089,40 @@ cross-check nor the divergence gate can supply on the Linux host.
 is still scoped to the harness.} In that single trial an adversarial
 agent could not bypass the confined harness --- forgery blocked, and the
 one destruction hole found and closed with a read-only authoritative
-store and a receipt-gated broker (§5) --- but one trial is a probe, not
+store and a receipt-gated broker (§6) --- but one trial is a probe, not
 a bypass-resistance proof, and xlq still does not defend a workbook
 against an agent granted an unconfined shell with an interpreter and a
 writable authoritative file; that is the harness\textquotesingle s
 responsibility, stated as a scoping assumption, not a guarantee.
 
-\emph{Only value and formula edits; structural edits are unbuilt --- the
-key open problem.} The surgical writer edits
-\texttt{\textless{}c\textgreater{}} elements in place and exposes only
-\texttt{set\_cell} and \texttt{set\_formula}; row/column insert and
-delete, sheet add/remove, and range moves --- the structurally
-corruption-prone operations, and the ones a shared-formula, merged-cell,
-and reference-rewriting model makes hardest to keep surgical --- are
-named as the paper\textquotesingle s central open problem, not
-implemented, so the fidelity, agent-case-study, and non-bypassability
-results are all scoped to value and formula edits.
+\emph{Structural edits are now built, but within an honest envelope.}
+Row and column insert and delete --- the operation the earlier version
+of this work named as its key open problem --- are implemented (§4), but
+three edges bound them, and where one bounds a headline number we name
+it. First, array formulas (which Excel itself forbids splitting across
+an insert line) and workbooks carrying table parts are \emph{refused},
+not shifted: on the 231-workbook corpus this is 21.2\% of files (arrays
+20.3\%, tables 0.9\%), declined with a truthful reason rather than
+silently corrupted, and named as future work. Second, the minimal-patch
+purity of §3 is \emph{relaxed} for shared formulas, which are
+materialized into explicit per-cell formula bodies before shifting (what
+Excel does internally) --- a deliberate trade of byte-minimality on
+those cells for correctness on the dominant construct, which is
+precisely what lifted the safe envelope from 22.5\% to 78.8\%. Third,
+the end-to-end evaluation exercises one operation family, insert and
+delete of a row; column operations share the same σ and are unit-tested
+(including the whole-column cases the adversarial review surfaced) but
+are not in the end-to-end corpus table, while sheet add/remove and range
+moves remain unbuilt. The structural primitive is also unexercised under
+the agent case study (§5) and outside the non-bypassability trial (§6),
+both of which stay scoped to value and formula edits.
 
 \emph{The census drops phonetic runs.} The structural census and the
 engine\textquotesingle s import path do not preserve furigana
 \texttt{rPh} runs, so \texttt{PHONETIC} evaluates against base text and
 carries no oracle signal (LibreOffice does not implement it either).
 
-\subsection{12. Conclusion}\label{12-conclusion}
+\subsection{13. Conclusion}\label{13-conclusion}
 
 This paper set out to give an LLM agent a way to \emph{edit} a
 spreadsheet that it cannot use to corrupt one, for an artifact class
@@ -1790,9 +2157,15 @@ boundary, surgically and with an enforced-and-checked fidelity property,
 and to demonstrate under a real agent --- at the scale of a case study
 --- that an agent confined to it cannot commit the corruption that
 shipped in production, for the in-place value and formula edits it
-covers; structural edits remain the key open problem. The earlier
-version of this work could observe that corruption; this one prevents
-it, within the scope it honestly claims.
+covers --- and, in a sixth contribution, for row and column insert and
+delete, the structural operations the field and this
+work\textquotesingle s own earlier scope named as the hard open problem,
+resolved by a uniform reference-shift algebra under a machine-checkable
+minimal-patch invariant, with an honest refusal for the constructs
+(array formulas, tables) it does not yet shift and a real-corpus
+envelope that edits 78.8\% safely and declines the rest with zero silent
+corruptions. The earlier version of this work could observe that
+corruption; this one prevents it, within the scope it honestly claims.
 
 \subsection{References}\label{references}
 
@@ -1920,6 +2293,22 @@ it, within the scope it honestly claims.
 \item
   \textbf{{[}Pista 2026{]}} Pista: Step-Level Human Oversight of
   Spreadsheet Agents. 2026.
+\end{itemize}
+
+\emph{Structural spreadsheet editing}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{{[}Excelsior 2008{]}} J. Paine, E. Tek, D. Williamson. Rapid
+  Spreadsheet Reshaping with Excelsior. EuSpRIG, 2008. (arXiv:0803.0163)
+\item
+  \textbf{{[}TACO 2023{]}} D. Tang et al. TACO: Efficient and Compact
+  Spreadsheet Formula Graphs. 2023. (arXiv:2302.05482)
+\item
+  \textbf{{[}PPTArena 2025{]}} N. Ofengenden et al. PPTArena / PPTPilot:
+  Fidelity-Aware Agentic OOXML (PowerPoint) Editing. 2025.
+  (arXiv:2512.03042)
 \end{itemize}
 
 \emph{Standards and artifacts}
