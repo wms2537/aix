@@ -162,7 +162,15 @@ fn reopen_ok(bytes: &[u8], near: &str) -> Result<(), String> {
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let tmp = dir.join(format!(".xlq-restructure-verify-{}.xlsx", std::process::id()));
+    // Unique per call: pid alone collides when multiple restructure operations
+    // run in one process against the same directory (e.g. parallel tests).
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let tmp = dir.join(format!(
+        ".xlq-restructure-verify-{}-{}.xlsx",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::SeqCst)
+    ));
     if let Err(e) = std::fs::write(&tmp, bytes) {
         return Err(format!("write temp: {e}"));
     }
