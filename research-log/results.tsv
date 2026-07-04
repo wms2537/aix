@@ -3,3 +3,7 @@ poc-sigma	sigma_correct_classes	6/7	beat-baseline	medium	7/7	confirm	keep	38 ref
 poc-sigma	theory_gate	pass	match-baseline	low	fail-then-fixed	disconfirm	keep	gate FAILED orig algebra 3 counts; corrected C1-C9
 poc-minpatch	minimal_patch_holds	true	match-baseline	medium	true	confirm	keep	end-to-end insert-row: reopens+recomputes in IronCalc (SUM=55, cross-sheet=55) AND styles/theme/sharedStrings byte-identical, all ref classes shifted
 build	structural_tests	pass	match-baseline	high	10/10	confirm	keep	structural.rs incl. e2e recompute + minimal-patch + residual detection
+e-struct	correctness_xlq	6/6	beat-baseline	high	6/6	confirm	keep	xlq shifts all 6 ref classes correctly (SUM grow, abs, cross-sheet, defined-name, chart)
+e-struct	correctness_openpyxl	0/6	match-literature	high	0/6	confirm	keep	openpyxl insert_rows shifts 0 refs -> silently wrong (=B5*2 reads blank row)
+e-struct	minimal_patch	true	match-baseline	high	true	confirm	keep	xlq changed 4 ref-bearing parts only; non-sheet parts digit-stripped-identical (coord-only)
+e-struct	libreoffice_fidelity	0/14	match-literature	medium	0/14	confirm	keep	LO round-trip rewrites all 14 parts (fidelity destroyed before any edit)

@@ -1,0 +1,76 @@
+{
+  "fixture": "full.xlsx \u2014 chart + straddling SUM + absolute + cross-sheet + defined-name + merged",
+  "operation": "insert 1 row at row 5 on sheet Data",
+  "expected": {
+    "SUM": "=SUM(B2:B8)",
+    "double": "=B6*2",
+    "abs": "=$B$9",
+    "xref": "=Data!B9",
+    "defined": "Data!$B$9",
+    "chart_ref": "Data!$B$2:$B$8"
+  },
+  "arms": {
+    "xlq": {
+      "tool": "xlq restructure",
+      "correctness": "6/6",
+      "per_ref": {
+        "SUM": true,
+        "double": true,
+        "abs": true,
+        "xref": true,
+        "defined": true,
+        "chart_ref": true
+      },
+      "committed": true,
+      "residuals": [],
+      "parts_byte_identical": 10,
+      "parts_total": 14,
+      "parts_changed": [
+        "xl/worksheets/sheet1.xml",
+        "xl/worksheets/sheet2.xml",
+        "xl/charts/chart1.xml",
+        "xl/workbook.xml"
+      ],
+      "parts_dropped": [],
+      "minimal_patch_nonsheet_pure_coordinate": true,
+      "minimal_patch_detail": {
+        "xl/worksheets/sheet1.xml": {
+          "digit_stripped_identical": false
+        },
+        "xl/worksheets/sheet2.xml": {
+          "digit_stripped_identical": true
+        },
+        "xl/charts/chart1.xml": {
+          "digit_stripped_identical": true
+        },
+        "xl/workbook.xml": {
+          "digit_stripped_identical": true
+        }
+      }
+    },
+    "openpyxl": {
+      "tool": "openpyxl insert_rows",
+      "correctness": "0/6",
+      "per_ref": {
+        "SUM": false,
+        "double": false,
+        "abs": false,
+        "xref": false,
+        "defined": false,
+        "chart_ref": false
+      },
+      "parts_byte_identical": 12,
+      "parts_total": 14,
+      "note": "insert_rows moves cells but does NOT rewrite formula references \u2014 every formula is silently wrong (e.g. =B5*2 now reads the blank inserted row)"
+    },
+    "libreoffice": {
+      "tool": "LibreOffice load-save round-trip",
+      "parts_byte_identical": 0,
+      "parts_total": 14,
+      "parts_changed": 14,
+      "parts_dropped": 0,
+      "parts_added": 2,
+      "note": "reference-shift is correct-by-engine (not measured here); this is the fidelity cost of a mere round-trip \u2014 every rewritten part loses byte-provenance"
+    }
+  }
+}

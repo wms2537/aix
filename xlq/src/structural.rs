@@ -159,6 +159,15 @@ fn xml_attr_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('"', "&quot;")
 }
 
+/// Minimal XML text-content escaping — only the characters that MUST be escaped
+/// in element text (`&`, `<`, `>`). Crucially leaves `'` and `"` literal, so a
+/// shifted formula like `'Data'!$A$6` keeps its apostrophes exactly as Excel
+/// wrote them (quick-xml's default writer would emit `&apos;`, breaking the
+/// minimal-patch invariant on sheet-qualified references).
+fn text_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
 /// Build a BytesStart from raw inner bytes (name + attributes).
 fn tag_from_inner(inner: Vec<u8>, name_len: usize) -> BytesStart<'static> {
     BytesStart::from_content(String::from_utf8_lossy(&inner).into_owned(), name_len)
@@ -258,7 +267,13 @@ fn rewrite_edited_sheet(
                 let (nf, n) = refshift::shift_formula(&raw, &sheet, edit);
                 report.refs_shifted += n;
                 report.ref_errors += nf.matches("#REF!").count() as u32;
-                writer.write_event(Event::Text(BytesText::new(&nf)))?;
+                if nf == raw {
+                    // unchanged: preserve the ORIGINAL bytes exactly (do not let
+                    // the writer re-escape e.g. ' -> &apos;)
+                    writer.write_event(Event::Text(t.into_owned()))?;
+                } else {
+                    writer.write_event(Event::Text(BytesText::from_escaped(text_escape(&nf))))?;
+                }
             }
             other => {
                 writer.write_event(other.into_owned())?;
@@ -536,7 +551,11 @@ fn shift_text_in_element(
                 let (nf, n) = refshift::shift_formula(&raw, host, edit);
                 shifted += n;
                 errs += nf.matches("#REF!").count() as u32;
-                let _ = writer.write_event(Event::Text(BytesText::new(&nf)));
+                if nf == raw {
+                    let _ = writer.write_event(Event::Text(t.into_owned()));
+                } else {
+                    let _ = writer.write_event(Event::Text(BytesText::from_escaped(text_escape(&nf))));
+                }
             }
             Ok(other) => {
                 let _ = writer.write_event(other.into_owned());
