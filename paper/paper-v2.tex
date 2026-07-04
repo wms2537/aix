@@ -150,7 +150,11 @@ refused with a truthful reason, none silently corrupted, with a
 Excel\textquotesingle s cached values --- confirming xlq correct on 48
 of 48 sampled files while openpyxl\textquotesingle s no-op shifter fails
 42 of 48, proving the check tests reference-shift correctness rather
-than mere invertibility. All artifacts are reproducible.
+than mere invertibility; and a dedicated cross-part corpus validates the
+\emph{uniform} algorithm --- charts, cross-sheet references, defined
+names, conditional formatting, and merged regions --- across all four
+operations at 360 of 360 reference-shift checks. All artifacts are
+reproducible.
 
 \subsection{1. Introduction}\label{1-introduction}
 
@@ -293,15 +297,18 @@ silently corrupted, with a \emph{forward} correctness oracle
 (LibreOffice recompute against Excel caches) confirming xlq correct on
 48 of 48 sampled files where openpyxl\textquotesingle s no-op shifter
 fails 42 of 48 --- a discriminating check of reference-shift
-correctness, not the invertibility a round-trip would show (§4). We are
-explicit about what we did not invent: receipts, transactional
-isolation, and differential testing are established {[}Notarized Agents
-2026; Fault-Tolerant Sandboxing 2025; Yang et al. 2011{]}; the
-contribution is folding the artifact\textquotesingle s \emph{format
-fidelity} into an agent write boundary --- surgically, with an
-enforced-and-checked fidelity property, and demonstrated under a real
-agent --- for a legacy artifact class where no safe write primitive
-previously existed.
+correctness, not the invertibility a round-trip would show --- and a
+dedicated cross-part corpus validating the \emph{uniform} algorithm on
+charts, cross-sheet references, defined names, conditional formatting,
+and merged regions across all four operations at 360 of 360
+reference-shift checks (§4). We are explicit about what we did not
+invent: receipts, transactional isolation, and differential testing are
+established {[}Notarized Agents 2026; Fault-Tolerant Sandboxing 2025;
+Yang et al. 2011{]}; the contribution is folding the
+artifact\textquotesingle s \emph{format fidelity} into an agent write
+boundary --- surgically, with an enforced-and-checked fidelity property,
+and demonstrated under a real agent --- for a legacy artifact class
+where no safe write primitive previously existed.
 
 \textbf{Scope, stated honestly.} This is a tool-and-systems contribution
 at demonstration scale, and we mark its edges rather than let strong
@@ -1111,6 +1118,38 @@ uses) rather than a random real-world sample; and the structural
 primitive, though corpus-validated, is not yet exercised under the agent
 methodology of §5.
 
+\textbf{E6 --- cross-part uniformity, all four operations.} The novelty
+of §4 is not σ but its \emph{uniform} application across every
+reference-bearing part, and the real corpus above under-exercises
+exactly that: 173 of its 182 safe files are single-sheet flat grids,
+with only two chart files and no pivots, so cross-part shifting there
+rests thinly on the controlled fixture. E6 targets the gap directly. We
+generate ten fixtures (\texttt{fixtures/crosspart/}) each carrying
+\emph{every} reference-bearing part at once --- a bar chart over a data
+column, a Report sheet with cross-sheet references into Data, a defined
+name into Data, conditional formatting, data validation, a merged
+region, and in-sheet straddling/single/absolute formulas --- with the
+geometry varied so edits land above, inside, and below each referenced
+range. Each fixture is edited with all four operations (insert and
+delete, row and column), and every reference-bearing part is checked
+against an \emph{independent Python re-implementation} of the shift
+semantics --- a different language and codebase from the Rust σ, so a
+shared bug is unlikely. The result is \textbf{360 of 360 reference-shift
+checks correct (100\%), 90 of 90 per operation} across insert-row,
+delete-row, insert-col, and delete-col
+(benchmarks/crosspart\_correctness.json), so charts, cross-sheet
+references, defined names, conditional formatting, and merged regions
+all shift correctly under \emph{both} the delete and the column paths
+--- not only insert-row on flat grids. The minimal-patch invariant is
+checked here too, and beyond E4: across the corpus, all ten edited files
+re-open and \textbf{20 of 20 changed non-sheet parts (each
+fixture\textquotesingle s chart and \texttt{workbook.xml}) are
+digit-stripped-identical to their originals} --- the only bytes that
+changed are reference coordinates. One residual is honest: openpyxl
+cannot author pivot tables, so the cross-part corpus contains none;
+pivot-source shifting is exercised by unit tests and the code path but
+not by a corpus fixture.
+
 \subsubsection{Honest scope}\label{honest-scope}
 
 Three edges bound the primitive, stated plainly and revisited in §12.
@@ -1120,11 +1159,11 @@ declined with a truthful reason rather than silently corrupted, and
 named as future work. The minimal-patch purity of §3 is \emph{relaxed}
 for shared cells, which are materialized into full formula bodies before
 shifting --- a deliberate trade of byte-minimality on those cells for
-correctness on the dominant construct. And the end-to-end evaluation
-exercises one operation family, insert and delete of a row; column
-operations share the same σ and are unit-tested (including the
-whole-column cases the adversarial review surfaced) but are not in the
-end-to-end corpus table, while sheet add/remove and range moves are not
+correctness on the dominant construct. All four operations --- insert
+and delete, row and column --- are validated on the cross-part corpus
+(E6, 360/360 reference checks), but the 231-workbook real corpus (E5) is
+exercised with insert-row, and pivot-source shifting rests on unit tests
+rather than a corpus fixture; sheet add/remove and range moves are not
 built. The primitive is also unexercised under the agent case study
 (§5), which remains scoped to value edits.
 
@@ -1831,11 +1870,13 @@ structural reference-shift envelope of §4 (E4, the controlled
 6/6-vs-0/6; E5, the 231-workbook corpus at 78.8\% safe, 48/48 sampled
 files forward-correct against a discriminating
 LibreOffice-vs-Excel-caches oracle openpyxl fails, zero silent
-corruptions); \textbf{Efficiency} --- median-of-3 warm wall time on the
-\textasciitilde100k-formula fixture (\texttt{xlq\ calc}, which loads,
-fully recalculates, audits stored-vs-recomputed, hashes, and reports, at
-1.264 s; isolated engine load 0.599 s;
-\texttt{libreoffice\ -\/-convert-to} 1.494 s; openpyxl
+corruptions; and E6, a cross-part corpus at 360/360 reference-shift
+checks across all four operations on charts, cross-sheet refs, defined
+names, CF, and merged regions); \textbf{Efficiency} --- median-of-3 warm
+wall time on the \textasciitilde100k-formula fixture
+(\texttt{xlq\ calc}, which loads, fully recalculates, audits
+stored-vs-recomputed, hashes, and reports, at 1.264 s; isolated engine
+load 0.599 s; \texttt{libreoffice\ -\/-convert-to} 1.494 s; openpyxl
 \texttt{load\_workbook} 0.875 s with recalc n/a --- it has no formula
 engine); \textbf{Agent-ergonomics} --- the census token ratio (999 B vs
 7,239,303 B, 7,246.5×); and \textbf{Catalog} --- the three-number
@@ -2148,13 +2189,15 @@ materialized into explicit per-cell formula bodies before shifting (what
 Excel does internally) --- a deliberate trade of byte-minimality on
 those cells for correctness on the dominant construct, which is
 precisely what lifted the safe envelope from 22.5\% to 78.8\%. Third,
-the end-to-end evaluation exercises one operation family, insert and
-delete of a row; column operations share the same σ and are unit-tested
-(including the whole-column cases the adversarial review surfaced) but
-are not in the end-to-end corpus table, while sheet add/remove and range
-moves remain unbuilt. The structural primitive is also unexercised under
-the agent case study (§5) and outside the non-bypassability trial (§6),
-both of which stay scoped to value and formula edits.
+all four operations --- insert and delete, row and column --- are
+validated across the cross-part corpus (E6, 360/360 reference checks,
+including the whole-column cases the adversarial review surfaced), but
+the 231-workbook real corpus (E5) is exercised with insert-row,
+pivot-source shifting rests on unit tests rather than a corpus fixture,
+and sheet add/remove and range moves remain unbuilt. The structural
+primitive is also unexercised under the agent case study (§5) and
+outside the non-bypassability trial (§6), both of which stay scoped to
+value and formula edits.
 
 \emph{The census drops phonetic runs.} The structural census and the
 engine\textquotesingle s import path do not preserve furigana
