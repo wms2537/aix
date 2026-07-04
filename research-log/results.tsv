@@ -10,3 +10,5 @@ e-struct	libreoffice_fidelity	0/14	match-literature	medium	0/14	confirm	keep	LO 
 adv-review	confirmed_defects	unknown	unclear	low	9	disconfirm	keep	28-agent adversarial review found 9 real defects (whole-column FATAL, CF/DV bodies, tables, 3D-interior); all fixed
 adv-review	invariant_restored	true	beat-baseline	high	true	confirm	keep	never-silently-wrong restored: every construct shifted-correctly OR refused; 184 tests
 e-struct	recompute_executed	760	match-baseline	high	760	confirm	keep	xlq calc on committed file recomputes SUM=760 (executed not asserted)
+corpus	safe_envelope	unknown	unclear	low	22.5%	confirm	keep	231 real IronCalc files: 22.5% safely edited, 77.5% refused (140 shared, 47 array, 2 table) — never silently wrong
+corpus	silent_corruption	0	beat-baseline	high	0	confirm	keep	zero of 231 real files silently corrupted (every file shifted-correctly OR refused)

@@ -9,9 +9,12 @@
 //! so sibling attributes and quoting stay byte-identical — the invariant holds
 //! at the tag level, not just the part level.
 //!
-//! Residuals it cannot express as a coordinate shift (shared/array formulas
-//! crossing the edit) are REPORTED; the command layer refuses to commit when
-//! any residual is present, so a subtly-wrong file is never produced.
+//! Residuals it cannot guarantee to express as a coordinate shift (shared/array
+//! formulas — refused on PRESENCE, a sound conservative gate — plus table parts
+//! and 3D spans not anchored on the edited sheet) are REPORTED; the command
+//! layer refuses to commit when any residual is present, so a subtly-wrong file
+//! is never produced. This is the "shift-correctly-or-refuse" discipline that
+//! keeps the never-silently-wrong invariant honest.
 
 use crate::ooxml;
 use crate::refshift::{self, Axis, Op, Shift, StructuralEdit};
@@ -288,7 +291,7 @@ fn rewrite_edited_sheet(
                         report.residuals.push(Residual {
                             part: part_name.into(),
                             reason: detect_residual(&e).unwrap().into(),
-                            detail: "formula group crossing the edit".into(),
+                            detail: "shared/array formula present; refused (sound over-approximation)".into(),
                         });
                     }
                 }
@@ -502,8 +505,8 @@ fn detect_residual(e: &BytesStart) -> Option<&'static str> {
         .find(|a| a.key.as_ref() == b"t")
         .map(|a| a.value.as_ref().to_vec());
     match t.as_deref() {
-        Some(b"array") => Some("array_formula_spanning_edit"),
-        Some(b"shared") => Some("shared_formula_interior_crossed"),
+        Some(b"array") => Some("array_formula_present"),
+        Some(b"shared") => Some("shared_formula_present"),
         _ => None,
     }
 }
@@ -849,6 +852,6 @@ mod tests {
         let mut report = StructuralReport::default();
         let _ = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
         assert!(!report.residuals.is_empty(), "shared formula should be residual");
-        assert_eq!(report.residuals[0].reason, "shared_formula_interior_crossed");
+        assert_eq!(report.residuals[0].reason, "shared_formula_present");
     }
 }

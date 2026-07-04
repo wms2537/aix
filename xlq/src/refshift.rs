@@ -569,10 +569,10 @@ pub fn has_unverifiable_3d_span(formula: &str, edited_sheet: &str) -> bool {
 pub fn residual_reason(formula_attrs: &str) -> Option<&'static str> {
     // shared/array formula stubs and INDIRECT/OFFSET text refs
     if formula_attrs.contains("t=\"array\"") {
-        return Some("array_formula_spanning_edit");
+        return Some("array_formula_present");
     }
     if formula_attrs.contains("t=\"shared\"") {
-        return Some("shared_formula_interior_crossed");
+        return Some("shared_formula_present");
     }
     None
 }
@@ -822,8 +822,8 @@ mod tests {
     // ---- residual detection ----
     #[test]
     fn detects_array_and_shared_residual() {
-        assert_eq!(residual_reason("t=\"array\" ref=\"C2:C10\""), Some("array_formula_spanning_edit"));
-        assert_eq!(residual_reason("t=\"shared\" ref=\"B2:B100\" si=\"0\""), Some("shared_formula_interior_crossed"));
+        assert_eq!(residual_reason("t=\"array\" ref=\"C2:C10\""), Some("array_formula_present"));
+        assert_eq!(residual_reason("t=\"shared\" ref=\"B2:B100\" si=\"0\""), Some("shared_formula_present"));
         assert_eq!(residual_reason(""), None);
     }
 }
