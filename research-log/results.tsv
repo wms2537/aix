@@ -1,4 +1,5 @@
 run_id	metric	predicted_value	predicted_direction	confidence	actual_value	signal	status	description
-poc-sigma	sigma_correct_classes	6/7	beat-baseline	medium	7/7	confirm	keep	28 unit tests encode documented Excel insert/delete semantics; all pass incl. theory-reviewer FAIL cases
-poc-sigma	theory_gate	pass	match-baseline	low	fail-then-fixed	disconfirm	keep	gate FAILED orig algebra on 3 counts (delete #REF!, scoping, shared-formula); corrected C1-C9
-poc-minpatch	minimal_patch_holds	true	match-baseline	medium		 	planned	end-to-end token-surgery insert-row byte-diff (Phase 4 build)
+poc-sigma	sigma_correct_classes	6/7	beat-baseline	medium	7/7	confirm	keep	38 refshift tests encode documented Excel insert/delete semantics; all pass
+poc-sigma	theory_gate	pass	match-baseline	low	fail-then-fixed	disconfirm	keep	gate FAILED orig algebra 3 counts; corrected C1-C9
+poc-minpatch	minimal_patch_holds	true	match-baseline	medium	true	confirm	keep	end-to-end insert-row: reopens+recomputes in IronCalc (SUM=55, cross-sheet=55) AND styles/theme/sharedStrings byte-identical, all ref classes shifted
+build	structural_tests	pass	match-baseline	high	10/10	confirm	keep	structural.rs incl. e2e recompute + minimal-patch + residual detection

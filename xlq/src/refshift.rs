@@ -320,6 +320,190 @@ fn eq_sheet(a: &str, b: &str) -> bool {
     unquote_sheet(a).eq_ignore_ascii_case(&unquote_sheet(b))
 }
 
+/// Apply σ to every A1 reference inside a formula body, leaving string
+/// literals, function names, defined names, and structured table refs
+/// untouched. `current_sheet` is the sheet the formula lives on (for scoping
+/// unqualified refs). Returns (new_formula, number_of_references_shifted).
+///
+/// The scanner walks the formula, skips `"..."` string literals (with `""`
+/// escapes), and at each reference-candidate start (optional `'sheet'!` /
+/// `sheet!` / `[n]sheet!` qualifier, then a `$?COL$?ROW` / range / whole-row /
+/// whole-column body) tries to parse a reference. A candidate is only treated
+/// as a reference if it carries a row number, or is an explicit column range
+/// (`A:A`) — a bare identifier (function name / defined name) is left alone.
+pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) -> (String, u32) {
+    let b = formula.as_bytes();
+    let mut out = String::with_capacity(formula.len());
+    let mut i = 0;
+    let mut shifted = 0u32;
+    while i < b.len() {
+        let c = b[i];
+        // string literal — copy verbatim
+        if c == b'"' {
+            out.push('"');
+            i += 1;
+            while i < b.len() {
+                out.push(b[i] as char);
+                if b[i] == b'"' {
+                    i += 1;
+                    if i < b.len() && b[i] == b'"' {
+                        out.push('"');
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        // a reference candidate begins at a sheet qualifier or a column letter
+        // or a '$' or a digit (whole-row like 5:5) — but only if the previous
+        // emitted char isn't part of an identifier/number (so we don't grab the
+        // digits of a numeric literal or the tail of a name).
+        let prev = out.chars().last();
+        let boundary = match prev {
+            None => true,
+            Some(p) => !(p.is_ascii_alphanumeric() || p == '_' || p == '.' || p == '$' || p == '!' || p == '\''),
+        };
+        if boundary && (c == b'\'' || c == b'[' || c.is_ascii_alphabetic() || c == b'$' || c.is_ascii_digit()) {
+            if let Some((tok_len, replacement, did_shift)) =
+                try_reference(&formula[i..], current_sheet, edit)
+            {
+                out.push_str(&replacement);
+                if did_shift {
+                    shifted += 1;
+                }
+                i += tok_len;
+                continue;
+            }
+        }
+        out.push(c as char);
+        i += 1;
+    }
+    (out, shifted)
+}
+
+/// Try to parse a (possibly sheet-qualified) reference at the start of `s`.
+/// Returns (consumed_bytes, replacement_text, did_shift) or None if not a ref.
+fn try_reference(s: &str, current_sheet: &str, edit: &StructuralEdit) -> Option<(usize, String, bool)> {
+    let b = s.as_bytes();
+    let mut i = 0;
+    // optional external prefix [n]
+    if i < b.len() && b[i] == b'[' {
+        let close = s[i..].find(']')? + i;
+        i = close + 1;
+    }
+    // optional sheet qualifier: 'quoted'! or bare! (possibly 3D a:b)
+    let qual_end;
+    if i < b.len() && b[i] == b'\'' {
+        // quoted sheet name, may contain '' escapes, ends at ' then !
+        let mut j = i + 1;
+        loop {
+            if j >= b.len() {
+                return None;
+            }
+            if b[j] == b'\'' {
+                if j + 1 < b.len() && b[j + 1] == b'\'' {
+                    j += 2;
+                    continue;
+                }
+                break;
+            }
+            j += 1;
+        }
+        // j at closing quote; need '!' after
+        if j + 1 < b.len() && b[j + 1] == b'!' {
+            qual_end = Some(j + 2);
+        } else {
+            return None; // quoted thing not a sheet qualifier → not our ref
+        }
+    } else {
+        // bare identifier(s) then '!'
+        let mut j = i;
+        while j < b.len()
+            && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] == b'.' || b[j] == b':')
+        {
+            j += 1;
+        }
+        if j < b.len() && b[j] == b'!' && j > i {
+            qual_end = Some(j + 1);
+        } else {
+            qual_end = None;
+        }
+    }
+    let body_start = qual_end.unwrap_or(i);
+    // parse the body: endpoint or endpoint:endpoint
+    let (body_len, is_ref) = scan_ref_body(&s[body_start..]);
+    if !is_ref || body_len == 0 {
+        return None;
+    }
+    let total = body_start + body_len;
+    let full = &s[..total];
+    match shift_ref(full, current_sheet, edit) {
+        Shift::Unchanged => Some((total, full.to_string(), false)),
+        Shift::Shifted(ns) => Some((total, ns, true)),
+        Shift::Ref => {
+            // rebuild with the qualifier preserved, body → #REF!
+            let qual = &s[..body_start];
+            Some((total, format!("{}#REF!", qual), true))
+        }
+    }
+}
+
+/// Scan a reference body (no sheet qualifier). Returns (consumed_len, is_ref).
+/// Accepts A1, A1:B2, $A$1, A:A, 5:5, $A:$C. Rejects bare identifiers with no
+/// row number and no ':' (function/name).
+fn scan_ref_body(s: &str) -> (usize, bool) {
+    fn scan_endpoint(s: &str) -> (usize, bool, bool) {
+        // returns (len, has_col, has_row)
+        let b = s.as_bytes();
+        let mut i = 0;
+        if i < b.len() && b[i] == b'$' {
+            i += 1;
+        }
+        let col_start = i;
+        while i < b.len() && b[i].is_ascii_alphabetic() {
+            i += 1;
+        }
+        let has_col = i > col_start;
+        let mut had_row_dollar = false;
+        if i < b.len() && b[i] == b'$' {
+            had_row_dollar = true;
+            i += 1;
+        }
+        let row_start = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        let has_row = i > row_start;
+        if had_row_dollar && !has_row {
+            // trailing $ without row → back off the $
+            i -= 1;
+        }
+        (i, has_col, has_row)
+    }
+    let (l1, c1, r1) = scan_endpoint(s);
+    if l1 == 0 {
+        return (0, false);
+    }
+    // range?
+    if s.as_bytes().get(l1) == Some(&b':') {
+        let (l2, c2, r2) = scan_endpoint(&s[l1 + 1..]);
+        if l2 > 0 {
+            // valid range if both endpoints parse; whole-row (rows only) or
+            // whole-col (cols only) or full cells
+            let total = l1 + 1 + l2;
+            let ok = (r1 || !c1) && (r2 || !c2); // each endpoint is col-only or has row
+            // require columns match kind: A:A (col-only) or 1:1 (row-only) or A1:B2
+            let coherent = (c1 == c2) || (r1 && r2);
+            return (total, ok && coherent);
+        }
+    }
+    // single endpoint: a real cell ref needs a row number (else it's a name)
+    (l1, c1 && r1)
+}
+
 /// Residual detection: does this formula body use a construct the minimal-patch
 /// invariant cannot preserve by token surgery? Returns the reason, or None.
 pub fn residual_reason(formula_attrs: &str) -> Option<&'static str> {
@@ -494,6 +678,68 @@ mod tests {
         // Sheet1:Sheet3!A5 with edit on Sheet1 (an endpoint) → shift
         let e = row_edit(Op::Insert, 5, 1);
         assert_eq!(shift_ref("Sheet1:Sheet3!A5", "Sheet2", &e), s("Sheet1:Sheet3!A6"));
+    }
+
+    // ---- formula tokenizer (shift_formula) ----
+    fn sf(f: &str, sheet: &str, e: &StructuralEdit) -> String {
+        shift_formula(f, sheet, e).0
+    }
+    #[test]
+    fn formula_shifts_simple_range() {
+        assert_eq!(sf("SUM(A5:A10)", "Sheet1", &row_edit(Op::Insert, 2, 1)), "SUM(A6:A11)");
+    }
+    #[test]
+    fn formula_leaves_function_names_alone() {
+        // SUM parses as col letters but has no row and no ':' → not a ref
+        assert_eq!(sf("SUM(A5)+MAX(B2)", "Sheet1", &row_edit(Op::Insert, 100, 1)), "SUM(A5)+MAX(B2)");
+    }
+    #[test]
+    fn formula_does_not_touch_string_literals() {
+        // the "A5" inside the quotes must NOT shift
+        assert_eq!(
+            sf(r#"IF(A5>0,"row A5 here",B10)"#, "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            r#"IF(A6>0,"row A5 here",B11)"#
+        );
+    }
+    #[test]
+    fn formula_shifts_cross_sheet_and_scopes() {
+        // edit on Sheet1; Sheet1!A5 shifts, Sheet2!B10 (other sheet) does not
+        assert_eq!(
+            sf("Sheet1!A5+Sheet2!B10", "SheetX", &row_edit(Op::Insert, 3, 1)),
+            "Sheet1!A6+Sheet2!B10"
+        );
+    }
+    #[test]
+    fn formula_preserves_absolute_and_mixed() {
+        assert_eq!(sf("$A$5+B$10", "Sheet1", &row_edit(Op::Insert, 5, 2)), "$A$7+B$12");
+    }
+    #[test]
+    fn formula_delete_produces_ref_error() {
+        assert_eq!(sf("A5+B10", "Sheet1", &row_edit(Op::Delete, 5, 1)), "#REF!+B9");
+    }
+    #[test]
+    fn formula_indirect_text_arg_not_shifted() {
+        // INDIRECT's "A5" is a string → untouched; the bare B10 shifts
+        assert_eq!(
+            sf(r#"INDIRECT("A5")+B10"#, "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            r#"INDIRECT("A5")+B11"#
+        );
+    }
+    #[test]
+    fn formula_whole_column_under_row_op_unchanged() {
+        assert_eq!(sf("SUM(A:A)", "Sheet1", &row_edit(Op::Insert, 5, 1)), "SUM(A:A)");
+    }
+    #[test]
+    fn formula_quoted_sheet() {
+        let mut e = row_edit(Op::Insert, 5, 1);
+        e.sheet = "My Sheet".into();
+        assert_eq!(sf("'My Sheet'!A5*2", "Other", &e), "'My Sheet'!A6*2");
+    }
+    #[test]
+    fn formula_counts_shifts() {
+        let (nf, n) = shift_formula("A5+A6+A100", "Sheet1", &row_edit(Op::Insert, 50, 1));
+        assert_eq!(nf, "A5+A6+A101");
+        assert_eq!(n, 1); // only A100 shifted
     }
 
     // ---- residual detection ----

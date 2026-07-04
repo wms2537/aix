@@ -152,7 +152,7 @@ pub fn sheet_part(input: &[u8], sheet_name: &str) -> Result<String> {
 // zip part access
 // ---------------------------------------------------------------------------
 
-fn read_part(input: &[u8], name: &str) -> Result<Vec<u8>> {
+pub(crate) fn read_part(input: &[u8], name: &str) -> Result<Vec<u8>> {
     let mut archive = zip::ZipArchive::new(Cursor::new(input))
         .map_err(|e| anyhow!("open workbook zip: {e}"))?;
     let mut file = archive
@@ -168,13 +168,51 @@ fn read_part(input: &[u8], name: &str) -> Result<Vec<u8>> {
 // sheet NAME -> part path resolution
 // ---------------------------------------------------------------------------
 
-fn resolve_sheet_part(workbook_xml: &[u8], rels_xml: &[u8], sheet_name: &str) -> Result<String> {
+pub(crate) fn resolve_sheet_part(
+    workbook_xml: &[u8],
+    rels_xml: &[u8],
+    sheet_name: &str,
+) -> Result<String> {
     let rid = sheet_rid(workbook_xml, sheet_name)?
         .ok_or_else(|| anyhow!("no sheet named {sheet_name}"))?;
     let target = rid_target(rels_xml, &rid)?
         .ok_or_else(|| anyhow!("no relationship {rid} for sheet {sheet_name}"))?;
     // workbook.xml lives in xl/, so its rels targets resolve against "xl".
     Ok(resolve_target("xl", &target))
+}
+
+/// All sheets as (name, part_path), in workbook order. Used by structural edits
+/// to rewrite cross-sheet references on every sheet part.
+pub(crate) fn all_sheets(input: &[u8]) -> Result<Vec<(String, String)>> {
+    let workbook_xml = read_part(input, "xl/workbook.xml")?;
+    let rels_xml = read_part(input, "xl/_rels/workbook.xml.rels")?;
+    let mut reader = Reader::from_reader(workbook_xml.as_slice());
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf)? {
+            Event::Empty(e) | Event::Start(e) if e.name().as_ref() == b"sheet" => {
+                let mut nm: Option<String> = None;
+                let mut rid: Option<String> = None;
+                for a in e.attributes().flatten() {
+                    match a.key.as_ref() {
+                        b"name" => nm = a.unescape_value().ok().map(|c| c.into_owned()),
+                        b"r:id" => rid = Some(String::from_utf8_lossy(&a.value).into_owned()),
+                        _ => {}
+                    }
+                }
+                if let (Some(n), Some(r)) = (nm, rid) {
+                    if let Some(t) = rid_target(&rels_xml, &r)? {
+                        out.push((n, resolve_target("xl", &t)));
+                    }
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    Ok(out)
 }
 
 fn sheet_rid(workbook_xml: &[u8], name: &str) -> Result<Option<String>> {

@@ -8,6 +8,7 @@ mod journal;
 mod ooxml;
 mod patch;
 mod refshift;
+mod structural;
 mod value;
 
 use clap::{Parser, Subcommand};
