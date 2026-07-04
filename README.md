@@ -8,7 +8,7 @@ can't model — charts, pivots, VBA. xlq gives the agent a **surgical write**
 instead: it edits only the cells you asked for and leaves every other part of
 the file byte-identical.
 
-## What it guarantees (v0.2, built and tested — 128 tests)
+## What it guarantees (v0.3, built and tested — 192 tests)
 
 - **`xlq apply` is surgical.** It rewrites only the OOXML parts that contain a
   changed cell and copies every other part byte-for-byte. Measured
@@ -16,6 +16,18 @@ the file byte-identical.
   parts byte-identical**; on a macro workbook it keeps `vbaProject.bin`
   **byte-identical** — where openpyxl preserves 1/N, drops the VBA, and its
   output often won't even re-open.
+- **`xlq restructure` does STRUCTURAL edits** (insert/delete rows/columns) via a
+  reference-shift algebra σ applied across every reference-bearing part
+  (formulas, cross-sheet refs, defined names, charts, pivots, CF/DV) while
+  keeping non-coordinate bytes identical — the *minimal-patch* invariant. It
+  either shifts every reference correctly **or refuses with a truthful reason**
+  (never silently wrong). Shared formulas are materialized and shifted.
+  Measured on **231 real Excel/LibreOffice workbooks**: **78.8% safely edited,
+  0 silently corrupted**, and an engine-free round-trip oracle confirms
+  **182/182 (100%) preserve every Excel cached value** (`benchmarks/corpus-envelope.md`).
+  Against the status quo on a charts+formula fixture: xlq shifts **6/6**
+  references correctly; openpyxl `insert_rows` shifts **0/6** — `=B5*2` silently
+  reads the blank inserted row.
 - **The fidelity property is enforced, not hoped.** Every real `apply`
   re-loads its own output, proves the edited cells landed, and aborts if *any*
   non-edited part changed (`fidelity_violation`).
@@ -44,7 +56,9 @@ edit with charts/pivots/VBA intact and a receipt.
 catalog coverage with an honest 3-number taxonomy (`docs/COVERAGE.md`), and
 the AXLE-bench evaluation suite (`benchmarks/README.md`). Paper:
 `paper/paper-v2.md`. Scope: `apply` covers in-place cell/formula edits;
-structural edits (row/column insert-delete) are the named open problem.
+`restructure` covers row/column insert-delete (shared formulas materialized;
+array formulas and tables are refused, never silently corrupted — the named
+open problem).
 
 ## Why
 
