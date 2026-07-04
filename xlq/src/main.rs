@@ -7,6 +7,7 @@ mod inspect;
 mod journal;
 mod ooxml;
 mod patch;
+mod refshift;
 mod value;
 
 use clap::{Parser, Subcommand};

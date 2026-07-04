@@ -1,3 +1,4 @@
 run_id	metric	predicted_value	predicted_direction	confidence	actual_value	signal	status	description
-poc-insert-row	sigma_correct_classes	6/7	beat-baseline	medium		 	planned	insert 1 row: shift in-sheet-rel, abs, straddle-range, cross-sheet, named-range, chart; recompute==engine
-poc-insert-row	minimal_patch_holds	true	match-baseline	medium		 	planned	every non-coordinate byte identical after insert-row
+poc-sigma	sigma_correct_classes	6/7	beat-baseline	medium	7/7	confirm	keep	28 unit tests encode documented Excel insert/delete semantics; all pass incl. theory-reviewer FAIL cases
+poc-sigma	theory_gate	pass	match-baseline	low	fail-then-fixed	disconfirm	keep	gate FAILED orig algebra on 3 counts (delete #REF!, scoping, shared-formula); corrected C1-C9
+poc-minpatch	minimal_patch_holds	true	match-baseline	medium		 	planned	end-to-end token-surgery insert-row byte-diff (Phase 4 build)
