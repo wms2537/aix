@@ -8,7 +8,7 @@ can't model — charts, pivots, VBA. xlq gives the agent a **surgical write**
 instead: it edits only the cells you asked for and leaves every other part of
 the file byte-identical.
 
-## What it guarantees (v0.2, built and tested — 121 tests)
+## What it guarantees (v0.2, built and tested — 128 tests)
 
 - **`xlq apply` is surgical.** It rewrites only the OOXML parts that contain a
   changed cell and copies every other part byte-for-byte. Measured

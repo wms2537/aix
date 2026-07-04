@@ -56,15 +56,15 @@ dimension current benchmarks omit. All artifacts are reproducible.
 arXiv accepts either. LaTeX source is preferred (arXiv rebuilds the PDF and
 it renders natively); PDF-only is accepted for papers not written in TeX.
 
-**Option A — LaTeX (preferred):** `paper/paper.tex` (generated; see
+**Option A — LaTeX (preferred):** `paper/paper-v2.tex` (generated; see
 paper/README if present). Upload the .tex plus any `.bbl`/figures. If we could
 not generate clean LaTeX in this environment, use Option B and convert later.
 
-**Option B — PDF-only (fastest):** upload `paper/paper.pdf`. To make the PDF:
-- Open `paper/paper.html` in any browser → Print → Save as PDF (30 seconds,
+**Option B — PDF-only (fastest):** upload `paper/paper-v2.pdf`. To make the PDF:
+- Open `paper/paper-v2.md` in any browser → Print → Save as PDF (30 seconds,
   works anywhere; the HTML carries the same publication CSS), OR
 - run `make-pdf` where a Chromium/browse daemon is available:
-  `pdf generate --cover --toc paper/paper.md paper/paper.pdf`.
+  `pdf generate --cover --toc paper/paper.md paper/paper-v2.pdf`.
 
 ## Pre-submission checklist
 - [ ] Author name(s) + affiliation filled in (replace "the xlq authors").
