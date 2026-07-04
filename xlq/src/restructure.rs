@@ -240,14 +240,35 @@ mod tests {
     }
 
     #[test]
-    fn shared_formula_edit_refused() {
-        // build a fixture with a shared formula spanning the insert
-        let py_fixture = "/home/soh/aix/fixtures/structural/shared.xlsx";
-        if !std::path::Path::new(py_fixture).exists() {
-            return; // fixture authored by the eval workflow; skip if absent
+    fn shared_formula_edit_now_succeeds() {
+        // shared formulas are EXPANDED (materialize → shift), so a shared-only
+        // real file must now commit, not be refused.
+        let fixture = "/home/soh/aix/fixtures/structural/shared.xlsx"; // YEAR.xlsx: shared, no table
+        if !std::path::Path::new(fixture).exists() {
+            return;
         }
-        let dst = setup_from("shared", py_fixture);
-        let out = run(&dst, "Sheet1", Axis::Row, Op::Insert, 5, 1, false, Some("t")).unwrap();
+        let dst = setup_from("shared", fixture);
+        for suffix in (["", ".xlq.jsonl", ".rev-1.xlsx", ".xlq.lock"]).iter() {
+            let _ = std::fs::remove_file(format!("{dst}{suffix}"));
+        }
+        std::fs::copy(fixture, &dst).unwrap();
+        let out = run(&dst, "Sheet1", Axis::Row, Op::Insert, 2, 1, false, Some("t")).unwrap();
+        assert_eq!(out["rev"], json!(1), "shared edit should commit, got {out}");
+        assert_eq!(out["verified"]["reopened"], json!(true));
+        std::fs::remove_file(&dst).ok();
+        std::fs::remove_file(format!("{dst}.rev-1.xlsx")).ok();
+        std::fs::remove_file(format!("{dst}.xlq.jsonl")).ok();
+    }
+
+    #[test]
+    fn table_edit_still_refused() {
+        // tables remain unsupported → refused (never silently wrong).
+        let fixture = "/home/soh/aix/fixtures/structural/table.xlsx";
+        if !std::path::Path::new(fixture).exists() {
+            return;
+        }
+        let dst = setup_from("table", fixture);
+        let out = run(&dst, "Sheet1", Axis::Row, Op::Insert, 3, 1, false, Some("t")).unwrap();
         assert_eq!(out["error"], json!("residual_unreachable"), "got {out}");
         std::fs::remove_file(&dst).ok();
     }

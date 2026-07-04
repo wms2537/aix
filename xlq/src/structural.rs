@@ -88,15 +88,26 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
 
         let touched;
         if name == edited_part {
-            bytes = rewrite_edited_sheet(&bytes, edit, &name, &mut report)?;
+            // Materialize shared formulas so σ shifts them uniformly, then run
+            // the row/cell coordinate + formula surgery on the explicit sheet.
+            let expanded = expand_shared_in_sheet(&bytes)?;
+            bytes = rewrite_edited_sheet(&expanded, edit, &name, &mut report)?;
             touched = true;
         } else if name.starts_with("xl/worksheets/sheet") && name.ends_with(".xml") {
-            let host = part_sheet.get(&name).cloned().unwrap_or_default();
-            let (out, n, r) = shift_text_in_element(&bytes, b"f", edit, &host);
-            bytes = out;
-            touched = n > 0 || r > 0;
-            report.refs_shifted += n;
-            report.ref_errors += r;
+            // Only touch a foreign sheet if it cross-references the edited sheet.
+            // Sheets that do not are byte-identical — and a shared formula there
+            // must NOT trigger a spurious refusal.
+            if references_sheet(&bytes, &edit.sheet) {
+                let host = part_sheet.get(&name).cloned().unwrap_or_default();
+                let expanded = expand_shared_in_sheet(&bytes)?;
+                let (out, n, r) = shift_text_in_element(&expanded, b"f", edit, &host);
+                bytes = out;
+                touched = n > 0 || r > 0;
+                report.refs_shifted += n;
+                report.ref_errors += r;
+            } else {
+                touched = false;
+            }
         } else if name == "xl/workbook.xml" {
             let (out, n, r) = shift_text_in_element(&bytes, b"definedName", edit, "");
             bytes = out;
@@ -132,6 +143,170 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
     report.parts_touched.insert(0, edited_part);
     let cur = writer.finish().map_err(|e| anyhow!("finalize: {e}"))?;
     Ok((cur.into_inner(), report))
+}
+
+/// Parse a cell coordinate like `B5` into (col, row), 1-based.
+fn parse_cell_rc(r: &str) -> Option<(u32, u32)> {
+    let bytes = r.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_alphabetic() {
+        i += 1;
+    }
+    if i == 0 {
+        return None;
+    }
+    let col = refshift::col_to_num(&r[..i])?;
+    let row: u32 = r[i..].parse().ok()?;
+    Some((col, row))
+}
+
+/// Materialize shared-formula groups into explicit per-cell formulas so σ can
+/// shift them uniformly (what Excel/LibreOffice do around a structural edit).
+/// Pass 1 collects each master's (position, body) by shared index; pass 2
+/// rewrites the master to a plain `<f>` and every dependent stub to its explicit
+/// formula (master body translated by the dependent's offset). Array formulas
+/// are NOT expanded (Excel forbids splitting them) — they remain and are refused
+/// upstream. Returns the input unchanged if the sheet has no shared formulas.
+fn expand_shared_in_sheet(src: &[u8]) -> Result<Vec<u8>> {
+    // ---- pass 1: collect masters: si -> (col, row, body) ----
+    let mut masters: BTreeMap<String, (u32, u32, String)> = BTreeMap::new();
+    {
+        let mut reader = Reader::from_reader(src);
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        let mut cur: Option<(u32, u32)> = None;
+        let mut pending_si: Option<String> = None;
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Eof) | Err(_) => break,
+                Ok(Event::Start(e)) | Ok(Event::Empty(e)) if e.name().as_ref() == b"c" => {
+                    cur = e
+                        .attributes()
+                        .flatten()
+                        .find(|a| a.key.as_ref() == b"r")
+                        .and_then(|a| parse_cell_rc(&String::from_utf8_lossy(&a.value)));
+                }
+                Ok(Event::Start(e)) if e.name().as_ref() == b"f" => {
+                    let is_shared = e
+                        .attributes()
+                        .flatten()
+                        .any(|a| a.key.as_ref() == b"t" && a.value.as_ref() == b"shared");
+                    let has_ref = e.attributes().flatten().any(|a| a.key.as_ref() == b"ref");
+                    let si = e
+                        .attributes()
+                        .flatten()
+                        .find(|a| a.key.as_ref() == b"si")
+                        .map(|a| String::from_utf8_lossy(&a.value).into_owned());
+                    if is_shared && has_ref {
+                        pending_si = si; // master body is the next Text
+                    }
+                }
+                Ok(Event::Text(t)) if pending_si.is_some() => {
+                    if let Some((c, r)) = cur {
+                        let body = t.unescape().unwrap_or_default().into_owned();
+                        masters.insert(pending_si.take().unwrap(), (c, r, body));
+                    } else {
+                        pending_si = None;
+                    }
+                }
+                _ => {}
+            }
+            buf.clear();
+        }
+    }
+    if masters.is_empty() {
+        return Ok(src.to_vec()); // no shared formulas → byte-identical
+    }
+
+    // ---- pass 2: rewrite masters to plain <f>, dependents to explicit <f> ----
+    let mut reader = Reader::from_reader(src);
+    reader.config_mut().expand_empty_elements = false;
+    let mut writer = Writer::new(Cursor::new(Vec::new()));
+    let mut buf = Vec::new();
+    let mut cur: Option<(u32, u32)> = None;
+    loop {
+        match reader.read_event_into(&mut buf)? {
+            Event::Eof => break,
+            Event::Start(e) if e.name().as_ref() == b"c" => {
+                cur = cell_pos(&e);
+                writer.write_event(Event::Start(e.into_owned()))?;
+            }
+            Event::Empty(e) if e.name().as_ref() == b"c" => {
+                cur = cell_pos(&e);
+                writer.write_event(Event::Empty(e.into_owned()))?;
+            }
+            Event::Start(e) if e.name().as_ref() == b"f" && is_shared_f(&e) => {
+                if has_ref_f(&e) {
+                    // master: strip attrs, keep body (body Text + End flow through)
+                    writer.write_event(Event::Start(BytesStart::new("f")))?;
+                } else {
+                    // dependent (Start form): emit explicit formula, consume body
+                    emit_dependent(&mut writer, &e, cur, &masters)?;
+                    reader.read_to_end(e.name())?;
+                }
+            }
+            Event::Empty(e) if e.name().as_ref() == b"f" && is_shared_f(&e) => {
+                if !has_ref_f(&e) {
+                    emit_dependent(&mut writer, &e, cur, &masters)?;
+                } else {
+                    // master with no body (degenerate) — keep as-is
+                    writer.write_event(Event::Empty(e.into_owned()))?;
+                }
+            }
+            other => writer.write_event(other.into_owned())?,
+        }
+        buf.clear();
+    }
+    Ok(writer.into_inner().into_inner())
+}
+
+/// Does this part reference `sheet` by a qualified reference (`Sheet!` or
+/// `'Sheet'!`)? Used to decide whether a foreign sheet needs σ at all.
+fn references_sheet(bytes: &[u8], sheet: &str) -> bool {
+    let text = String::from_utf8_lossy(bytes);
+    text.contains(&format!("{}!", sheet)) || text.contains(&format!("'{}'!", sheet))
+}
+
+fn cell_pos(e: &BytesStart) -> Option<(u32, u32)> {
+    e.attributes()
+        .flatten()
+        .find(|a| a.key.as_ref() == b"r")
+        .and_then(|a| parse_cell_rc(&String::from_utf8_lossy(&a.value)))
+}
+fn is_shared_f(e: &BytesStart) -> bool {
+    e.attributes()
+        .flatten()
+        .any(|a| a.key.as_ref() == b"t" && a.value.as_ref() == b"shared")
+}
+fn has_ref_f(e: &BytesStart) -> bool {
+    e.attributes().flatten().any(|a| a.key.as_ref() == b"ref")
+}
+
+fn emit_dependent(
+    writer: &mut Writer<Cursor<Vec<u8>>>,
+    e: &BytesStart,
+    cur: Option<(u32, u32)>,
+    masters: &BTreeMap<String, (u32, u32, String)>,
+) -> Result<()> {
+    let si = e
+        .attributes()
+        .flatten()
+        .find(|a| a.key.as_ref() == b"si")
+        .map(|a| String::from_utf8_lossy(&a.value).into_owned());
+    if let (Some(si), Some((cc, cr))) = (si, cur) {
+        if let Some((mc, mr, body)) = masters.get(&si) {
+            let dr = cr as i64 - *mr as i64;
+            let dc = cc as i64 - *mc as i64;
+            let explicit = refshift::offset_formula(body, dr, dc);
+            writer.write_event(Event::Start(BytesStart::new("f")))?;
+            writer.write_event(Event::Text(BytesText::from_escaped(text_escape(&explicit))))?;
+            writer.write_event(Event::End(quick_xml::events::BytesEnd::new("f")))?;
+            return Ok(());
+        }
+    }
+    // no master found: keep the stub verbatim (safety — upstream will refuse)
+    writer.write_event(Event::Empty(e.to_owned()))?;
+    Ok(())
 }
 
 fn archive_names(input: &[u8]) -> Result<Vec<String>> {
@@ -846,12 +1021,53 @@ mod tests {
     }
 
     #[test]
-    fn shared_formula_flagged_residual() {
-        let xml = br#"<worksheet><sheetData><row r="2"><c r="B2"><f t="shared" ref="B2:B100" si="0">A2</f></c></row></sheetData></worksheet>"#;
-        let e = edit("Sheet1", Axis::Row, Op::Insert, 50, 1);
+    fn shared_formula_expands_to_explicit() {
+        // master B2 body A2 (relative, same row); dependents B3 (A3), B4 (A4)
+        let xml = br#"<worksheet><sheetData><row r="2"><c r="B2"><f t="shared" ref="B2:B4" si="0">A2*2</f></c></row><row r="3"><c r="B3"><f t="shared" si="0"/></c></row><row r="4"><c r="B4"><f t="shared" si="0"/></c></row></sheetData></worksheet>"#;
+        let out = expand_shared_in_sheet(xml).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        // master keeps its body as a plain <f>; dependents get explicit offsets
+        assert!(s.contains("<f>A2*2</f>"), "master expanded: {s}");
+        assert!(s.contains("<f>A3*2</f>"), "B3 dependent expanded: {s}");
+        assert!(s.contains("<f>A4*2</f>"), "B4 dependent expanded: {s}");
+        assert!(!s.contains("t=\"shared\""), "no shared stubs remain: {s}");
+    }
+
+    #[test]
+    fn shared_formula_no_longer_refused_end_to_end() {
+        // a workbook whose only formulas are shared must now be SAFELY editable
+        // (expanded + shifted), not refused.
+        let py = "/home/soh/aix/fixtures/structural/shared.xlsx";
+        if !std::path::Path::new(py).exists() {
+            return;
+        }
+        let input = std::fs::read(py).unwrap();
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 3, 1);
+        let (out, report) = structural_edit(&input, &e).unwrap();
+        assert!(
+            report.residuals.is_empty(),
+            "shared formulas should be expanded, not refused: {:?}",
+            report.residuals
+        );
+        // and the output recomputes in the engine
+        let p = unique_tmp("shared-e2e");
+        std::fs::write(&p, &out).unwrap();
+        let mut m = ironcalc::import::load_from_xlsx(&p, "en", "UTC", "en").unwrap();
+        m.evaluate();
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn array_formula_still_refused() {
+        // arrays are NOT expanded (Excel forbids splitting) — must still refuse.
+        let xml = br#"<worksheet><sheetData><row r="2"><c r="B2"><f t="array" ref="B2:B10">A2:A10*2</f></c></row></sheetData></worksheet>"#;
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
         let mut report = StructuralReport::default();
         let _ = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
-        assert!(!report.residuals.is_empty(), "shared formula should be residual");
-        assert_eq!(report.residuals[0].reason, "shared_formula_present");
+        assert!(
+            report.residuals.iter().any(|r| r.reason == "array_formula_present"),
+            "array must still be refused: {:?}",
+            report.residuals
+        );
     }
 }

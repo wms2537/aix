@@ -3,18 +3,17 @@
     "corpus": "vendored IronCalc xlsx test suite (real Excel/LibreOffice-authored files)",
     "operation": "dry-run insert 1 row at row 2 on the first visible sheet",
     "total_files": 231,
-    "safe_edit": 52,
-    "safe_pct": 22.5,
-    "refused_residual": 179,
-    "refused_pct": 77.5,
+    "safe_edit": 182,
+    "safe_pct": 78.8,
+    "refused_residual": 49,
+    "refused_pct": 21.2,
     "status_breakdown": {
-      "refused": 179,
-      "safe": 52
+      "refused": 49,
+      "safe": 182
     },
     "refusal_reasons": {
       "array_formula_present": 47,
-      "table_unsupported": 2,
-      "shared_formula_present": 140
+      "table_unsupported": 2
     },
     "invariant": "every file is EITHER safely shifted OR refused with a truthful reason \u2014 never silently wrong"
   },
@@ -49,39 +48,29 @@
       "parts_touched": 1
     },
     "calc_tests/DATABASE/DCOUNT_DCOUNTA_DGET_DPRODUCT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 191,
+      "parts_touched": 1
     },
     "calc_tests/DATABASE/DMIN_DMAX_DAVERAGE_DSUM.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 321,
+      "parts_touched": 1
     },
     "calc_tests/DATABASE/DVAR_DVARP_DSTDEV_DSTDEVP.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 321,
+      "parts_touched": 1
     },
     "calc_tests/DATE_AND_TIME/DATE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 32,
+      "parts_touched": 1
     },
     "calc_tests/DATE_AND_TIME/DATE_DAY_MONTH_YEAR.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 108,
+      "parts_touched": 1
     },
     "calc_tests/DATE_AND_TIME/DATE_TIME.xlsx": {
       "status": "safe",
@@ -89,53 +78,39 @@
       "parts_touched": 1
     },
     "calc_tests/DATE_AND_TIME/DAYS_DAYS360.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 227,
+      "parts_touched": 1
     },
     "calc_tests/DATE_AND_TIME/EOMONTH.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 42,
+      "parts_touched": 1
     },
     "calc_tests/DATE_AND_TIME/TIME_HOUR_MINUTE_SECOND.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 177,
+      "parts_touched": 1
     },
     "calc_tests/DATE_AND_TIME/YEARFRAC.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 80,
+      "parts_touched": 1
     },
     "calc_tests/ENGINEERING/BESSEL.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 97,
+      "parts_touched": 1
     },
     "calc_tests/ENGINEERING/BITs.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 318,
+      "parts_touched": 1
     },
     "calc_tests/ENGINEERING/COMPLEXs.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 1077,
+      "parts_touched": 1
     },
     "calc_tests/ENGINEERING/CONVERT.xlsx": {
       "status": "safe",
@@ -143,25 +118,19 @@
       "parts_touched": 1
     },
     "calc_tests/ENGINEERING/ERFs.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 116,
+      "parts_touched": 1
     },
     "calc_tests/ENGINEERING/GESTEP_DELTA.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 94,
+      "parts_touched": 1
     },
     "calc_tests/ENGINEERING/NUMBER_SYSTEMS.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 362,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/ACCRINT.xlsx": {
       "status": "safe",
@@ -174,53 +143,39 @@
       "parts_touched": 1
     },
     "calc_tests/FINANCIAL/ACCRINT_ACCRINTM.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 173,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/ACCRINT_extended.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 455,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/COUPDAYS.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 673,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/CUMPRINC_CUMIPMT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 362,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/DB_DDB.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 402,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/DISC.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 76,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/FV.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 178,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/FVSCHEDULE.xlsx": {
       "status": "safe",
@@ -228,137 +183,99 @@
       "parts_touched": 1
     },
     "calc_tests/FINANCIAL/INTRATE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 32,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/IPMT_PPMT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 606,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/IRR.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 115,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/ISPMT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 114,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/MIRR.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 50,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/NOMINAL_EFFECT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 178,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/NPER.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 178,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/NPV.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 106,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/PDURATION.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 53,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/PMT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 1218,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/PRICE_YIELD.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 212,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/PV.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 178,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/RATE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 154,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/RRI.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 68,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/SLN_SYD.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 149,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/TBILLs.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 654,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/XIRR.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 104,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/XNPV.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 59,
+      "parts_touched": 1
     },
     "calc_tests/FINANCIAL/accrint_cases.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 3202,
+      "parts_touched": 1
     },
     "calc_tests/INFORMATION/CELL.xlsx": {
       "status": "refused",
@@ -368,18 +285,14 @@
       "reopens": false
     },
     "calc_tests/INFORMATION/ERROR.TYPE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 15,
+      "parts_touched": 1
     },
     "calc_tests/INFORMATION/FORMULATEXT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 20,
+      "parts_touched": 1
     },
     "calc_tests/INFORMATION/ISOMITTED.xlsx": {
       "status": "refused",
@@ -389,25 +302,19 @@
       "reopens": false
     },
     "calc_tests/INFORMATION/ISREF_ISFORMULA_ISODD_ISEVEN.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 12,
+      "parts_touched": 1
     },
     "calc_tests/INFORMATION/IS_INFORMATION.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 106,
+      "parts_touched": 1
     },
     "calc_tests/INFORMATION/N.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 18,
+      "parts_touched": 1
     },
     "calc_tests/INFORMATION/SHEET_SHEETS.xlsx": {
       "status": "safe",
@@ -415,11 +322,9 @@
       "parts_touched": 1
     },
     "calc_tests/INFORMATION/TYPE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 8,
+      "parts_touched": 1
     },
     "calc_tests/LOGICAL/AND_OR_XOR.xlsx": {
       "status": "safe",
@@ -441,18 +346,14 @@
       "reopens": false
     },
     "calc_tests/LOGICAL/IFNA.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 18,
+      "parts_touched": 1
     },
     "calc_tests/LOGICAL/IFS.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 141,
+      "parts_touched": 1
     },
     "calc_tests/LOGICAL/IF_ARRAY.xlsx": {
       "status": "refused",
@@ -499,8 +400,7 @@
     "calc_tests/LOOKUP_AND_REFERENCE/ADDRESS.xlsx": {
       "status": "refused",
       "reasons": [
-        "array_formula_present",
-        "shared_formula_present"
+        "array_formula_present"
       ],
       "reopens": false
     },
@@ -545,11 +445,9 @@
       "reopens": false
     },
     "calc_tests/LOOKUP_AND_REFERENCE/HVLOOKUP.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 65,
+      "parts_touched": 1
     },
     "calc_tests/LOOKUP_AND_REFERENCE/INDEX.xlsx": {
       "status": "refused",
@@ -559,11 +457,9 @@
       "reopens": false
     },
     "calc_tests/LOOKUP_AND_REFERENCE/MATCH.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 68,
+      "parts_touched": 1
     },
     "calc_tests/LOOKUP_AND_REFERENCE/MATCH_LOOKUP_arrays.xlsx": {
       "status": "refused",
@@ -573,11 +469,9 @@
       "reopens": false
     },
     "calc_tests/LOOKUP_AND_REFERENCE/ROW_COLUM.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 57,
+      "parts_touched": 1
     },
     "calc_tests/LOOKUP_AND_REFERENCE/SORT.xlsx": {
       "status": "refused",
@@ -627,99 +521,77 @@
       "reopens": false
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/ABS.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 13,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/ARABIC_ROMAN.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 40379,
+      "parts_touched": 2
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/ATAN2_POWER.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 137,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/BASE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 143,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/COMBIN_COMBINA.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 146,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/DEGREES_RADIANS.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 47,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/EVEN_ODD.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 85,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/EXP_SIGN.xlsx": {
       "status": "refused",
       "reasons": [
-        "array_formula_present",
-        "shared_formula_present"
+        "array_formula_present"
       ],
       "reopens": false
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/FACT_DOUBLEFACT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 16,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/FLOOR_CEILING.xlsx": {
       "status": "refused",
       "reasons": [
-        "array_formula_present",
-        "shared_formula_present"
+        "array_formula_present"
       ],
       "reopens": false
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/GCD_LCM.xlsx": {
       "status": "refused",
       "reasons": [
-        "array_formula_present",
-        "shared_formula_present"
+        "array_formula_present"
       ],
       "reopens": false
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/LCM_GCD.xlsx": {
       "status": "refused",
       "reasons": [
-        "array_formula_present",
-        "shared_formula_present"
+        "array_formula_present"
       ],
       "reopens": false
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/LOG_LOG10_LN.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 44,
+      "parts_touched": 2
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/MMULT.xlsx": {
       "status": "refused",
@@ -729,18 +601,14 @@
       "reopens": false
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/MOD_QUOTIENT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 177,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/MROUND_TRUNC_INT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 123,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/MULTINOMIAL.xlsx": {
       "status": "safe",
@@ -755,25 +623,19 @@
       "reopens": false
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/PRODUCT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 52,
+      "parts_touched": 2
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/PRODUCT_SUM.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 30,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/ROUND.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 255,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/SEQUENCE.xlsx": {
       "status": "refused",
@@ -788,25 +650,19 @@
       "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/SQRT_SQRTPI.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 28,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/SUMIFS.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 584,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/SUMIF_AVERAGE_IF.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 103,
+      "parts_touched": 1
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/SUMIF_array.xlsx": {
       "status": "refused",
@@ -823,8 +679,7 @@
     "calc_tests/MATH_AND_TRIGONOMETRY/SUMSQ.xlsx": {
       "status": "refused",
       "reasons": [
-        "array_formula_present",
-        "shared_formula_present"
+        "array_formula_present"
       ],
       "reopens": false
     },
@@ -836,17 +691,14 @@
     "calc_tests/MATH_AND_TRIGONOMETRY/TRIGONOMETRIC.xlsx": {
       "status": "refused",
       "reasons": [
-        "array_formula_present",
-        "shared_formula_present"
+        "array_formula_present"
       ],
       "reopens": false
     },
     "calc_tests/MATH_AND_TRIGONOMETRY/trigonometric_functions.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 425,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/AVEDEV.xlsx": {
       "status": "safe",
@@ -854,41 +706,33 @@
       "parts_touched": 1
     },
     "calc_tests/STATISTICAL/AVERAGE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 138,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/BETADIST_BETAINV.xlsx": {
       "status": "refused",
       "reasons": [
-        "array_formula_present",
-        "shared_formula_present"
+        "array_formula_present"
       ],
       "reopens": false
     },
     "calc_tests/STATISTICAL/BETA_GAMMA.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 56,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/BINOM.xlsx": {
       "status": "refused",
       "reasons": [
-        "array_formula_present",
-        "shared_formula_present"
+        "array_formula_present"
       ],
       "reopens": false
     },
     "calc_tests/STATISTICAL/CHISQ.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 21,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/CHISQ_TEST.xlsx": {
       "status": "safe",
@@ -906,25 +750,19 @@
       "parts_touched": 1
     },
     "calc_tests/STATISTICAL/COUNT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 145,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/COUNTIF.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 413,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/COUNTIFS.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 156,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/COVARIANCE.xlsx": {
       "status": "safe",
@@ -937,11 +775,9 @@
       "parts_touched": 1
     },
     "calc_tests/STATISTICAL/EXPONDIST.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 160,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/EXPON_DIST.xlsx": {
       "status": "safe",
@@ -949,18 +785,14 @@
       "parts_touched": 1
     },
     "calc_tests/STATISTICAL/FISHER.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 12,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/FISHER_FISHERINV.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 81,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/FREQUENCY.xlsx": {
       "status": "refused",
@@ -980,39 +812,29 @@
       "parts_touched": 1
     },
     "calc_tests/STATISTICAL/GAMMA.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 29,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/GAMMALN_GAMMALNPRECISE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 89,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/GAUSS.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 38,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/GEOMEAN.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 77,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/HYPERGEOM_DIST.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 12,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/LINEST_LOGEST.xlsx": {
       "status": "refused",
@@ -1022,11 +844,9 @@
       "reopens": false
     },
     "calc_tests/STATISTICAL/LOGNORM.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 13,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/MEADIAN_KURT_SKEW_HARMEAN.xlsx": {
       "status": "safe",
@@ -1051,11 +871,9 @@
       "reopens": false
     },
     "calc_tests/STATISTICAL/NORM_DIST.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 22,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/PEARSON.xlsx": {
       "status": "safe",
@@ -1063,25 +881,19 @@
       "parts_touched": 1
     },
     "calc_tests/STATISTICAL/PERCENTIL_QUARTIL.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 134,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/PERMUT_PERMUTATIONA.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 70,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/PHI.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 9,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/POISSON.xlsx": {
       "status": "safe",
@@ -1089,32 +901,24 @@
       "parts_touched": 1
     },
     "calc_tests/STATISTICAL/PROB.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 93,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/RANK_EQ_RANK_AVG.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 38,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/SMALL_LARGE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 30,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/STANDARIZE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 14,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/STDEV.xlsx": {
       "status": "safe",
@@ -1129,25 +933,19 @@
       "reopens": false
     },
     "calc_tests/STATISTICAL/TRIMMEAN.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 38,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/T_DIST.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 33,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/T_TEST.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 38,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/VARIANCE.xlsx": {
       "status": "safe",
@@ -1155,11 +953,9 @@
       "parts_touched": 1
     },
     "calc_tests/STATISTICAL/WEIBULL_DIST.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 10,
+      "parts_touched": 1
     },
     "calc_tests/STATISTICAL/Z_TEST.xlsx": {
       "status": "safe",
@@ -1172,53 +968,39 @@
       "parts_touched": 1
     },
     "calc_tests/TEXT/CHAR.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 258,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/CONCAT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 62,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/CONCATENATE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 64,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/DOLLARs.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 74,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/EXACT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 24,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/FIND_SEARCH.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 188,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/PROPER.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 12,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/REGEX.xlsx": {
       "status": "refused",
@@ -1228,46 +1010,34 @@
       "reopens": false
     },
     "calc_tests/TEXT/REPT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 32,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/STRING_HANDLING.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 182,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/SUBSTITUTE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 114,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/TEXT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 422,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/TEXTBEFORE_TEXTAFTER.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 549,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/TEXTJOIN.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 184,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/TEXTSPLIT.xlsx": {
       "status": "refused",
@@ -1277,18 +1047,14 @@
       "reopens": false
     },
     "calc_tests/TEXT/T_VALUE_VALUETOTEXT.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 63,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/UNICODE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 21,
+      "parts_touched": 1
     },
     "calc_tests/TEXT/UPPER_LOWER.xlsx": {
       "status": "refused",
@@ -1298,11 +1064,9 @@
       "reopens": false
     },
     "calc_tests/arithmetic.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 74,
+      "parts_touched": 1
     },
     "calc_tests/array_in_scalar_repro.xlsx": {
       "status": "safe",
@@ -1335,11 +1099,9 @@
       "parts_touched": 1
     },
     "calc_tests/logical.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 39,
+      "parts_touched": 1
     },
     "calc_tests/percentage.xlsx": {
       "status": "safe",
@@ -1364,11 +1126,9 @@
       "reopens": true
     },
     "calc_tests/simple_functions.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 39,
+      "parts_touched": 2
     },
     "calc_tests/spill_operator.xlsx": {
       "status": "refused",
@@ -1378,11 +1138,9 @@
       "reopens": false
     },
     "conditional_formatting/cf_tests.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 26,
+      "parts_touched": 1
     },
     "custom_theme_colors.xlsx": {
       "status": "safe",
@@ -1395,95 +1153,69 @@
       "parts_touched": 1
     },
     "docs/COS.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 16,
+      "parts_touched": 1
     },
     "docs/DATE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 31,
+      "parts_touched": 1
     },
     "docs/DAY.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 24,
+      "parts_touched": 1
     },
     "docs/ERF-PRECISE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 69,
+      "parts_touched": 1
     },
     "docs/ERF.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 85,
+      "parts_touched": 1
     },
     "docs/ERFC-PRECISE.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 69,
+      "parts_touched": 1
     },
     "docs/ERFC.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 69,
+      "parts_touched": 1
     },
     "docs/FV.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 31,
+      "parts_touched": 1
     },
     "docs/MONTH.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 24,
+      "parts_touched": 1
     },
     "docs/PV.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 31,
+      "parts_touched": 1
     },
     "docs/SIN.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 16,
+      "parts_touched": 1
     },
     "docs/TAN.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 24,
+      "parts_touched": 1
     },
     "docs/YEAR.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 24,
+      "parts_touched": 1
     },
     "dynamic_arrays.xlsx": {
       "status": "refused",
@@ -1495,7 +1227,6 @@
     "example.xlsx": {
       "status": "refused",
       "reasons": [
-        "shared_formula_present",
         "table_unsupported"
       ],
       "reopens": true
@@ -1536,11 +1267,9 @@
       "parts_touched": 2
     },
     "templates/travel_expenses_tracker.xlsx": {
-      "status": "refused",
-      "reasons": [
-        "shared_formula_present"
-      ],
-      "reopens": true
+      "status": "safe",
+      "refs_shifted": 50,
+      "parts_touched": 1
     }
   }
 }

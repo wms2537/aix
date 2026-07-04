@@ -384,20 +384,17 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
     (out, shifted)
 }
 
-/// Try to parse a (possibly sheet-qualified) reference at the start of `s`.
-/// Returns (consumed_bytes, replacement_text, did_shift) or None if not a ref.
-fn try_reference(s: &str, current_sheet: &str, edit: &StructuralEdit) -> Option<(usize, String, bool)> {
+/// Parse the optional `[n]` external prefix and `'sheet'!`/`sheet!` qualifier
+/// at the start of `s`. Returns the index where the reference BODY begins, or
+/// None if `s` opens with a quoted token that is not a sheet qualifier.
+fn parse_ref_prefix(s: &str) -> Option<usize> {
     let b = s.as_bytes();
     let mut i = 0;
-    // optional external prefix [n]
     if i < b.len() && b[i] == b'[' {
         let close = s[i..].find(']')? + i;
         i = close + 1;
     }
-    // optional sheet qualifier: 'quoted'! or bare! (possibly 3D a:b)
-    let qual_end;
     if i < b.len() && b[i] == b'\'' {
-        // quoted sheet name, may contain '' escapes, ends at ' then !
         let mut j = i + 1;
         loop {
             if j >= b.len() {
@@ -412,14 +409,12 @@ fn try_reference(s: &str, current_sheet: &str, edit: &StructuralEdit) -> Option<
             }
             j += 1;
         }
-        // j at closing quote; need '!' after
         if j + 1 < b.len() && b[j + 1] == b'!' {
-            qual_end = Some(j + 2);
+            Some(j + 2)
         } else {
-            return None; // quoted thing not a sheet qualifier → not our ref
+            None
         }
     } else {
-        // bare identifier(s) then '!'
         let mut j = i;
         while j < b.len()
             && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] == b'.' || b[j] == b':')
@@ -427,13 +422,17 @@ fn try_reference(s: &str, current_sheet: &str, edit: &StructuralEdit) -> Option<
             j += 1;
         }
         if j < b.len() && b[j] == b'!' && j > i {
-            qual_end = Some(j + 1);
+            Some(j + 1)
         } else {
-            qual_end = None;
+            Some(i)
         }
     }
-    let body_start = qual_end.unwrap_or(i);
-    // parse the body: endpoint or endpoint:endpoint
+}
+
+/// Try to parse a (possibly sheet-qualified) reference at the start of `s`.
+/// Returns (consumed_bytes, replacement_text, did_shift) or None if not a ref.
+fn try_reference(s: &str, current_sheet: &str, edit: &StructuralEdit) -> Option<(usize, String, bool)> {
+    let body_start = parse_ref_prefix(s)?;
     let (body_len, is_ref) = scan_ref_body(&s[body_start..]);
     if !is_ref || body_len == 0 {
         return None;
@@ -444,10 +443,108 @@ fn try_reference(s: &str, current_sheet: &str, edit: &StructuralEdit) -> Option<
         Shift::Unchanged => Some((total, full.to_string(), false)),
         Shift::Shifted(ns) => Some((total, ns, true)),
         Shift::Ref => {
-            // rebuild with the qualifier preserved, body → #REF!
             let qual = &s[..body_start];
             Some((total, format!("{}#REF!", qual), true))
         }
+    }
+}
+
+/// Materialize a shared-formula dependent: translate every RELATIVE reference in
+/// `formula` by (`dr` rows, `dc` cols) — the dependent's offset from the master.
+/// Absolute (`$`) components stay fixed. This reconstructs a dependent cell's
+/// explicit formula from the shared master, exactly as autofill does. A
+/// component driven below row/column 1 becomes `#REF!`.
+pub fn offset_formula(formula: &str, dr: i64, dc: i64) -> String {
+    let b = formula.as_bytes();
+    let mut out = String::with_capacity(formula.len());
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c == b'"' {
+            out.push('"');
+            i += 1;
+            while i < b.len() {
+                out.push(b[i] as char);
+                if b[i] == b'"' {
+                    i += 1;
+                    if i < b.len() && b[i] == b'"' {
+                        out.push('"');
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        let prev = out.chars().last();
+        let boundary = match prev {
+            None => true,
+            Some(p) => !(p.is_ascii_alphanumeric() || p == '_' || p == '.' || p == '$' || p == '!' || p == '\''),
+        };
+        if boundary && (c == b'\'' || c == b'[' || c.is_ascii_alphabetic() || c == b'$' || c.is_ascii_digit()) {
+            if let Some((len, repl)) = try_offset_reference(&formula[i..], dr, dc) {
+                out.push_str(&repl);
+                i += len;
+                continue;
+            }
+        }
+        out.push(c as char);
+        i += 1;
+    }
+    out
+}
+
+fn try_offset_reference(s: &str, dr: i64, dc: i64) -> Option<(usize, String)> {
+    let body_start = parse_ref_prefix(s)?;
+    let (body_len, is_ref) = scan_ref_body(&s[body_start..]);
+    if !is_ref || body_len == 0 {
+        return None;
+    }
+    let total = body_start + body_len;
+    let qual = &s[..body_start];
+    let body = &s[body_start..total];
+    let new_body = offset_body(body, dr, dc)?;
+    Some((total, format!("{}{}", qual, new_body)))
+}
+
+fn offset_endpoint(ep: (bool, Option<u32>, bool, Option<u32>), dr: i64, dc: i64) -> Option<String> {
+    let (col_abs, col, row_abs, row) = ep;
+    let new_col = match (col, col_abs) {
+        (Some(c), false) => {
+            let v = c as i64 + dc;
+            if v < 1 {
+                return None; // driven off-sheet → #REF!
+            }
+            Some(v as u32)
+        }
+        (c, _) => c,
+    };
+    let new_row = match (row, row_abs) {
+        (Some(r), false) => {
+            let v = r as i64 + dr;
+            if v < 1 {
+                return None;
+            }
+            Some(v as u32)
+        }
+        (r, _) => r,
+    };
+    Some(fmt_endpoint(col_abs, new_col, row_abs, new_row))
+}
+
+fn offset_body(body: &str, dr: i64, dc: i64) -> Option<String> {
+    if let Some((h, t)) = body.split_once(':') {
+        let hp = parse_endpoint(h)?;
+        let tp = parse_endpoint(t)?;
+        match (offset_endpoint(hp, dr, dc), offset_endpoint(tp, dr, dc)) {
+            (Some(nh), Some(nt)) => Some(format!("{}:{}", nh, nt)),
+            _ => Some("#REF!".to_string()),
+        }
+    } else {
+        let ep = parse_endpoint(body)?;
+        Some(offset_endpoint(ep, dr, dc).unwrap_or_else(|| "#REF!".to_string()))
     }
 }
 
@@ -817,6 +914,35 @@ mod tests {
         let (nf, n) = shift_formula("A5+A6+A100", "Sheet1", &row_edit(Op::Insert, 50, 1));
         assert_eq!(nf, "A5+A6+A101");
         assert_eq!(n, 1); // only A100 shifted
+    }
+
+    // ---- offset_formula (shared-formula materialization) ----
+    #[test]
+    fn offset_translates_relative_refs() {
+        // master =A2*2 at B2; dependent at B5 (offset +3 rows) => =A5*2
+        assert_eq!(offset_formula("A2*2", 3, 0), "A5*2");
+        // dependent at B2 (offset 0) => unchanged
+        assert_eq!(offset_formula("A2*2", 0, 0), "A2*2");
+    }
+    #[test]
+    fn offset_keeps_absolute_fixed() {
+        // $A$1 stays; relative B2 shifts
+        assert_eq!(offset_formula("$A$1+B2", 3, 0), "$A$1+B5");
+        assert_eq!(offset_formula("$A2+A$1", 3, 2), "$A5+C$1");
+    }
+    #[test]
+    fn offset_range_and_cross_sheet() {
+        assert_eq!(offset_formula("SUM(A2:A10)", 5, 0), "SUM(A7:A15)");
+        assert_eq!(offset_formula("Sheet2!A2*Q1", 0, 1), "Sheet2!B2*R1");
+    }
+    #[test]
+    fn offset_underflow_is_ref() {
+        // relative A2 offset up by 5 -> row -3 -> #REF!
+        assert_eq!(offset_formula("A2", -5, 0), "#REF!");
+    }
+    #[test]
+    fn offset_leaves_strings_and_functions() {
+        assert_eq!(offset_formula(r#"IF(A2,"A2",B2)"#, 1, 0), r#"IF(A3,"A2",B3)"#);
     }
 
     // ---- residual detection ----

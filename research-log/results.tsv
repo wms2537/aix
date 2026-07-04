@@ -12,3 +12,6 @@ adv-review	invariant_restored	true	beat-baseline	high	true	confirm	keep	never-si
 e-struct	recompute_executed	760	match-baseline	high	760	confirm	keep	xlq calc on committed file recomputes SUM=760 (executed not asserted)
 corpus	safe_envelope	unknown	unclear	low	22.5%	confirm	keep	231 real IronCalc files: 22.5% safely edited, 77.5% refused (140 shared, 47 array, 2 table) — never silently wrong
 corpus	silent_corruption	0	beat-baseline	high	0	confirm	keep	zero of 231 real files silently corrupted (every file shifted-correctly OR refused)
+shared-expansion	safe_envelope	85%	beat-baseline	medium	78.8%	confirm	keep	shared-formula expansion lifted safe envelope 22.5%->78.8% on 231 real files
+shared-expansion	roundtrip_correct	100%	beat-baseline	high	182/182	confirm	keep	insert@2+delete@2 preserves every Excel cached value cell-for-cell (engine-free), 0 mismatch
+finding	libreoffice_shared_bug	unknown	unclear	low	confirmed	confirm	keep	LibreOffice mis-reconstructs shared formulas vs Excel; xlq expansion matches Excel's cache

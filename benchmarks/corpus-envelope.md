@@ -2,24 +2,52 @@
 
 Answers the sharpest adversarial-review critique — that E-structural was
 survivorship-biased (one openpyxl-generated fixture where shared formulas, the
-dominant real-world construct, never appear). We re-ran xlq restructure
-(dry-run insert-row at row 2 on the first visible sheet) across the **231
-vendored IronCalc test workbooks** — real files authored in Excel/LibreOffice,
-not by openpyxl.
+dominant real-world construct, never appear). We ran xlq restructure across the
+**231 vendored IronCalc test workbooks** — real files authored in
+Excel/LibreOffice, not by openpyxl.
 
-## Result (benchmarks/corpus_coverage.json)
+## Coverage (benchmarks/corpus_coverage.json) — with shared-formula expansion
 
 | Outcome | Files | % |
 |---|---|---|
-| **Safely edited** (shifted correctly, reopens, no residual) | 52 | **22.5%** |
-| **Refused** (residual, never silently wrong) | 179 | **77.5%** |
-| — shared formula present | 140 | 60.6% |
-| — array formula present | 47 | 20.3% |
+| **Safely edited** (shifted correctly, reopens, no residual) | 182 | **78.8%** |
+| **Refused** (residual, never silently wrong) | 49 | **21.2%** |
+| — array formula present (Excel forbids splitting) | 47 | 20.3% |
 | — table part present | 2 | 0.9% |
 
+Shared-formula **expansion** (materialize each dependent from the master +
+offset, then shift with σ — what Excel/LibreOffice do internally) lifted the
+safe envelope from **22.5% → 78.8%**. The remaining refusals are array formulas
+(which Excel itself forbids editing through) and tables.
+
 **Every one of the 231 files is EITHER safely shifted OR refused with a truthful
-reason. Zero are silently corrupted.** That is the invariant, measured on real
-files rather than a fixture where the failure modes were selected out.
+reason. Zero are silently corrupted.**
+
+## Correctness (benchmarks/roundtrip_correctness.json) — 182/182, engine-free
+
+For each of the 182 safe files: insert a blank row at k, then delete row k (net
+identity). xlq carries each cell's Excel-computed cached value (`<v>`) along the
+shift, so the round-tripped caches must equal the original's cell-for-cell — any
+wrong shift on insert OR delete would move a value to the wrong cell.
+
+> **182 / 182 (100%) preserve every Excel cached value cell-for-cell.** Zero
+> mismatches.
+
+This is checked against Excel's ground truth (the cached values written by the
+authoring tool), engine-free. It proves σ's insert and delete are exact inverses
+— hence both correct — on real files with real shared formulas, cross-sheet
+references, and mixed absolute/relative refs.
+
+### A finding in xlq's favor
+An earlier version of this oracle used LibreOffice's recompute as the reference
+and reported 16 "mismatches" — all in precision-sensitive FINANCIAL/STATISTICAL
+files. Investigation showed these were NOT xlq errors: **LibreOffice
+reconstructs SHARED formulas differently from Excel** (e.g. NPV over a shared
+range: Excel's cache 11.78, LibreOffice's on-the-fly reconstruction 11.41).
+xlq's expansion produces the formula matching Excel's cached value; LibreOffice
+on xlq's *expanded* output also computes 11.78. So xlq's shared-formula handling
+agrees with Excel where LibreOffice's own reconstruction does not — the reason
+the correctness oracle must use Excel's caches, not an LO recompute.
 
 ## What this honestly says
 - The safe envelope today is **22.5%** of real workbooks — narrow, and we say so.

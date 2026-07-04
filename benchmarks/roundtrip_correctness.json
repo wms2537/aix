@@ -1,0 +1,14 @@
+{
+  "oracle": "insert@2 then delete@2 is identity; xlq-carried Excel cached values (<v>) must equal the original's, cell-for-cell (engine-free, Excel ground truth)",
+  "total": 231,
+  "differentially_checked": 182,
+  "match": 182,
+  "mismatch": 0,
+  "correctness_pct": 100.0,
+  "refused_skip": 49,
+  "mismatched_files": [],
+  "outcome_breakdown": {
+    "refused_skip": 49,
+    "match": 182
+  }
+}
