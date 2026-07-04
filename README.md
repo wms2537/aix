@@ -62,8 +62,10 @@ xlq's answer is a purpose-built binary with three properties:
 1. **No silent incorrectness.** If the engine cannot evaluate a function in
    your workbook, the output says so (`coverage.reliable: false` plus the
    named functions) instead of guessing.
-2. **Read-only by construction in v0.1.** `inspect`, `diff`, and `calc`
-   cannot write your file. There is no code path that does.
+2. **Writes are surgical and checked.** The read commands (`inspect`, `diff`,
+   `calc`) have no write path at all; the one write command (`apply`) touches
+   only the cells you name, enforces the fidelity property, and records a
+   receipt. There is no bare in-place whole-file write anywhere in the code.
 3. **Local-only.** No network calls, no telemetry, no daemon. Plain files in,
    JSON out.
 
