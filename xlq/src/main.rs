@@ -8,6 +8,7 @@ mod journal;
 mod ooxml;
 mod patch;
 mod refshift;
+mod restructure;
 mod structural;
 mod value;
 
@@ -64,6 +65,43 @@ enum Command {
         #[arg(long)]
         actor: Option<String>,
     },
+    /// Surgical structural edit: insert/delete rows or columns, shifting every
+    /// reference (formulas, cross-sheet, defined names, charts, pivots) via the
+    /// reference-shift algebra while keeping non-coordinate bytes identical.
+    /// --dry-run predicts the shift without writing.
+    Restructure {
+        /// Path to the .xlsx file to modify
+        file: String,
+        /// Sheet to edit
+        #[arg(long)]
+        sheet: String,
+        /// Operation: insert-rows | delete-rows | insert-cols | delete-cols
+        #[arg(long)]
+        op: String,
+        /// 1-based row/column index to insert before / start deleting at
+        #[arg(long)]
+        at: u32,
+        /// Number of rows/columns
+        #[arg(long, default_value_t = 1)]
+        count: u32,
+        /// Predict the shift without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Actor recorded in the receipt
+        #[arg(long)]
+        actor: Option<String>,
+    },
+}
+
+fn parse_structural_op(op: &str) -> Option<(refshift::Axis, refshift::Op)> {
+    use refshift::{Axis, Op};
+    match op {
+        "insert-rows" => Some((Axis::Row, Op::Insert)),
+        "delete-rows" => Some((Axis::Row, Op::Delete)),
+        "insert-cols" => Some((Axis::Col, Op::Insert)),
+        "delete-cols" => Some((Axis::Col, Op::Delete)),
+        _ => None,
+    }
 }
 
 fn main() {
@@ -78,6 +116,31 @@ fn main() {
             dry_run,
             actor,
         } => apply::run(&file, &patch, dry_run, actor.as_deref()),
+        Command::Restructure {
+            file,
+            sheet,
+            op,
+            at,
+            count,
+            dry_run,
+            actor,
+        } => match parse_structural_op(&op) {
+            Some((axis, operation)) => restructure::run(
+                &file,
+                &sheet,
+                axis,
+                operation,
+                at,
+                count,
+                dry_run,
+                actor.as_deref(),
+            ),
+            None => Ok(serde_json::json!({
+                "command": "restructure",
+                "error": "bad_op",
+                "reason": "--op must be insert-rows | delete-rows | insert-cols | delete-cols",
+            })),
+        },
     };
     match result {
         Ok(value) => {
