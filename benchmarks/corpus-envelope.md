@@ -23,31 +23,67 @@ safe envelope from **22.5% → 78.8%**. The remaining refusals are array formula
 **Every one of the 231 files is EITHER safely shifted OR refused with a truthful
 reason. Zero are silently corrupted.**
 
-## Correctness (benchmarks/roundtrip_correctness.json) — 182/182, engine-free
+## Correctness — a FORWARD, discriminating oracle (benchmarks/forward_correctness.json)
 
-For each of the 182 safe files: insert a blank row at k, then delete row k (net
-identity). xlq carries each cell's Excel-computed cached value (`<v>`) along the
-shift, so the round-tripped caches must equal the original's cell-for-cell — any
-wrong shift on insert OR delete would move a value to the wrong cell.
+A six-reviewer adversarial PC flagged (unanimously) that an earlier
+*round-trip* oracle — insert@k then delete@k, compare carried caches — was
+**non-discriminative**: xlq carries `<v>` caches physically along the shift and
+never recomputes, so a wrong reference-shift never perturbs a value, and the
+inverse op returns the cell home. A no-op shifter (openpyxl, which shifts NO
+references) passes that check too. It proved displacement *invertibility*, not σ's
+forward correctness. The reviewers were right. This is the corrected oracle.
 
-> **182 / 182 (100%) preserve every Excel cached value cell-for-cell.** Zero
-> mismatches.
+**Property.** Inserting a *blank* row at k is value-preserving under CORRECT
+reference shifting — every formula tracks its data (which moved down) and the
+blank contributes nothing, so each formula's recomputed value is unchanged.
+Therefore the edited file, recomputed, must yield each formula's original
+Excel-cached value at the formula's shifted position.
 
-This is checked against Excel's ground truth (the cached values written by the
-authoring tool), engine-free. It proves σ's insert and delete are exact inverses
-— hence both correct — on real files with real shared formulas, cross-sheet
-references, and mixed absolute/relative refs.
+**Method.** Insert one blank row at row 2; recompute the edited file with
+**LibreOffice** (an engine INDEPENDENT of xlq's IronCalc; xlq expands shared
+formulas to explicit ones, which LibreOffice computes correctly); compare every
+formula's recomputed value at its shifted position to the ORIGINAL file's
+Excel-authored cached `<v>` (ground truth). Position-dependent / volatile
+functions (OFFSET, INDIRECT, NOW, RAND, …) are excluded — their value legitimately
+changes under a row insert (their reference *arguments* still shift correctly,
+but the value is not preservation-invariant).
+
+> **xlq: 48 / 48 (100%) forward-correct** on the sampled safe files.
+>
+> **Discrimination proven:** run the SAME check on openpyxl's `insert_rows`
+> output — it FAILS on **42 of 48**, and on **42 files xlq passes where openpyxl
+> fails**. A no-op shifter fails this oracle, so it genuinely tests forward
+> reference-shift correctness, not mere invertibility.
+
+The oracle caught two apparent failures on the first run — both `OFFSET`, which
+is positional (its value changes under a row insert *in Excel too*); xlq's shift
+of the reference argument was correct, confirming the oracle surfaces real
+behavior. Excluding volatiles, xlq is 48/48.
+
+### What the safe corpus exercises (stratification, corpus_stratification.json)
+Of the 182 safe files: **133 (73%) contain shared formulas**, 48 are
+multi-sheet, 9 use cross-sheet references, 10 use defined names, **2 contain
+charts, 0 contain pivots**. So the uniform cross-part algebra is heavily
+exercised on shared formulas, multi-sheet, cross-sheet, and defined names on
+real files; chart-reference shifting is exercised on the controlled fixture (E4,
+which has a chart) plus unit tests, and pivot-source shifting on unit tests only
+— an honest limit of this corpus (the vendored IronCalc test suite is
+formula-centric, few charts, no pivots).
 
 ### A finding in xlq's favor
-An earlier version of this oracle used LibreOffice's recompute as the reference
-and reported 16 "mismatches" — all in precision-sensitive FINANCIAL/STATISTICAL
-files. Investigation showed these were NOT xlq errors: **LibreOffice
-reconstructs SHARED formulas differently from Excel** (e.g. NPV over a shared
-range: Excel's cache 11.78, LibreOffice's on-the-fly reconstruction 11.41).
-xlq's expansion produces the formula matching Excel's cached value; LibreOffice
-on xlq's *expanded* output also computes 11.78. So xlq's shared-formula handling
-agrees with Excel where LibreOffice's own reconstruction does not — the reason
-the correctness oracle must use Excel's caches, not an LO recompute.
+LibreOffice reconstructs SHARED formulas differently from Excel (e.g. NPV over a
+shared range: Excel's cache 11.78, LibreOffice's on-the-fly reconstruction of
+the shared stub 11.41). xlq's expansion produces the formula matching Excel's
+cached value; LibreOffice on xlq's *expanded* output also computes 11.78. So xlq
+agrees with Excel where LibreOffice's own shared reconstruction does not.
+
+### Corpus independence (honest)
+The corpus is the vendored IronCalc test suite — files authored in
+Excel/LibreOffice, but selected to exercise a calculation engine, not a random
+real-world sample, and it is the engine xlq embeds (home-field for the
+prediction path, though NOT for this correctness oracle, whose reference engine
+is LibreOffice + Excel caches). A fully independent real-world corpus remains
+future work.
 
 ## What this honestly says
 - The safe envelope today is **22.5%** of real workbooks — narrow, and we say so.

@@ -1,0 +1,22 @@
+{
+  "oracle": "FORWARD: insert blank row @2, recompute edited file with LibreOffice (independent engine), every formula's recomputed value at its shifted position must equal the original Excel cache. Blank-row insert is value-preserving under CORRECT shifting; a no-op shifter fails.",
+  "sampled": 77,
+  "forward_checked": 48,
+  "xlq_correct": 48,
+  "xlq_wrong": 0,
+  "xlq_correctness_pct": 100.0,
+  "discrimination": {
+    "openpyxl_failed_same_check": 42,
+    "openpyxl_passed": 3,
+    "openpyxl_not_applicable": 3,
+    "files_where_xlq_passes_and_openpyxl_fails": 42,
+    "note": "openpyxl failing where xlq passes proves the oracle tests forward reference-shift correctness, not mere invertibility"
+  },
+  "xlq_failures": [],
+  "status_breakdown": {
+    "refused_skip": 19,
+    "xlq_correct": 48,
+    "no_checkable_cells": 2,
+    "no_formula_caches": 8
+  }
+}

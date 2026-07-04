@@ -71,7 +71,7 @@
 
 \title{xlq: A Safe-Write Boundary for LLM Agents Editing Spreadsheets}
 \author{the xlq authors}
-\date{2026-07-04}
+\date{2026-07-05}
 
 \begin{document}
 \maketitle
@@ -145,8 +145,12 @@ and a never-silently-wrong refusal discipline --- in a controlled trial
 xlq shifts 6 of 6 reference classes correctly where
 openpyxl\textquotesingle s \texttt{insert\_rows} silently corrupts all
 six, and across 231 real workbooks 78.8\% are safely edited and 21.2\%
-refused with a truthful reason, none silently corrupted, an engine-free
-round-trip oracle passing 182 of 182. All artifacts are reproducible.
+refused with a truthful reason, none silently corrupted, with a
+\emph{forward} correctness oracle --- LibreOffice recompute against
+Excel\textquotesingle s cached values --- confirming xlq correct on 48
+of 48 sampled files while openpyxl\textquotesingle s no-op shifter fails
+42 of 48, proving the check tests reference-shift correctness rather
+than mere invertibility. All artifacts are reproducible.
 
 \subsection{1. Introduction}\label{1-introduction}
 
@@ -285,13 +289,17 @@ experiment xlq shifts 6 of 6 reference classes to their documented
 target while openpyxl\textquotesingle s \texttt{insert\_rows} corrupts
 all 6 silently, and across a 231-workbook real corpus 78.8\% are safely
 edited (up from 22.5\% before expansion) and 21.2\% refused, none
-silently corrupted, with an engine-free round-trip oracle passing 182 of
-182 (§4). We are explicit about what we did not invent: receipts,
-transactional isolation, and differential testing are established
-{[}Notarized Agents 2026; Fault-Tolerant Sandboxing 2025; Yang et al.
-2011{]}; the contribution is folding the artifact\textquotesingle s
-\emph{format fidelity} into an agent write boundary --- surgically, with
-an enforced-and-checked fidelity property, and demonstrated under a real
+silently corrupted, with a \emph{forward} correctness oracle
+(LibreOffice recompute against Excel caches) confirming xlq correct on
+48 of 48 sampled files where openpyxl\textquotesingle s no-op shifter
+fails 42 of 48 --- a discriminating check of reference-shift
+correctness, not the invertibility a round-trip would show (§4). We are
+explicit about what we did not invent: receipts, transactional
+isolation, and differential testing are established {[}Notarized Agents
+2026; Fault-Tolerant Sandboxing 2025; Yang et al. 2011{]}; the
+contribution is folding the artifact\textquotesingle s \emph{format
+fidelity} into an agent write boundary --- surgically, with an
+enforced-and-checked fidelity property, and demonstrated under a real
 agent --- for a legacy artifact class where no safe write primitive
 previously existed.
 
@@ -314,19 +322,21 @@ delete --- that shifts every reference-bearing construct through a total
 algebra σ under a machine-checkable minimal-patch invariant, or refuses
 the edit with a truthful reason, shifting 6 of 6 reference classes
 correctly on a controlled fixture where openpyxl silently corrupts all
-six, and safely editing 78.8\% of a 231-workbook real corpus (182 of 182
-round-trip-correct) while refusing the rest, with zero silent
-corruptions. What is \emph{not} here: the two write primitives between
-them cover in-place cell/formula edits and row/column insert-delete, but
-\emph{sheet add/remove and range moves remain unbuilt, and array
-formulas and table-bearing workbooks are refused rather than shifted}
-(§4, §12); and the agent evidence is demonstration-scale --- an
-existence demonstration that the harm and its prevention are real and
-reproducible under a real agent, never a corruption rate or a claim of
-generality, and it exercises value edits only, not the structural
-primitive. We write "enforced" and "checked" where the code enforces and
-checks, "case study" and "trial" where n is small, and we claim no
-formal proof anywhere.
+six, and safely editing 78.8\% of a 231-workbook real corpus (48 of 48
+sampled files forward-correct against
+LibreOffice-recompute-vs-Excel-caches, an oracle
+openpyxl\textquotesingle s no-op shifter fails on 42 of 48) while
+refusing the rest, with zero silent corruptions. What is \emph{not}
+here: the two write primitives between them cover in-place cell/formula
+edits and row/column insert-delete, but \emph{sheet add/remove and range
+moves remain unbuilt, and array formulas and table-bearing workbooks are
+refused rather than shifted} (§4, §12); and the agent evidence is
+demonstration-scale --- an existence demonstration that the harm and its
+prevention are real and reproducible under a real agent, never a
+corruption rate or a claim of generality, and it exercises value edits
+only, not the structural primitive. We write "enforced" and "checked"
+where the code enforces and checks, "case study" and "trial" where n is
+small, and we claim no formal proof anywhere.
 
 \subsection{2. The Fidelity Gap}\label{2-the-fidelity-gap}
 
@@ -1049,30 +1059,57 @@ shared-formula expansion (corpus\_coverage.json).}
 Every one of the 231 files is \emph{either} safely shifted \emph{or}
 refused with a truthful reason; \textbf{zero are silently corrupted}.
 The refusals are array formulas --- which Excel forbids editing through
---- and the two table-bearing files. Correctness is checked
-\emph{engine-free} (benchmarks/roundtrip\_correctness.json): for each of
-the 182 safe files, insert a blank row at \emph{k} then delete row
-\emph{k} --- a net identity that must return every Excel-authored cached
-value to its original cell, so any wrong shift on either the insert or
-the delete would move a value --- and \textbf{182 of 182 (100\%)
-preserve every Excel cached value cell-for-cell}, proving
-σ\textquotesingle s insert and delete are exact inverses on real files
-with real shared formulas, cross-sheet references, and mixed
-absolute/relative references. One finding runs in xlq\textquotesingle s
-favor and explains a design choice. An earlier version of this oracle
-used LibreOffice\textquotesingle s recompute as the reference and
-reported 16 "mismatches," all in precision-sensitive financial and
-statistical files; investigation showed these were \emph{not} xlq errors
-but that \emph{LibreOffice reconstructs shared formulas differently from
-Excel} --- an NPV over a shared range where Excel\textquotesingle s
-cache is 11.78 and LibreOffice\textquotesingle s on-the-fly
-reconstruction is 11.41 --- and that xlq\textquotesingle s expansion
-produces the formula matching Excel\textquotesingle s cached value
-(LibreOffice run on xlq\textquotesingle s \emph{expanded} output also
-computes 11.78). xlq\textquotesingle s shared-formula handling agrees
-with Excel where LibreOffice\textquotesingle s own reconstruction does
-not, which is exactly why the correctness oracle is anchored on
-Excel\textquotesingle s caches rather than a LibreOffice recompute.
+--- and the two table-bearing files.
+
+Correctness needs a \emph{forward} oracle, and getting it right is part
+of the story. Our first attempt was a \emph{round-trip}: insert a blank
+row at \emph{k}, then delete row \emph{k}, and check that every
+Excel-authored cached value returns to its original cell. It passed 182
+of 182 --- but the check is \textbf{non-discriminative}, and an
+adversarial reading exposed why: xlq carries a cell\textquotesingle s
+\texttt{\textless{}v\textgreater{}} cache physically along the shift and
+never recomputes, so a \emph{wrong} reference shift never perturbs a
+value, and the inverse operation returns the cell home regardless. A
+no-op shifter --- openpyxl, whose \texttt{insert\_rows} shifts no
+references at all --- passes 182 of 182 too. The round-trip proves
+displacement \emph{invertibility}, not σ\textquotesingle s forward
+correctness, so we do not claim it as correctness evidence. The
+corrected oracle (benchmarks/forward\_correctness.json) uses the fact
+that a \emph{blank}-row insert is value-preserving under correct
+shifting --- each formula tracks its data and the blank contributes
+nothing --- so after a single insert the edited file, \emph{recomputed
+by LibreOffice} (an engine independent of xlq\textquotesingle s
+IronCalc; xlq\textquotesingle s expansion yields explicit formulas
+LibreOffice computes correctly), must yield each
+formula\textquotesingle s original Excel cached value at its shifted
+position. Position-dependent and volatile functions (OFFSET, INDIRECT,
+NOW, RAND) are excluded, their value being legitimately non-invariant
+under a row insert. On this forward check \textbf{xlq is correct on 48
+of 48 sampled safe files}, and the oracle is \emph{discriminating}:
+openpyxl\textquotesingle s \texttt{insert\_rows} output, run through the
+identical check, \textbf{fails 42 of 48 --- on 42 files xlq passes
+exactly where openpyxl fails} --- so the oracle tests forward
+reference-shift correctness, not mere invertibility. Of the 182 safe
+files, 133 (73\%) contain shared formulas, 48 are multi-sheet, 9 use
+cross-sheet references, and 10 use defined names, so the uniform
+cross-part algebra is genuinely exercised on real files; charts (2
+files) and pivots (0) are thin in this corpus and rest on the controlled
+fixture E4 (which carries a chart) and unit tests. One finding runs in
+xlq\textquotesingle s favor: \emph{LibreOffice reconstructs shared
+formulas differently from Excel} --- an NPV over a shared range where
+Excel\textquotesingle s cache is 11.78 and LibreOffice\textquotesingle s
+on-the-fly reconstruction of the shared stub is 11.41 --- while
+xlq\textquotesingle s expansion produces the formula matching
+Excel\textquotesingle s cached value (LibreOffice run on
+xlq\textquotesingle s \emph{expanded} output also computes 11.78), which
+is why the oracle is anchored on Excel\textquotesingle s caches and
+recomputes only the expanded output. Two honest caveats remain: the
+corpus is the vendored IronCalc test suite --- real
+Excel/LibreOffice-authored files, but engine-test-derived and centred on
+the engine xlq embeds (not on the LibreOffice reference this oracle
+uses) rather than a random real-world sample; and the structural
+primitive, though corpus-validated, is not yet exercised under the agent
+methodology of §5.
 
 \subsubsection{Honest scope}\label{honest-scope}
 
@@ -1791,12 +1828,14 @@ tiers of §2 (101,961 blanked by openpyxl, 90,448 drifted by LibreOffice)
 \emph{and} the per-file surgical-preservation results of §3 (E1) on real
 charts/pivots/VBA, plus the interventional case study of §5 (E2) and the
 structural reference-shift envelope of §4 (E4, the controlled
-6/6-vs-0/6; E5, the 231-workbook corpus at 78.8\% safe, 182/182
-round-trip-correct, zero silent corruptions); \textbf{Efficiency} ---
-median-of-3 warm wall time on the \textasciitilde100k-formula fixture
-(\texttt{xlq\ calc}, which loads, fully recalculates, audits
-stored-vs-recomputed, hashes, and reports, at 1.264 s; isolated engine
-load 0.599 s; \texttt{libreoffice\ -\/-convert-to} 1.494 s; openpyxl
+6/6-vs-0/6; E5, the 231-workbook corpus at 78.8\% safe, 48/48 sampled
+files forward-correct against a discriminating
+LibreOffice-vs-Excel-caches oracle openpyxl fails, zero silent
+corruptions); \textbf{Efficiency} --- median-of-3 warm wall time on the
+\textasciitilde100k-formula fixture (\texttt{xlq\ calc}, which loads,
+fully recalculates, audits stored-vs-recomputed, hashes, and reports, at
+1.264 s; isolated engine load 0.599 s;
+\texttt{libreoffice\ -\/-convert-to} 1.494 s; openpyxl
 \texttt{load\_workbook} 0.875 s with recalc n/a --- it has no formula
 engine); \textbf{Agent-ergonomics} --- the census token ratio (999 B vs
 7,239,303 B, 7,246.5×); and \textbf{Catalog} --- the three-number

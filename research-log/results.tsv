@@ -15,3 +15,5 @@ corpus	silent_corruption	0	beat-baseline	high	0	confirm	keep	zero of 231 real fi
 shared-expansion	safe_envelope	85%	beat-baseline	medium	78.8%	confirm	keep	shared-formula expansion lifted safe envelope 22.5%->78.8% on 231 real files
 shared-expansion	roundtrip_correct	100%	beat-baseline	high	182/182	confirm	keep	insert@2+delete@2 preserves every Excel cached value cell-for-cell (engine-free), 0 mismatch
 finding	libreoffice_shared_bug	unknown	unclear	low	confirmed	confirm	keep	LibreOffice mis-reconstructs shared formulas vs Excel; xlq expansion matches Excel's cache
+forward-oracle	xlq_forward_correct	unknown	beat-baseline	high	48/48	confirm	keep	forward oracle (LibreOffice recompute vs Excel caches) xlq 48/48 correct; openpyxl fails 42/48 (discrimination proven)
+pc-round4	structural_fatal	closed	beat-baseline	medium	oracle-fixed	confirm	keep	6 reviewers unanimously flagged round-trip non-discriminative; replaced with forward oracle addressing it
