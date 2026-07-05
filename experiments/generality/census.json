@@ -1,0 +1,27 @@
+{
+  "claim": "one format-parametric certifier core; the EXACT tier fires exactly where dependencies are STATIC (spreadsheet, SQLite) and abstains where they are data-computed (Jupyter) \u2014 the boundary is a law across three domains, not a spreadsheet accident. Redundancy alone buys nothing engine-free; static dependency structure is the lever.",
+  "spreadsheet": {
+    "format": "Excel .xlsx (grid, explicit cell refs + cached values)",
+    "exact_tier_files_pct": 96.6,
+    "exact_cell_pct": 99.6,
+    "boundary": "INDIRECT/OFFSET (data-computed deps) -> probabilistic"
+  },
+  "sqlite": {
+    "format": "SQLite STORED generated columns (relational, non-grid)",
+    "files": 25,
+    "exact_tier_files": 25,
+    "generated_cells_static": 480,
+    "base_cells": 319,
+    "rename_certified_engine_free_and_loop_confirmed": 25,
+    "exact_pct_files": 100.0
+  },
+  "jupyter": {
+    "format": "Jupyter notebooks (real, from the environment)",
+    "notebooks": 30,
+    "exact_tier_available_files": 0,
+    "code_cells_with_output_self_oracle": 26,
+    "code_cells_no_output": 330,
+    "markdown_or_empty_cells": 303,
+    "note": "implicit namespace dependencies => NO static graph => exact tier structurally zero; self-oracle (embedded outputs) present => probabilistic tier via independent re-execution"
+  }
+}
