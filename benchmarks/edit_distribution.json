@@ -1,0 +1,120 @@
+{
+  "total_operations": 112,
+  "structural_ops": 42,
+  "value_ops": 69,
+  "other_ops": 1,
+  "structural_pct": 38,
+  "task_class_counts": {
+    "mixed": 9,
+    "pure_value": 2,
+    "pure_structural": 4
+  },
+  "tasks": [
+    {
+      "task": "Consolidate monthly P&L from three branch sheets (e.g. Branch_North, B",
+      "struct": 3,
+      "value": 20,
+      "other": 0,
+      "class": "mixed"
+    },
+    {
+      "task": "Add a 'Gross Margin %' column to a sales sheet computed as (Revenue-Co",
+      "struct": 2,
+      "value": 2,
+      "other": 0,
+      "class": "mixed"
+    },
+    {
+      "task": "Diagnose why a VLOOKUP in column D returns #N/A on some rows and fix t",
+      "struct": 2,
+      "value": 2,
+      "other": 0,
+      "class": "mixed"
+    },
+    {
+      "task": "Insert a subtotal row after each department group in an expense sheet,",
+      "struct": 6,
+      "value": 6,
+      "other": 0,
+      "class": "mixed"
+    },
+    {
+      "task": "Compute net pay per employee on the Attendance sheet, pulling the hour",
+      "struct": 0,
+      "value": 7,
+      "other": 0,
+      "class": "pure_value"
+    },
+    {
+      "task": "Change the company tax rate from 17% to 15% and ensure all dependent t",
+      "struct": 0,
+      "value": 3,
+      "other": 1,
+      "class": "pure_value"
+    },
+    {
+      "task": "Reorder the columns of a report to match a required template column or",
+      "struct": 3,
+      "value": 0,
+      "other": 0,
+      "class": "pure_structural"
+    },
+    {
+      "task": "Delete all rows whose 'Status' column equals 'Discontinued'.",
+      "struct": 5,
+      "value": 0,
+      "other": 0,
+      "class": "pure_structural"
+    },
+    {
+      "task": "Add a 'Variance' column reconciling an Opening sheet against a Closing",
+      "struct": 3,
+      "value": 4,
+      "other": 0,
+      "class": "mixed"
+    },
+    {
+      "task": "Rename the column header 'Amt' to 'Amount' everywhere and update every",
+      "struct": 6,
+      "value": 0,
+      "other": 0,
+      "class": "pure_structural"
+    },
+    {
+      "task": "Add a Dashboard sheet that references the detail sheets for total sale",
+      "struct": 1,
+      "value": 7,
+      "other": 0,
+      "class": "mixed"
+    },
+    {
+      "task": "Reformat a monthly report for printing: merge title cells, widen the d",
+      "struct": 3,
+      "value": 0,
+      "other": 0,
+      "class": "pure_structural"
+    },
+    {
+      "task": "Add an 'Approved Amount' column (=MIN(Claimed, PolicyLimit)) and a 'St",
+      "struct": 2,
+      "value": 4,
+      "other": 0,
+      "class": "mixed"
+    },
+    {
+      "task": "Extract a hard-coded 6% constant (appearing as *1.06 in multiple formu",
+      "struct": 3,
+      "value": 5,
+      "other": 0,
+      "class": "mixed"
+    },
+    {
+      "task": "Insert 3 new product rows into an inventory sheet at the correct sorte",
+      "struct": 3,
+      "value": 9,
+      "other": 0,
+      "class": "mixed"
+    }
+  ],
+  "interpretation_summary": "exact tier: 37.5% of ops / 27% of whole tasks; 87% of tasks have a structural skeleton; median task (60%) is mixed and needs both tiers. The structural slice is disproportionately the reference-propagating (rename/reorder/delete-with-refs) edits where the status quo silently corrupts."
+}

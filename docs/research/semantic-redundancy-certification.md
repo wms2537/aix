@@ -249,8 +249,48 @@ core." Bet the resubmission on the SYSTEMS axis — the deployed safety win
 failures, the openpyxl analog caught on SQLite) is what the artifacts can cash,
 and the PL-novelty bar does not apply there.
 
+## KEYSTONE MEASURED: the edit distribution (benchmarks/edit_distribution.json)
+15 realistic agent tasks (the user's use cases + common intents), 112 concrete
+edit operations, classified objectively:
+- **Exact tier (value-preserving structural): 42 ops = 37.5%.** Probabilistic
+  (value-changing): 69 = 61.6%.
+- By task: 4/15 (27%) fully exact-tier, 2/15 (13%) pure value, **9/15 (60%)
+  mixed**. **13/15 tasks (87%) contain a structural sub-op.**
+The number is double-edged and we own it: the exact tier hard-certifies ~a third
+of operations and a quarter of whole tasks; the median task needs both tiers.
+But the structural 42 split into REFERENCE-PROPAGATING edits (rename-with-
+dependents, column reorder preserving refs, delete-rows-with-downstream-refs,
+extract-constant) — *exactly where openpyxl-class tools silently corrupt, with
+distributed invisible damage a human/LLM cannot eyeball* — and a small cosmetic
+corner (reformat). So the certified slice is disproportionately the
+invisible-damage slice, where a machine-checkable guarantee has the HIGHEST
+marginal value. "Least needed" is false.
+
+## THE CONVERGED POSITIONING (what the paper actually is)
+Lead with the SYSTEMS certify-or-refuse BOUNDARY; the PL exact tier is the
+enabling mechanism (soundness lemma), not the headline.
+
+> **Contribution: a sound certify-or-refuse ROUTER for agent mutations of
+> opaque-semantics artifacts. Every operation is EITHER bit-exactly certified
+> engine-free (the exact tier — disproportionately the reference-propagating
+> edits where the status quo silently corrupts) OR explicitly routed to
+> independent probabilistic verification. It is never silently wrong.**
+
+The value proposition, grounded in the numbers: for a mixed task the router
+**factors the edit** into a certified value-preserving structural transform (the
+scaffold: every reference, label, coordinate — proven bit-exact) plus value fills
+routed to probabilistic. This **collapses the human audit surface** from "did
+this edit corrupt anything anywhere in the workbook?" (unbounded, invisible) to
+"are these N cell values right?" (bounded, local, visible). That reduction is the
+real, honest win the data supports.
+
+Honest concessions to state, not hide: end-to-end certification covers a complete
+task in only 4/15 cases; the factorization needs an explicit composition rule
+(structural transform precedes/commutes with the value fill) the router must
+enforce; the 2 pure-value tasks (13%) get nothing from the exact tier; the
+cosmetic-reformat corner is genuinely low-stakes.
+
 ## Remaining
-- Edit-distribution study (IN PROGRESS): the fraction of real agent edits that
-  are structural — the keystone the exact tier's value envelope rests on.
+- The composition rule (structural ⊸ value) + router enforcement, formalized.
 - The minimal trusted-checker TCB as a shipped `xlq certify` tool + audit.
 - Tier-2 coincidence bound (with insert∘delete=id as a verified constraint).
