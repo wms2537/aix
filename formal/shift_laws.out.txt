@@ -1,0 +1,6 @@
+PROVED: insert(k,n) then delete(k,n) = identity
+PROVED: inserted position survives the matching delete
+PROVED: insert preserves order (monotone)
+PROVED: delete preserves order on survivors
+PROVED: 6-case clamp_lo matches shifted first-survivor
+PROVED: 6-case clamp_hi matches shifted last-survivor
