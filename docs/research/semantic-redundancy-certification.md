@@ -195,7 +195,25 @@ with no access to Excel, no spec, and no ground-truth oracle — the exact block
 that stopped the prior line of work — purely by a machine-checked theorem, and
 durably (no model advance touches a syntactic graph-iso check).**
 
+## GENERALITY PROVEN (experiments/generality/, census.json)
+One format-parametric certifier core (`core.py`, no engine invoked) over three
+domains confirms the exact tier tracks STATIC DEPENDENCY STRUCTURE (a law), not
+the format and not redundancy:
+- Excel .xlsx (grid, static refs): 96.6% files / 99.6% cells exact.
+- SQLite STORED generated columns (relational, NON-GRID): 100% files; 25/25
+  renames certified engine-free AND falsifiably loop-confirmed vs SQLite's stored
+  values; a poisoned expr refused + confirmed to change values.
+- Jupyter notebooks (real, implicit deps): exact tier structurally ZERO (as the
+  static-ref precondition predicts); self-oracle present → probabilistic.
+The honest thesis is the INTERSECTION — engine-free certified value-preserving
+structural edits over formats with static references that also cache — shown
+non-empty beyond the grid (SQLite) with a mechanical boundary (Jupyter). Sharpest
+attack ("redundancy = memoization + static-deps welded") conceded and built on.
+
 ## Remaining
-- The minimal trusted-checker TCB (the parser + graph-iso comparator) and its
-  independent audit / formalization.
-- Tier-2 bound derivation + a second format (notebooks) for generality.
+- The minimal trusted-checker TCB (the parser + graph-iso comparator) as a
+  shipped `xlq certify` tool + its independent audit.
+- Tier-2 coincidence bound derivation (with insert∘delete=id as a verified
+  independent constraint).
+- Empirical "what fraction of real agent edits are structural" study (justifies
+  the exact tier's value envelope).
