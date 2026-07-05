@@ -210,10 +210,47 @@ structural edits over formats with static references that also cache — shown
 non-empty beyond the grid (SQLite) with a mechanical boundary (Jupyter). Sharpest
 attack ("redundancy = memoization + static-deps welded") conceded and built on.
 
+## Honest positioning (after adversarial verification — the panel was right)
+A 5-agent adversarial panel verified the reframe: **"yes on class, no on bar"** —
+it escaped the -1.0 integration ceiling into revisable territory (~-0.4, Major
+Revision), but two claims failed and are corrected here:
+
+1. **The theorem is a soundness LEMMA, not the headline.** `eval_iso_invariant`
+   is a short congruence-of-denotational-semantics induction; its value is
+   defining the boundary-as-law (the exact tier can only fire where the
+   dependency graph is syntactically extractable). It does NOT cover the real
+   soundness surface — *extraction completeness*: `hfn`/`hdeps` are hypotheses,
+   so a MISSED hidden dependency (named range, spill/array, external ref,
+   implicit sheet context) would let graph-iso wrongly certify. Stop headlining
+   "machine-checked"; recast it as the certifier's soundness lemma.
+   - **The architectural answer to the extraction gap:** the PROBABILISTIC tier
+     is the safety net. A missed dependency makes graph-iso certify, but
+     re-evaluating and comparing to the self-oracle would show the value differs
+     from the metamorphic prediction → CAUGHT. So the tiers COMPOSE: exact when
+     extraction is provably complete (engine-free, fast), probabilistic as the
+     guard against extraction incompleteness. Soundness = exact ∧ probabilistic.
+2. **"One core over 3 domains" was overstated.** Spreadsheets are certified by
+   xlq (Rust); the format-parametric `core.py` runs on SQLite + Jupyter. It is
+   ONE PRINCIPLE with a shared parametric contract, not one binary. The SQLite
+   leg now exercises the UNTRUSTED-agent threat model (demo_sqlite_untrusted.py):
+   the engine-free certifier CERTIFIES a faithful rename and CATCHES 3 botched
+   agent edits (valid-but-wrong files), each confirmed vs SQLite ground truth —
+   the openpyxl-0/6 analog on a relational format.
+3. **The exact tier covers value-PRESERVING edits by construction.** Value-
+   changing edits ("change the tax rate", "add a margin column") are out of the
+   exact tier BY DESIGN and handled by the probabilistic tier. Say so plainly.
+   The value claim rests on the edit-distribution study (below).
+
+## The durable core (what actually survives)
+The panel's honest bottom line: the durable defensibility is the PRINCIPLE
+(static-dependency boundary + certify-or-refuse), not the theorem or the "3-domain
+core." Bet the resubmission on the SYSTEMS axis — the deployed safety win
+(catching real, live silent corruption: issue #22044, 42/48 real-workbook
+failures, the openpyxl analog caught on SQLite) is what the artifacts can cash,
+and the PL-novelty bar does not apply there.
+
 ## Remaining
-- The minimal trusted-checker TCB (the parser + graph-iso comparator) as a
-  shipped `xlq certify` tool + its independent audit.
-- Tier-2 coincidence bound derivation (with insert∘delete=id as a verified
-  independent constraint).
-- Empirical "what fraction of real agent edits are structural" study (justifies
-  the exact tier's value envelope).
+- Edit-distribution study (IN PROGRESS): the fraction of real agent edits that
+  are structural — the keystone the exact tier's value envelope rests on.
+- The minimal trusted-checker TCB as a shipped `xlq certify` tool + audit.
+- Tier-2 coincidence bound (with insert∘delete=id as a verified constraint).
