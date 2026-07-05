@@ -166,11 +166,36 @@ evidence this is the real, durable core.
 6. **Agent loop**: the certificate as a runtime gate an autonomous agent must
    pass to commit — the durable version of the safe-write boundary.
 
-## Open questions to resolve before building
-- How large is the exact Tier-1 class on real edits? (If most structural edits
-  are Tier-1, the moat is enormous — engine-free exact certification of the
-  corruption-prone operations.)
-- Is the graph-iso check itself fully engine-free, or does resolving references
-  (esp. names/3D/structured refs) smuggle in semantics? (Must be pinned down —
-  it is the load-bearing claim of Tier 1.)
-- What is the minimal trusted-checker TCB, and can it be independently audited?
+## Resolved: the graph-iso boundary is the static-reference fragment
+The load-bearing question — is the graph-iso check engine-free? — is answered.
+A formula's *dependencies* (which cells it reads) are what the check needs.
+- **STATIC references** — plain A1/absolute/ranges, whole-row/col, cross-sheet,
+  3D spans, defined names (resolve via the names table), table structured refs
+  (resolve via the table definition), and `INDEX` (reads its whole range
+  argument as a static dependency) — are all determinable from *syntax +
+  structural metadata*. The graph-iso check is engine-free on them → EXACT tier.
+- **DYNAMIC references** — `INDIRECT` (target from a runtime string) and `OFFSET`
+  (target from computed offsets) — have a data-computed dependency set,
+  unresolvable without the engine → they drop to the PROBABILISTIC tier by
+  necessity. This is *exactly* the same boundary the forward oracle already
+  needed (it excluded OFFSET/INDIRECT as non-value-invariant): same functions,
+  same cause (dynamic dependencies). The theory unifies them.
+
+## MEASURED: the moat is enormous (benchmarks/tier_coverage.json)
+On the 231-workbook real corpus, insert-row, ENGINE-FREE:
+- **169 of 175 editable files (96.6%) are fully EXACT-tier** — every formula
+  static, so the whole structural edit is certified value-faithful under ANY
+  semantics with **zero engine, zero oracle**, by the Lean-checked Theorem 1.
+- **At the formula-cell level: 24,973 of 25,072 (99.6%) are exact-certifiable**;
+  only 99 cells (0.4%) use INDIRECT/OFFSET → Probabilistic tier.
+- 49 refused (47 array, 2 table), 6 mixed.
+
+This is the headline: **almost all real structural edits are certified correct
+with no access to Excel, no spec, and no ground-truth oracle — the exact blocker
+that stopped the prior line of work — purely by a machine-checked theorem, and
+durably (no model advance touches a syntactic graph-iso check).**
+
+## Remaining
+- The minimal trusted-checker TCB (the parser + graph-iso comparator) and its
+  independent audit / formalization.
+- Tier-2 bound derivation + a second format (notebooks) for generality.

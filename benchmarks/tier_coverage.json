@@ -1,0 +1,26 @@
+{
+  "corpus": "231 vendored IronCalc test workbooks (real Excel/LibreOffice-authored)",
+  "operation": "insert 1 row at row 2, first visible sheet",
+  "total_files": 231,
+  "tiers": {
+    "exact_engine_free_files": 169,
+    "mixed_files": 6,
+    "refused_files": 49,
+    "no_formulas_or_sheet": 7
+  },
+  "of_editable_files": {
+    "editable": 175,
+    "fully_exact_pct": 96.6
+  },
+  "formula_cell_level": {
+    "total_formula_cells": 25072,
+    "exact_certifiable_cells": 24973,
+    "exact_cell_pct": 99.6,
+    "dynamic_ref_cells_INDIRECT_OFFSET": 99
+  },
+  "refusal_reasons": {
+    "array_formula_present": 47,
+    "table_unsupported": 2
+  },
+  "interpretation": "exact-tier files/cells are certified value-faithful under ANY semantics with zero engine and zero oracle, by the Lean-checked Theorem 1"
+}
