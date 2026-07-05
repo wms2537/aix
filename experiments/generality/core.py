@@ -58,6 +58,23 @@ def certify(orig: Artifact, edited: Artifact, sigma: Callable[[Node], Node]) -> 
                        reason=f"{len(dyn)} node(s) have data-computed dependencies "
                               f"(e.g. {dyn[:2]}); exact tier unavailable, route to probabilistic")
 
+    # σ MUST be a bijection onto the edited artifact's nodes. Otherwise an agent
+    # could inject an extra computed cell (not in σ's image) or collapse two
+    # cells, and a per-node forward check would miss it. Enforce injectivity +
+    # surjectivity onto edited.fn before trusting the graph-iso.
+    image = {}
+    for n in orig.fn:
+        sn = sigma(n)
+        if sn in image:
+            return Verdict("REFUSED", checked=len(orig.fn),
+                           reason=f"σ not injective: {image[sn]} and {n} both map to {sn}")
+        image[sn] = n
+    extra = set(edited.fn.keys()) - set(image.keys())
+    if extra:
+        return Verdict("REFUSED", checked=len(orig.fn),
+                       reason=f"σ not surjective: {len(extra)} edited node(s) unaccounted "
+                              f"(injected cells, e.g. {list(extra)[:2]})")
+
     v = Verdict("CERTIFIED")
     for n in orig.fn:
         sn = sigma(n)
