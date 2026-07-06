@@ -1,57 +1,47 @@
-# Live-agent 3-way: a real agent's edits through `xlq certify` (the interventional slice)
+# Live-agent slice = differential testing (honest reframe after adversarial review)
 
-The chair's gate: not openpyxl's one deterministic bug, but a REAL agent's own varied
-edits, routed through the certifier, scored for task-completion / safe-refusal /
-silent-corruption. This is that experiment.
+Adversarial review was right: as first written this experiment was **circular**, and
+its "0 false certifications" headline was near-tautological. This is the honest version.
 
-## Setup
-- **Agent:** a fast model (Claude Haiku) is given a workbook's formulas and the task
-  "insert a blank row at row 2; rewrite each formula so it still computes the same
-  value." It returns its own corrected formulas — its own mistakes, not a library's.
-- **20 real workbooks** (vendored calc-tests: DATE, ENGINEERING, FINANCIAL, DATABASE,
-  MATH, TEXT), spanning easy (`DATE(A2,B2,C2)`) to hard (`DCOUNT($A$1:$H$11,$F$1,A14:A15)`
-  — 75 mixed absolute/relative refs across many rows).
-- **Guard:** the real `xlq certify` (new subcommand) — applies xlq's proven structural
-  transform to the original and diffs it against the agent's file; CERTIFY iff they
-  agree, else REFUSE. Engine-free.
-- **Ground truth:** xlq's transform, independently validated (Theorem 1 + forward-
-  correctness on 150 real workbooks). No LibreOffice (it disagrees with Excel on
-  BESSEL/ERF/ACCRINT — an oracle we deliberately avoid here).
+## Why the original framing was circular
+`live3way_truth.py` builds the agent's file by taking xlq's own structurally-correct
+output and overwriting only the target `<f>` bodies with the agent's formulas. So:
+- "agent correct" is defined as `norm(agent) == norm(xlq's shifted formula)`, and
+- the guard, `xlq certify`, CERTIFIES iff the file equals xlq's transform.
 
-## The headline finding: the experiment hardened the TCB
-Comparing the agent's output to xlq's surfaced **two real reference-shift bugs in xlq
-itself** — the certifier's trusted base:
-1. **`BIN2DEC` → `BIN3DEC`.** xlq's tokenizer read the `BIN2` in the function name
-   `BIN2DEC` as a cell ref (col BIN, row 2) and a row insert rewrote it — silent
-   corruption of every `BIN2*`/`OCT2*`/`HEX2*` formula. The agent got it right; xlq was
-   wrong. Fixed: a ref followed by a letter is an identifier head, not a ref.
-2. **`Sales2020` (defined name) shifted.** A >3-letter "column" scanned as a ref. Fixed:
-   a valid column is 1–3 letters.
-Both now have regression tests; full suite 192/192. **The interventional test found bugs
-the 150-file forward-correctness sweep did not** — because those corpora lacked
-digit-bearing function names.
+These are the **same predicate**. "0 false certifications" therefore holds *by
+construction*, not as an empirical test of guard soundness — and the harness is blind
+to the one failure that matters (xlq's transform itself being wrong: when xlq was wrong
+and the agent right, it scored the agent as erring AND the guard as safely refusing).
+Guard soundness is **not** carried by this experiment; it is carried by `foreign_certify`
+(147/147 corrupted foreign edits refused, 0 false certs, engine-free), the edit-path A/B
+(86.6% openpyxl silent corruption vs 0% guarded, independent LibreOffice oracle), and
+the machine-checked Theorem 1.
 
-## The 3-way result (after fixing xlq)
+## What this slice genuinely establishes (differential testing)
+Run as **differential testing of a real agent (Haiku) against xlq** on 20 real
+workbooks, insert-row@2, its honest yield is:
 
-| | count |
-|---|---:|
-| Workbooks | 20 |
-| Agent correct (matches xlq's proven shift) | **19 / 20** |
-| **GUARDED — task completed & certified** | **19** |
-| **GUARDED — safely refused (agent erred → caught)** | **1** |
-| **GUARDED — false certification (silent corruption)** | **0** |
-| UNGUARDED — would ship the error silently | 1 |
+1. **It found two real silent-corruption bugs in xlq's tokenizer** — the certifier's
+   own trusted base — by surfacing agent-vs-xlq disagreements a human then adjudicated:
+   `BIN2DEC`→`BIN3DEC` (function name with digits) and `Sales2020` (defined name). A
+   third (`LOG10`) and a whole out-of-grid class (`XFE9`, `A2000000`) fell out of the
+   follow-up review. All fixed and now **differential-fuzz-validated** (175 formula×op
+   pairs, 0 disagreements — `tokenizer_fuzz.py`).
+2. **A measured agent↔xlq agreement rate:** after the fixes, Haiku matched xlq's proven
+   shift on **19/20** workbooks; the one divergence (`COMPLEXs`, a dropped `=""`) was a
+   genuine agent omission that `xlq certify` refused.
 
-The one agent error (`COMPLEXs.xlsx`): the agent dropped a `=""` empty-string formula,
-returning an empty formula. Minor, but a genuine corruption — and the guard **refused
-it** rather than let it ship. Every correct edit was certified; the one wrong edit was
-refused; **nothing was silently certified wrong.**
+The valuable result is **the method (differential testing hardened the TCB)**, not a
+guard-soundness number — that would be circular here.
 
-## Honest scope
-- Haiku is a strong reference-shifter (19/20), so the error sample is thin (n=1) — the
-  guard's error-catching at scale is better evidenced by `foreign_certify` (147/147
-  corrupted foreign edits refused, 0 false certs). This slice's larger contribution is
-  (a) confirming the certifier certifies real correct agent edits and (b) **finding two
-  real xlq bugs** — the interventional test earned its keep by hardening the TCB.
-- Single op (insert-row@2); the agent edits a curated subset of each sheet's formulas;
-  ground truth is xlq's transform (a proven reference, not an independent engine).
+## Honest scope / what's still open (per the reviewer)
+- The interventional "guard catches a live agent's *varied* errors" claim is **not**
+  closed by this slice: the agent made ~0 genuine reference-shift errors (Haiku is a
+  strong shifter), so the guard's catch is demonstrated on `foreign_certify`
+  (openpyxl), not on a live agent's mistakes.
+- Remaining to close it: build the agent's file **independently of xlq's bytes** and
+  adjudicate `xlq certify`'s CERTIFY/REFUSE verdicts against an **xlq-independent**
+  oracle (LibreOffice/Excel), reporting a real TP/FP/FN/TN confusion matrix — plus at
+  least one structural op beyond insert-row@2 (the fuzzer now covers delete-rows for
+  the tokenizer; the certify confusion matrix does not yet).
