@@ -111,6 +111,40 @@ pub fn col_to_num(s: &str) -> Option<u32> {
     Some(n)
 }
 
+/// True if `name` is spelled exactly like a GRID-VALID A1 cell reference — a
+/// single `[$]col[$]row` token with col in A..XFD (1..=16384) and row in
+/// 1..=1048576, consuming the whole string. Such a defined name is
+/// indistinguishable from a cell reference to the shift tokenizer, so a formula
+/// that uses the name would be silently mis-shifted. The edit layer refuses when
+/// any defined name collides this way (it cannot be resolved from formula text
+/// alone; this is the fail-closed boundary for that undecidable case).
+pub fn looks_like_cell_ref(name: &str) -> bool {
+    let b = name.as_bytes();
+    let mut i = 0;
+    if i < b.len() && b[i] == b'$' {
+        i += 1;
+    }
+    let col_start = i;
+    while i < b.len() && b[i].is_ascii_alphabetic() {
+        i += 1;
+    }
+    let col = &name[col_start..i];
+    if col.is_empty() || !col_to_num(col).is_some_and(|n| (1..=16384).contains(&n)) {
+        return false;
+    }
+    if i < b.len() && b[i] == b'$' {
+        i += 1;
+    }
+    let row_start = i;
+    while i < b.len() && b[i].is_ascii_digit() {
+        i += 1;
+    }
+    // must consume the ENTIRE name and have a valid in-grid row
+    i == b.len()
+        && i > row_start
+        && name[row_start..i].parse::<u32>().is_ok_and(|r| (1..=1048576).contains(&r))
+}
+
 /// 1-based column number → letters.
 pub fn num_to_col(mut n: u32) -> String {
     let mut s = Vec::new();
@@ -991,6 +1025,22 @@ mod tests {
     #[test]
     fn offset_leaves_strings_and_functions() {
         assert_eq!(offset_formula(r#"IF(A2,"A2",B2)"#, 1, 0), r#"IF(A3,"A2",B3)"#);
+    }
+
+    #[test]
+    fn defined_name_cell_ref_collision_detection() {
+        // names spelled like grid-valid cells -> collide (must be refused upstream)
+        assert!(looks_like_cell_ref("FY2021"));   // col FY, row 2021
+        assert!(looks_like_cell_ref("Q1"));
+        assert!(looks_like_cell_ref("$A$5"));
+        assert!(looks_like_cell_ref("XFD1"));
+        // names that are NOT grid-valid cells -> safe (no collision)
+        assert!(!looks_like_cell_ref("TaxRate"));      // no row digits
+        assert!(!looks_like_cell_ref("XFE9"));         // col past XFD
+        assert!(!looks_like_cell_ref("A2000000"));     // row past 1048576
+        assert!(!looks_like_cell_ref("Sales2020"));    // col SALES past XFD
+        assert!(!looks_like_cell_ref("FY2021x"));      // trailing junk
+        assert!(!looks_like_cell_ref("Total"));
     }
 
     // ---- residual detection ----

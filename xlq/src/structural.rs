@@ -329,6 +329,28 @@ fn scan_extra_residuals(names: &[String], input: &[u8], edit: &StructuralEdit, r
             });
         }
     }
+    // DEFINED-NAME ALIASING: a defined name spelled like a grid-valid cell (e.g.
+    // `FY2021` = col FY, row 2021) is indistinguishable from a reference to the
+    // shift tokenizer, so a formula using it would be silently mis-shifted AND the
+    // resulting file would still equal xlq's own (wrong) transform — the one place
+    // certified⇒correct could be false on a real workbook. Decidable from the
+    // names table the file already carries: detect it and REFUSE (fail closed).
+    if let Ok(bytes) = crate::ooxml::read_part(input, "xl/workbook.xml") {
+        let text = String::from_utf8_lossy(&bytes);
+        for name in defined_name_names(&text) {
+            if refshift::looks_like_cell_ref(&name) {
+                report.residuals.push(Residual {
+                    part: "xl/workbook.xml".into(),
+                    reason: "defined_name_ref_collision".into(),
+                    detail: format!(
+                        "defined name '{}' is spelled like a cell reference; its uses \
+                         cannot be safely distinguished from cell refs — edit refused",
+                        name
+                    ),
+                });
+            }
+        }
+    }
     // scan formula text across sheets, charts, workbook for unverifiable 3D spans
     let scan_parts: Vec<&String> = names
         .iter()
@@ -350,6 +372,32 @@ fn scan_extra_residuals(names: &[String], input: &[u8], edit: &StructuralEdit, r
             }
         }
     }
+}
+
+/// Extract the `name` attribute of every `<definedName ...>` in workbook.xml.
+fn defined_name_names(workbook_xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = workbook_xml;
+    while let Some(p) = rest.find("<definedName") {
+        rest = &rest[p..];
+        let tag_end = match rest.find('>') {
+            Some(e) => e,
+            None => break,
+        };
+        let tag = &rest[..tag_end];
+        if let Some(np) = tag.find("name=") {
+            let after = &tag[np + 5..];
+            if let Some(q) = after.chars().next() {
+                if q == '"' || q == '\'' {
+                    if let Some(end) = after[1..].find(q) {
+                        out.push(after[1..1 + end].to_string());
+                    }
+                }
+            }
+        }
+        rest = &rest[tag_end..];
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
