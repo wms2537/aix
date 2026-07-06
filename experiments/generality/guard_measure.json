@@ -1,0 +1,51 @@
+{
+  "guard": "certify-or-refuse router as a live agent commit gate (SQLite, engine-free)",
+  "edits": 6,
+  "faithful_edits": 3,
+  "botched_edits": 3,
+  "botches_caught": 3,
+  "botches_missed_SILENT_CORRUPTION": 0,
+  "faithful_certified": 3,
+  "faithful_false_refused": 0,
+  "recall_botches": 1.0,
+  "false_refusal_rate": 0.0,
+  "avg_audit_surface_collapse_pct": 89.1,
+  "per_edit": [
+    {
+      "edit": "faithful_rename",
+      "faithful": true,
+      "verdict": "CERTIFIED",
+      "collapse_pct": 100
+    },
+    {
+      "edit": "faithful_mixed",
+      "faithful": true,
+      "verdict": "CERTIFIED",
+      "collapse_pct": 84
+    },
+    {
+      "edit": "faithful_reorder",
+      "faithful": true,
+      "verdict": "CERTIFIED",
+      "collapse_pct": 83
+    },
+    {
+      "edit": "botch_wrong_op",
+      "faithful": false,
+      "verdict": "REFUSED",
+      "collapse_pct": null
+    },
+    {
+      "edit": "botch_dropped_dep",
+      "faithful": false,
+      "verdict": "REFUSED",
+      "collapse_pct": null
+    },
+    {
+      "edit": "botch_undeclared_fill",
+      "faithful": false,
+      "verdict": "REFUSED",
+      "collapse_pct": null
+    }
+  ]
+}
