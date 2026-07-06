@@ -70,11 +70,20 @@ def certify_edit(orig: Artifact, edited: Artifact, sigma, declared_fills: set) -
         # STRUCTURE (fn/deps — Theorem 1) must match the σ-relabeling at EVERY
         # non-declared node: a value fill changes values, never the graph.
         struct_ok = (edited.fn.get(sn) == orig.fn[n] and edited.deps.get(sn) == want_deps)
-        # VALUE (self-oracle) must be preserved OUTSIDE the fill cone. This is
-        # load-bearing for LEAF cells (a graph-iso says nothing about a leaf's
-        # value) and is the check that catches an undeclared edit to a base cell.
-        value_ok = (sn in cone or n not in orig.O or sn not in edited.O
-                    or edited.O[sn] == orig.O[n])
+        # VALUE: outside the fill cone a node's value must be provably preserved.
+        #  - inside the cone: value may change (it depends on a declared fill).
+        #  - a COMPUTED node with struct_ok: Theorem 1 already guarantees the
+        #    value is preserved (no oracle needed).
+        #  - a LEAF (data) cell: a graph-iso says nothing about its value, so it
+        #    MUST be confirmed against the self-oracle. If the oracle entry is
+        #    MISSING we CANNOT confirm preservation, so we FAIL CLOSED (treat as
+        #    an unaccounted change) rather than certify a value we cannot verify.
+        if sn in cone:
+            value_ok = True
+        elif orig.fn[n] != "DATA":
+            value_ok = True                       # Theorem 1 covers computed nodes
+        else:
+            value_ok = (n in orig.O and sn in edited.O and edited.O[sn] == orig.O[n])
         if struct_ok and value_ok:
             cert.scaffold_certified += 1
         else:

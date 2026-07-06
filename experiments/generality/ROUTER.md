@@ -1,8 +1,9 @@
-# The certify-or-refuse router — the two remaining levers, driven
+# The certify-or-refuse router — two levers, honestly scoped
 
-Two levers the panel + chair named as the path forward, now built and measured.
+Built, adversarially verified, and rescoped to what the evidence supports. The
+verification found a real soundness bug and a real mislabel; both are fixed here.
 
-## Lever 1 — the composition rule (structural ⊸ value), formalized
+## Lever 1 — the composition rule (structural ⊸ value), formalized — BANKABLE
 
 A real agent task is a certified structural scaffold + value fills. The router
 factors it and the guarantee is machine-checked:
@@ -10,52 +11,53 @@ factors it and the guarantee is machine-checked:
   under any semantics) + **`eval_local` / `audit_surface_bound`** (a node's value
   depends only on its dependency cone, so value fills change nothing outside their
   downstream cone). No `sorry`; axioms `[propext, Quot.sound]`.
-- `router.py` (`certify_edit`) implements it: verify the edit MATCHES its
-  declaration — every non-declared node is the σ-relabeling of the original in
-  BOTH structure (fn/deps) AND self-oracle value (outside the fill cone). Any
-  unaccounted change → REFUSED. On success, the audit surface = the declared
-  fills' downstream cone; everything else is certified untouched.
+- `router.py` (`certify_edit`) enforces a sound declaration-matching discipline:
+  every non-declared node must be the σ-relabeling of the original in structure
+  (fn/deps — Theorem 1) and, outside the fill cone, in value. A COMPUTED node is
+  covered by Theorem 1; a LEAF must be confirmed against the self-oracle and
+  **fails closed** if its oracle entry is missing. Any unaccounted change →
+  REFUSED. Under/over-declaring is contained: under-declaring a change is caught
+  as an undeclared change; over-declaring only inflates the audit surface, never
+  hides a change; a wrong σ → scaffold mismatch → REFUSED.
 
-`demo_router.py`: a mixed edit (rename column + set one value) → CERTIFIED with
-the audit surface collapsed from 25 cells to 4 (**84% of the artifact certified
-untouched**); a botched variant (agent silently corrupts a formula) → REFUSED.
+This turns "collapse the audit surface" from a slogan into a **bounded guarantee**:
+the set of values a consumer must re-check is provably contained in the declared
+fills' downstream cone; everything else keeps its Theorem-1 value.
 
-## Lever 2 — shipped as a live agent guard, with measured saves
+## Lever 2 — a correctness HARNESS for the router (NOT an agent evaluation)
 
-`guard_measure.py`: the router as a commit gate over 6 agent-proposed edits with
-known ground truth (3 faithful, 3 botched; structural + mixed):
+`guard_measure.py` is a small self-authored branch-correctness harness. Honest
+scope (per adversarial review, which was right): there is no LLM agent here, the
+6 cases are hand-built to exercise each REFUSE branch, and the ground truth is
+self-authored — so it **cannot establish real-world efficacy**. Its real value:
+it is adversarial to the router and hardened it. It currently passes:
+0 silent corruptions, 0 false refusals, and the confirmed fail-open exploit now
+fails closed (`test_partial_oracle`).
 
-| Metric | Result |
-|---|---|
-| Botches caught (recall) | **3/3 = 1.0** |
-| Silent corruptions missed | **0** |
-| Faithful certified | **3/3** |
-| False refusals | **0** |
-| Avg audit-surface collapse | **89.1%** (100% pure-structural, 84% mixed, 83% reorder) |
+### Three real defects the harness + review hardened (rigor, self-applied)
+1. A value edit to a LEAF cell has no graph footprint → silent-corruption miss →
+   fixed with a self-oracle value check on non-declared nodes.
+2. That check falsely refused legitimate fill cones → fixed cone-aware (structure
+   everywhere; value preserved only OUTSIDE the fill cone).
+3. **The value check FAILED OPEN on a missing oracle entry** — a leaf absent from
+   `O` with a silently changed value certified (confirmed exploit, 3→999
+   "CERTIFIED"). Fixed **fail-closed**: a leaf whose value cannot be confirmed is
+   never certified untouched. (Did not fire on SQLite only because that adapter
+   writes `O` for every cell — an accident of the format; spreadsheets with
+   referenced-empty / stripped-cache cells violate leaf-`O`-totality.)
 
-This is the value proposition realized: every commit is *either* certified with a
-**bounded, local audit surface** (the consumer checks the fill cone, ~11% of the
-artifact, not the whole thing) *or* refused. Never silently wrong.
+## What the collapse number is, honestly
+`collapse% = 1 − |cone|/total` is a property of the workbook+edit, not the tool.
+It scales with untouched row count and **craters to ~0% on shared-upstream edits**
+— exactly the financial-model case (a rate/assumption fans out to the whole
+model). So the *formal bound* (`audit_surface_bound`) is the contribution; the
+per-fixture percentage is not a burden-reduction claim and pure-rename (cone=∅,
+tautological 100%) is excluded from any average.
 
-### The measurement found bugs in the router (rigor, self-applied)
-The batch immediately caught two defects the demos missed:
-1. A value edit to a LEAF (base) cell has no graph footprint, so the pure
-   graph-iso check missed an undeclared base-cell edit → a **silent corruption**.
-   Fixed: non-declared nodes must also preserve their self-oracle value.
-2. That value check then wrongly refused a legitimate mixed edit, because a value
-   fill's downstream cone (c,d,e) legitimately changes. Fixed: value preservation
-   is required only OUTSIDE the declared fills' cone; structure is checked
-   everywhere.
-
-After both fixes: recall 1.0, false-refusal 0. The certifier is only trustworthy
-because the measurement was adversarial to it.
-
-## Honest scope
-- Demonstrated engine-free on SQLite (the format-parametric core); the spreadsheet
-  exact tier is xlq's implementation of the same principle.
-- The audit-surface collapse assumes the agent DECLARES its value fills; the
-  router verifies the declaration, catching any undeclared change (botch).
-- Soundness of the exact tier still rests on extraction completeness; the
-  value-preservation check outside the cone is the safety net against a missed
-  dependency (a missed dep would change a value outside the declared cone →
-  caught).
+## The one thing that gates acceptance (not yet built)
+An **LLM-agent-in-the-loop A/B on a non-self-authored spreadsheet corpus** —
+agent-with-router vs agent-without — with an **INDEPENDENT engine oracle** (label
+faithful/corrupted by full-recompute divergence, never by the self-oracle `O`),
+botches being the agent's OWN real mistakes, scored on task completion AND
+untouched-content fidelity. This converts Lever 2 from unit-test to evaluation and
+is the missing interventional axis. Scaffolded at `agent_ab/` (next).

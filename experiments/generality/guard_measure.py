@@ -1,15 +1,39 @@
 #!/usr/bin/env python3
-"""Measured saves of the certify-or-refuse ROUTER deployed as a live agent guard.
+"""Correctness HARNESS for the certify-or-refuse router (NOT an agent evaluation).
 
-A batch of agent-proposed edits with KNOWN ground truth (faithful vs botched,
-structural vs mixed) is passed through the router acting as a commit gate. We
-measure what a deployment would: are botches caught (recall), are faithful edits
-passed without false refusals (precision), and how much does the router collapse
-the human audit surface on the faithful commits?"""
+HONEST SCOPE (per adversarial review): this is a small, self-authored branch-
+correctness harness, not a "measured live agent guard." There is no LLM agent
+here — `make_edit()` hand-builds edits that exercise each REFUSE branch, plus a
+regression for a confirmed soundness bug. Its value is that it hardened the
+router (it found two real defects, below); its n and self-authored ground truth
+CANNOT establish real-world efficacy against an untrusted agent. The genuine
+interventional evaluation — an LLM agent's OWN edits, with-router vs without,
+labeled by an INDEPENDENT engine oracle (not the self-oracle) — is separate
+(experiments/generality/agent_ab/) and is the thing that gates acceptance.
+
+Bugs this harness hardened:
+  1. a value edit to a LEAF cell has no graph footprint -> was a silent-
+     corruption miss -> fixed with a self-oracle value check on non-declared nodes;
+  2. that check falsely refused legitimate fill cones -> fixed cone-aware;
+  3. the value check FAILED OPEN on a missing oracle entry (a leaf absent from O
+     with a changed value certified) -> fixed FAIL-CLOSED (see test_partial_oracle).
+"""
 import json, os, shutil, sqlite3, sys
 sys.path.insert(0, os.path.dirname(__file__))
+from core import Artifact
 from adapter_sqlite import build_artifact, rename_sigma
 from router import certify_edit
+
+
+def test_partial_oracle():
+    """Regression for the confirmed fail-open soundness bug: a LEAF with no
+    oracle entry must NOT be certifiable untouched (fail closed)."""
+    orig = Artifact(fn={'a': 'DATA', 'b': 'DATA', 'c': '#0+#1'},
+                    deps={'a': [], 'b': [], 'c': ['a', 'b']}, O={'a': 1, 'c': 4})  # b absent from O
+    edited = Artifact(fn={'a': 'DATA', 'b': 'DATA', 'c': '#0+#1'},
+                      deps={'a': [], 'b': [], 'c': ['a', 'b']}, O={'a': 1, 'c': 4})
+    cert = certify_edit(orig, edited, lambda n: n, set())
+    return cert.status == "REFUSED"    # fail-closed: cannot certify an unverifiable leaf
 
 W = "/tmp/claude-1000/-home-soh-aix/a1b7f99e-cc58-4254-b95a-10d56f89029d/scratchpad/genguard"
 BASE = {"c": "a + b", "d": "c * 2", "e": "a * b + c"}
@@ -76,7 +100,7 @@ if __name__ == "__main__":
     KINDS = ["faithful_rename", "faithful_mixed", "faithful_reorder",
              "botch_wrong_op", "botch_dropped_dep", "botch_undeclared_fill"]
     tp = tn = fp = fn = 0
-    collapses = []
+    collapses = []          # NON-tautological only (excludes pure renames, cone=∅ by definition)
     rows = []
     for k in KINDS:
         p, sig, declared, faithful = make_edit(k, orig)
@@ -84,27 +108,38 @@ if __name__ == "__main__":
         certified = (cert.status == "CERTIFIED")
         rows.append({"edit": k, "faithful": faithful, "verdict": cert.status,
                      "collapse_pct": int(cert.collapse_ratio*100) if certified else None})
-        if faithful and certified: tp += 1; collapses.append(cert.collapse_ratio)
+        if faithful and certified:
+            tp += 1
+            if declared:                              # only edits with a real value fill
+                collapses.append(cert.collapse_ratio)
         elif (not faithful) and (not certified): tn += 1
         elif faithful and (not certified): fp += 1     # false refusal
         else: fn += 1                                   # SILENT CORRUPTION (missed botch)
     n_faithful = sum(1 for k in KINDS if "faithful" in k)
     n_botch = len(KINDS) - n_faithful
+    exploit_closed = test_partial_oracle()             # fail-closed regression
     summary = {
-        "guard": "certify-or-refuse router as a live agent commit gate (SQLite, engine-free)",
-        "edits": len(KINDS),
-        "faithful_edits": n_faithful, "botched_edits": n_botch,
-        "botches_caught": tn, "botches_missed_SILENT_CORRUPTION": fn,
+        "what_this_is": "SELF-AUTHORED correctness harness for the router — NOT an "
+                        "agent evaluation. Establishes branch correctness + a soundness "
+                        "regression, not real-world efficacy (see module docstring).",
+        "cases": len(KINDS),
+        "faithful": n_faithful, "botched": n_botch,
+        "botches_refused": tn, "botches_missed_SILENT_CORRUPTION": fn,
         "faithful_certified": tp, "faithful_false_refused": fp,
-        "recall_botches": round(tn / n_botch, 3) if n_botch else None,
-        "false_refusal_rate": round(fp / n_faithful, 3) if n_faithful else None,
-        "avg_audit_surface_collapse_pct": round(100*sum(collapses)/len(collapses), 1) if collapses else None,
-        "per_edit": rows,
+        "partial_oracle_exploit_fail_closed": exploit_closed,
+        "audit_collapse_note": "collapse% = 1 - |cone|/total is a property of the "
+                               "workbook+edit, NOT the tool; it scales with untouched "
+                               "row count and CRATERS to ~0% on shared-upstream edits "
+                               "(the financial-model case). Reported only for the "
+                               "value-fill cases, pure-rename (tautological 100%) excluded.",
+        "collapse_pct_value_fill_cases": [int(c*100) for c in collapses],
+        "per_case": rows,
     }
     with open("/home/soh/aix/experiments/generality/guard_measure.json", "w") as f:
         json.dump(summary, f, indent=2)
     print(json.dumps(summary, indent=2))
-    ok = (fn == 0 and fp == 0)
-    print("\nRESULT:", "0 silent corruptions, 0 false refusals — the guard is sound on this set"
-          if ok else "check fp/fn")
+    ok = (fn == 0 and fp == 0 and exploit_closed)
+    print("\nRESULT:", "harness green: 0 silent corruptions, 0 false refusals, "
+          "partial-oracle exploit fails closed — router hardened on these cases "
+          "(NOT an efficacy claim)" if ok else "HARNESS RED — check fp/fn/exploit")
     sys.exit(0 if ok else 1)

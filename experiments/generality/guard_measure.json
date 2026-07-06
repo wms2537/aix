@@ -1,16 +1,19 @@
 {
-  "guard": "certify-or-refuse router as a live agent commit gate (SQLite, engine-free)",
-  "edits": 6,
-  "faithful_edits": 3,
-  "botched_edits": 3,
-  "botches_caught": 3,
+  "what_this_is": "SELF-AUTHORED correctness harness for the router \u2014 NOT an agent evaluation. Establishes branch correctness + a soundness regression, not real-world efficacy (see module docstring).",
+  "cases": 6,
+  "faithful": 3,
+  "botched": 3,
+  "botches_refused": 3,
   "botches_missed_SILENT_CORRUPTION": 0,
   "faithful_certified": 3,
   "faithful_false_refused": 0,
-  "recall_botches": 1.0,
-  "false_refusal_rate": 0.0,
-  "avg_audit_surface_collapse_pct": 89.1,
-  "per_edit": [
+  "partial_oracle_exploit_fail_closed": true,
+  "audit_collapse_note": "collapse% = 1 - |cone|/total is a property of the workbook+edit, NOT the tool; it scales with untouched row count and CRATERS to ~0% on shared-upstream edits (the financial-model case). Reported only for the value-fill cases, pure-rename (tautological 100%) excluded.",
+  "collapse_pct_value_fill_cases": [
+    84,
+    83
+  ],
+  "per_case": [
     {
       "edit": "faithful_rename",
       "faithful": true,
