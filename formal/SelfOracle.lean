@@ -83,4 +83,50 @@ example (C : Computation Node Value) :
   intro k n
   exact eval_iso_invariant C C id (fun _ => rfl) (fun n => by simp) k n
 
+/-! ## Composition / locality — the formal basis for "collapse the audit surface"
+
+A real agent task is a certified structural transform (the scaffold) followed by
+value fills. The router certifies the scaffold with `eval_iso_invariant`, and
+must bound what the value fills can affect. The key fact is LOCALITY: a node's
+value depends only on its dependency cone, so value fills change nothing outside
+their downstream cone — everything else keeps its certified value. -/
+
+/-- `agree_upto C C' k n`: the two computations have the SAME function and SAME
+    dependencies at every node within `k` dependency-steps of `n` — exactly n's
+    dependency cone truncated to depth k. -/
+def agree_upto (C C' : Computation Node Value) : Nat → Node → Prop
+  | 0,     _ => True
+  | (k+1), n => C.fn n = C'.fn n ∧ C.deps n = C'.deps n ∧
+                ∀ m ∈ C.deps n, agree_upto C C' k m
+
+/-- **Locality of evaluation.** If two computations agree on n's depth-k
+    dependency cone, they evaluate n identically at fuel k. Hence changing a
+    computation only OUTSIDE a node's cone cannot change the node's value. -/
+theorem eval_local (C C' : Computation Node Value) :
+    ∀ k n, agree_upto C C' k n → eval C k n = eval C' k n := by
+  intro k
+  induction k with
+  | zero => intro n _; rfl
+  | succ k ih =>
+    intro n h
+    obtain ⟨hfn, hdeps, hrec⟩ := h
+    have hmap : (C.deps n).map (eval C k) = (C.deps n).map (eval C' k) := by
+      apply List.map_congr_left
+      intro m hm
+      exact ih m (hrec m hm)
+    show C.fn n ((C.deps n).map (eval C k)) = C'.fn n ((C'.deps n).map (eval C' k))
+    rw [hmap, hfn, hdeps]
+
+/-- **Audit-surface bound (the router's guarantee).** Let `C'` be a certified
+    scaffold and `C''` the same edit plus value fills. Any node whose dependency
+    cone the fills did not touch (`agree_upto C' C'' k n`) keeps its certified
+    value: `eval C'' k n = eval C' k n`. So the ONLY values a consumer must
+    re-check are those in the fills' downstream cone — a bounded, local set —
+    instead of the whole artifact. -/
+theorem audit_surface_bound
+    (Cscaffold Cfilled : Computation Node Value) (k : Nat) (n : Node)
+    (h : agree_upto Cscaffold Cfilled k n) :
+    eval Cfilled k n = eval Cscaffold k n :=
+  (eval_local Cscaffold Cfilled k n h).symm
+
 end SelfOracle
