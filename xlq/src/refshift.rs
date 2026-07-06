@@ -563,10 +563,11 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
         while i < b.len() && b[i].is_ascii_alphabetic() {
             i += 1;
         }
-        // a valid Excel column is 1..=3 letters (max XFD); a longer run of letters
-        // is a name (e.g. `Sales2020`), not a column, so it is not a reference.
-        let col_len = i - col_start;
-        let has_col = (1..=3).contains(&col_len);
+        // GRID VALIDITY (not a syntactic proxy): a real column is A..XFD, i.e. its
+        // numeric value is in 1..=16384. This rejects `Sales2020` (col far past XFD)
+        // and `XFE9`/`ZZZ9` (letter-count 1..=3 but numerically > XFD) alike.
+        let has_col = i > col_start
+            && col_to_num(&s[col_start..i]).is_some_and(|n| (1..=16384).contains(&n));
         let mut had_row_dollar = false;
         if i < b.len() && b[i] == b'$' {
             had_row_dollar = true;
@@ -576,7 +577,10 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
         while i < b.len() && b[i].is_ascii_digit() {
             i += 1;
         }
-        let has_row = i > row_start;
+        // GRID VALIDITY: a real row is 1..=1048576. Rejects `A2000000` (a name that
+        // scans like a column+row but whose row is past the sheet limit).
+        let has_row = i > row_start
+            && s[row_start..i].parse::<u32>().is_ok_and(|r| (1..=1048576).contains(&r));
         if had_row_dollar && !has_row {
             // trailing $ without row → back off the $
             i -= 1;
@@ -588,12 +592,14 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
         return (0, false);
     }
     let sb = s.as_bytes();
-    // A reference immediately followed by a letter or '_' is NOT a reference — it
-    // is the head of a longer identifier. e.g. in the function name `BIN2DEC`, the
-    // prefix `BIN2` scans as a cell ref (column BIN, row 2); left unchecked, a row
-    // insert would rewrite it to `BIN3DEC`, silently corrupting the formula. Excel
-    // cell refs are never followed by a letter, so reject when the tail is one.
-    let ident_tail = |end: usize| end < sb.len() && (sb[end].is_ascii_alphabetic() || sb[end] == b'_');
+    // A reference immediately followed by a letter, '_', or '(' is NOT a reference:
+    //  - letter/'_' -> the head of a longer identifier (`BIN2DEC`: prefix `BIN2`
+    //    scans as col BIN row 2; a row insert would corrupt it to `BIN3DEC`).
+    //  - '(' -> a function call whose name ends in a digit (`LOG10(...)`: `LOG10`
+    //    scans as col LOG row 10; a row insert would corrupt it to `LOG11`).
+    // Excel cell refs are never immediately followed by any of these.
+    let ident_tail =
+        |end: usize| end < sb.len() && (sb[end].is_ascii_alphabetic() || sb[end] == b'_' || sb[end] == b'(');
     // range?
     if sb.get(l1) == Some(&b':') {
         let (l2, c2, r2) = scan_endpoint(&s[l1 + 1..]);
@@ -940,6 +946,22 @@ mod tests {
         );
         // a defined-name-like identifier with a digit tail is also left alone
         assert_eq!(sf("Sales2020+A2", "Sheet1", &row_edit(Op::Insert, 2, 1)), "Sales2020+A3");
+        // function name ENDING in a digit before '(' (LOG10 = col LOG, row 10) is a
+        // call, not a ref — must not become LOG11; the real arg A10 shifts.
+        assert_eq!(sf("LOG10(A10)", "Sheet1", &row_edit(Op::Insert, 2, 1)), "LOG10(A11)");
+        // and a ref genuinely followed by a paren-less context still shifts
+        assert_eq!(sf("A10+LOG10(A10)", "Sheet1", &row_edit(Op::Insert, 2, 1)), "A11+LOG10(A11)");
+    }
+    #[test]
+    fn formula_out_of_grid_tokens_not_shifted() {
+        // GRID VALIDITY: XFE/ZZZ are 1..=3 letters but numerically past XFD(16384),
+        // and row 2000000 is past 1048576 — these are names, not cells, so a row
+        // insert must leave them alone while shifting the real ref A5.
+        assert_eq!(sf("XFE9+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)), "XFE9+A6");
+        assert_eq!(sf("ZZZ9+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)), "ZZZ9+A6");
+        assert_eq!(sf("A2000000+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)), "A2000000+A6");
+        // the boundary column XFD and boundary row ARE valid and shift
+        assert_eq!(sf("XFD9+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)), "XFD10+A6");
     }
 
     // ---- offset_formula (shared-formula materialization) ----
