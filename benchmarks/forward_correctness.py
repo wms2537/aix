@@ -38,7 +38,13 @@ CELL = re.compile(rb'<c r="([A-Z]+)(\d+)"((?:(?!</c>).)*?<f[ >](?:(?!</c>).)*?<v
 # by shifted references), so the value-preservation property does NOT apply —
 # their reference ARGUMENTS still shift correctly, but the value cannot be
 # checked this way. Excluded from the value-preservation oracle.
-VOLATILE = re.compile(rb'\b(OFFSET|INDIRECT|NOW|TODAY|RAND|RANDBETWEEN|CELL|INFO)\b', re.I)
+# ROW/COLUMN/ROWS/COLUMNS resolve by ABSOLUTE position: =ROW() at row 2 returns 2,
+# and after a blank-row insert it correctly returns 3 — so its cached value
+# legitimately changes and value-preservation does NOT apply (the references still
+# shift correctly, but the value can't be checked this way). Same class as
+# OFFSET/INDIRECT. Excluded from the value-preservation oracle.
+VOLATILE = re.compile(rb'\b(OFFSET|INDIRECT|NOW|TODAY|RAND|RANDBETWEEN|CELL|INFO|'
+                      rb'ROW|COLUMN|ROWS|COLUMNS)\b', re.I)
 
 
 def col_num(s):

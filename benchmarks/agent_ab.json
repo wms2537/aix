@@ -1,83 +1,878 @@
 {
-  "experiment": "E2 agent A/B",
-  "trials": [
+  "experiment": "interventional A/B: agent structural edit, unguarded (openpyxl) vs guarded (xlq certify-or-refuse); INDEPENDENT engine oracle (LibreOffice)",
+  "files_evaluated": 172,
+  "UNGUARDED": {
+    "faithful": 23,
+    "SILENT_CORRUPTION": 149,
+    "silent_corruption_rate": 0.866
+  },
+  "GUARDED": {
+    "certified_faithful": 150,
+    "refused_no_silent_corruption": 22,
+    "certified_but_WRONG_silent_corruption": 0,
+    "silent_corruption_rate": 0.0
+  },
+  "headline": "unguarded agent silently corrupts 149/172 files (86.6%); guarded silently corrupts 0/172 \u2014 every guarded commit is engine-faithful or explicitly refused. Independent engine, real workbooks.",
+  "per_file": [
     {
-      "task": "t1-vba",
-      "arm": "openpyxl",
-      "task_id": "t1-vba",
-      "output_exists": true,
-      "target_cell_value": 250,
-      "task_success": true,
-      "loads_in_engine": true,
-      "feature_survival": {
-        "vba": {"orig_parts": 1, "out_parts": 1, "present": true, "byte_identical": true}
-      },
-      "parts_byte_identical": 2,
-      "parts_total_original": 11,
-      "parts_dropped": ["xl/sharedStrings.xml"]
+      "file": "calc_test_no_export/tables.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
     },
     {
-      "task": "t1-vba",
-      "arm": "xlq",
-      "task_id": "t1-vba",
-      "output_exists": true,
-      "target_cell_value": 250,
-      "task_success": true,
-      "loads_in_engine": true,
-      "feature_survival": {
-        "vba": {"orig_parts": 1, "out_parts": 1, "present": true, "byte_identical": true}
-      },
-      "parts_byte_identical": 10,
-      "parts_total_original": 11,
-      "parts_dropped": [],
-      "receipt": {"rev_xlsx": "macro.xlsm.rev-1.xlsx", "rev_0_present": false, "jsonl_present": true, "jsonl": "macro.xlsm.xlq.jsonl"}
+      "file": "calc_tests/DATABASE/DCOUNT_DCOUNTA_DGET_DPRODUCT.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
     },
     {
-      "task": "t2-chart",
-      "arm": "openpyxl",
-      "task_id": "t2-chart",
-      "output_exists": true,
-      "target_cell_value": "<load-error:'Chartsheet' object has no attribute 'defined_names'>",
-      "task_success": false,
-      "loads_in_engine": false,
-      "feature_survival": {
-        "charts": {"orig_parts": 2, "out_parts": 2, "present": true, "byte_identical": false},
-        "pivot": {"orig_parts": 2, "out_parts": 2, "present": true, "byte_identical": false}
-      },
-      "parts_byte_identical": 1,
-      "parts_total_original": 50,
-      "parts_dropped": [
-        "xl/calcChain.xml",
-        "xl/charts/_rels/chart1.xml.rels",
-        "xl/charts/_rels/chart2.xml.rels",
-        "xl/charts/colors1.xml",
-        "xl/charts/colors2.xml",
-        "xl/charts/style1.xml",
-        "xl/charts/style2.xml",
-        "xl/comments1.xml",
-        "xl/comments2.xml",
-        "xl/drawings/vmlDrawing1.vml",
-        "xl/drawings/vmlDrawing2.vml",
-        "xl/printerSettings/printerSettings1.bin",
-        "xl/sharedStrings.xml"
-      ]
+      "file": "calc_tests/DATABASE/DMIN_DMAX_DAVERAGE_DSUM.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
     },
     {
-      "task": "t2-chart",
-      "arm": "xlq",
-      "task_id": "t2-chart",
-      "output_exists": true,
-      "target_cell_value": 900,
-      "task_success": true,
-      "loads_in_engine": true,
-      "feature_survival": {
-        "charts": {"orig_parts": 2, "out_parts": 2, "present": true, "byte_identical": true},
-        "pivot": {"orig_parts": 2, "out_parts": 2, "present": true, "byte_identical": true}
-      },
-      "parts_byte_identical": 48,
-      "parts_total_original": 50,
-      "parts_dropped": ["xl/calcChain.xml"],
-      "receipt": {"rev_xlsx": "pivot-chart.xlsx.rev-1.xlsx", "rev_0_present": false, "jsonl_present": true, "jsonl": "pivot-chart.xlsx.xlq.jsonl"}
+      "file": "calc_tests/DATABASE/DVAR_DVARP_DSTDEV_DSTDEVP.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/DATE_DAY_MONTH_YEAR.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/DATE_TIME.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/DAYS_DAYS360.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/TIME_HOUR_MINUTE_SECOND.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/YEARFRAC.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/BESSEL.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/BITs.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/COMPLEXs.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/ERFs.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/GESTEP_DELTA.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/NUMBER_SYSTEMS.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/ACCRINT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/ACCRINTM.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/ACCRINT_ACCRINTM.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/ACCRINT_extended.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/COUPDAYS.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/CUMPRINC_CUMIPMT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/DB_DDB.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/DISC.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/FV.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/FVSCHEDULE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/INTRATE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/IPMT_PPMT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/IRR.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/ISPMT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/NPER.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/NPV.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/PDURATION.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/PMT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/PRICE_YIELD.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/PV.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/RATE.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/RRI.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/SLN_SYD.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/TBILLs.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/XIRR.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/XNPV.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/INFORMATION/ERROR.TYPE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/INFORMATION/FORMULATEXT.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/INFORMATION/ISREF_ISFORMULA_ISODD_ISEVEN.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/INFORMATION/SHEET_SHEETS.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/INFORMATION/TYPE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/LOGICAL/AND_OR_XOR.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/LOGICAL/IFERROR.xlsx",
+      "unguarded": "faithful",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/LOGICAL/IFNA.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/LOGICAL/IFS.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/LOGICAL/LET.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/LOOKUP_AND_REFERENCE/CHOOSE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/LOOKUP_AND_REFERENCE/MATCH.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/LOOKUP_AND_REFERENCE/MATCH_LOOKUP_arrays.xlsx",
+      "unguarded": "faithful",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/LOOKUP_AND_REFERENCE/ROW_COLUM.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/LOOKUP_AND_REFERENCE/SORT.xlsx",
+      "unguarded": "faithful",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/LOOKUP_AND_REFERENCE/XLOOKUP.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/LOOKUP_AND_REFERENCE/XMATCH.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/ABS.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/ARABIC_ROMAN.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/ATAN2_POWER.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/BASE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/COMBIN_COMBINA.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/DEGREES_RADIANS.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/EVEN_ODD.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/EXP_SIGN.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/FACT_DOUBLEFACT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/FLOOR_CEILING.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/GCD_LCM.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/LCM_GCD.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/LOG_LOG10_LN.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/MMULT.xlsx",
+      "unguarded": "faithful",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/MOD_QUOTIENT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/MROUND_TRUNC_INT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/MULTINOMIAL.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/PRODUCT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/PRODUCT_SUM.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/ROUND.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/SEQUENCE.xlsx",
+      "unguarded": "faithful",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/SERIESSUM.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/SQRT_SQRTPI.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/SUMIFS.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/SUMIF_AVERAGE_IF.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/SUMIF_array.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/SUMPRODUCT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/SUMSQ.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/SUMX2MY2_SUMX2PY2_SUMXMY2.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/TRIGONOMETRIC.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/trigonometric_functions.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/AVEDEV.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/AVERAGE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/BETADIST_BETAINV.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/BETA_GAMMA.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/BINOM.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/CHISQ.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/CHISQ_TEST.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/CORREL_SLOPE_INTERCEPT_RSQ_STEYX.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/COUNT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/COUNTIF.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/COUNTIFS.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/COVARIANCE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/DEVSQ.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/EXPONDIST.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/EXPON_DIST.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/FISHER.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/FISHER_FISHERINV.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/FREQUENCY.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/F_DIST.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/F_TEST.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/GAMMA.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/GAMMALN_GAMMALNPRECISE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/GAUSS.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/GEOMEAN.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/HYPERGEOM_DIST.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/LOGNORM.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/MEADIAN_KURT_SKEW_HARMEAN.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/MINA_MAXA.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/MIN_MAX.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/MODE.xlsx",
+      "unguarded": "faithful",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/NORM_DIST.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/PEARSON.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/PERCENTIL_QUARTIL.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/PERMUT_PERMUTATIONA.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/PHI.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/POISSON.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/PROB.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/RANK_EQ_RANK_AVG.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/SMALL_LARGE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/STANDARIZE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/STDEV.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/TRIMMEAN.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/T_DIST.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/T_TEST.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/VARIANCE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/WEIBULL_DIST.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/STATISTICAL/Z_TEST.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/TEXT/CHAR.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/TEXT/DOLLARs.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/TEXT/EXACT.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/TEXT/FIND_SEARCH.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/TEXT/STRING_HANDLING.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/TEXT/TEXT.xlsx",
+      "unguarded": "faithful",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/TEXT/T_VALUE_VALUETOTEXT.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/arithmetic.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/defined_names.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/defined_names_for_unit_test.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/logical.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/percentage.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/quotes.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/range_operator.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "calc_tests/simple_arrays.xlsx",
+      "unguarded": "faithful",
+      "guarded": "refused"
+    },
+    {
+      "file": "calc_tests/simple_functions.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "custom_theme_colors.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/CHOOSE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/COS.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/DATE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/DAY.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/ERF-PRECISE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/ERF.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/ERFC-PRECISE.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/ERFC.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/FV.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/MONTH.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/PV.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/SIN.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/TAN.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "docs/YEAR.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "dynamic_arrays.xlsx",
+      "unguarded": "faithful",
+      "guarded": "refused"
+    },
+    {
+      "file": "example.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "refused"
+    },
+    {
+      "file": "libreoffice_888_example.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "templates/mortgage_calculator.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
+    },
+    {
+      "file": "templates/travel_expenses_tracker.xlsx",
+      "unguarded": "SILENT_CORRUPTION",
+      "guarded": "certified_faithful"
     }
   ]
 }
