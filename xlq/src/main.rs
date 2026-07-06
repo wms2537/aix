@@ -1,6 +1,7 @@
 mod apply;
 mod calc;
 mod census;
+mod certify;
 mod diff;
 mod hash;
 mod inspect;
@@ -91,6 +92,29 @@ enum Command {
         #[arg(long)]
         actor: Option<String>,
     },
+    /// Engine-free certification that a FOREIGN edited workbook equals xlq's own
+    /// proven-faithful structural transform of the original. Computes xlq's
+    /// transform of <original>, then certifies <edited> matches it up to stripped
+    /// caches / number formats — REFUSING on any formula/value/added/removed
+    /// difference (or when xlq cannot itself prove the op on this file).
+    Certify {
+        /// Original .xlsx (the baseline the transform is computed from)
+        original: String,
+        /// Edited .xlsx (the untrusted foreign edit to certify)
+        edited: String,
+        /// Sheet the structural edit was applied to
+        #[arg(long)]
+        sheet: String,
+        /// Operation: insert-rows | delete-rows | insert-cols | delete-cols
+        #[arg(long)]
+        op: String,
+        /// 1-based row/column index the op was applied at
+        #[arg(long)]
+        at: u32,
+        /// Number of rows/columns
+        #[arg(long, default_value_t = 1)]
+        count: u32,
+    },
 }
 
 fn parse_structural_op(op: &str) -> Option<(refshift::Axis, refshift::Op)> {
@@ -141,6 +165,14 @@ fn main() {
                 "reason": "--op must be insert-rows | delete-rows | insert-cols | delete-cols",
             })),
         },
+        Command::Certify {
+            original,
+            edited,
+            sheet,
+            op,
+            at,
+            count,
+        } => certify::run(&original, &edited, &sheet, &op, at, count),
     };
     match result {
         Ok(value) => {

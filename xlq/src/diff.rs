@@ -56,17 +56,21 @@ use serde_json::json;
 
 const MAX_CHANGES: usize = 10_000;
 
+// Shared with `certify` (crate::certify): the snapshot type, its cell record,
+// and the diff-kind classification are the single source of truth for how two
+// workbooks are compared positionally. `certify` reuses them rather than
+// duplicating the comparison logic.
 #[derive(Debug, Clone, PartialEq)]
-struct CellSnap {
-    formula: Option<String>,
+pub(crate) struct CellSnap {
+    pub(crate) formula: Option<String>,
     /// Formatted rendering — display only, never the comparison basis.
-    value: String,
+    pub(crate) value: String,
     /// Raw stored value (null | string | number | bool) — comparison basis.
-    raw: serde_json::Value,
+    pub(crate) raw: serde_json::Value,
 }
 
-type SheetSnap = BTreeMap<(i32, i32), CellSnap>;
-type WorkbookSnap = BTreeMap<String, SheetSnap>;
+pub(crate) type SheetSnap = BTreeMap<(i32, i32), CellSnap>;
+pub(crate) type WorkbookSnap = BTreeMap<String, SheetSnap>;
 
 struct DiffReport {
     sheets_added: Vec<serde_json::Value>,
@@ -106,14 +110,14 @@ pub fn run(old_path: &str, new_path: &str) -> Result<serde_json::Value> {
     }))
 }
 
-fn basename(path: &str) -> String {
+pub(crate) fn basename(path: &str) -> String {
     Path::new(path)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string())
 }
 
-fn snapshot(model: &Model) -> Result<WorkbookSnap> {
+pub(crate) fn snapshot(model: &Model) -> Result<WorkbookSnap> {
     let names: Vec<String> = model
         .get_worksheets_properties()
         .into_iter()
@@ -153,13 +157,47 @@ fn snapshot(model: &Model) -> Result<WorkbookSnap> {
     Ok(snap)
 }
 
-fn a1(row: i32, col: i32) -> Result<String> {
+pub(crate) fn a1(row: i32, col: i32) -> Result<String> {
     let letters = number_to_column(col).ok_or_else(|| anyhow!("column {col} out of A1 range"))?;
     Ok(format!("{letters}{row}"))
 }
 
 fn snap_json(snap: &CellSnap) -> serde_json::Value {
     json!({"formula": snap.formula, "value": snap.value, "raw": snap.raw})
+}
+
+/// Classify the difference between the same positional cell in two snapshots.
+/// Returns `None` when the cell is identical (nothing to report). This is the
+/// single, shared definition of the six diff kinds — reused by `certify`.
+///
+/// - "formula": the formula strings differ (a genuine formula change).
+/// - "cached_value": SAME formula, different cached raw result (a tool stripped
+///   or rewrote the stored result — openpyxl does this to every formula cell).
+/// - "value": both non-formula, raw stored value differs (on-disk data change).
+/// - "format": same stored value, different formatted rendering (number-format).
+/// - "removed" / "added": the cell exists on only one side.
+pub(crate) fn classify_kind(
+    old_snap: Option<&CellSnap>,
+    new_snap: Option<&CellSnap>,
+) -> Option<&'static str> {
+    match (old_snap, new_snap) {
+        (Some(o), Some(n)) => {
+            if o.formula != n.formula {
+                Some("formula")
+            } else if o.formula.is_some() && o.raw != n.raw {
+                Some("cached_value")
+            } else if o.formula.is_none() && o.raw != n.raw {
+                Some("value")
+            } else if o.formula.is_none() && o.value != n.value {
+                Some("format")
+            } else {
+                None
+            }
+        }
+        (Some(_), None) => Some("removed"),
+        (None, Some(_)) => Some("added"),
+        (None, None) => None,
+    }
 }
 
 fn diff_snapshots(old: &WorkbookSnap, new: &WorkbookSnap) -> Result<DiffReport> {
@@ -191,33 +229,8 @@ fn diff_snapshots(old: &WorkbookSnap, new: &WorkbookSnap) -> Result<DiffReport> 
         for (row, col) in coords {
             let old_snap = old_cells.get(&(row, col));
             let new_snap = new_cells.get(&(row, col));
-            let kind = match (old_snap, new_snap) {
-                (Some(o), Some(n)) => {
-                    if o.formula != n.formula {
-                        "formula"
-                    } else if o.formula.is_some() && o.raw != n.raw {
-                        // Equal formulas, different cached results: the
-                        // formula is intact but the stored value diverged —
-                        // typically a tool (openpyxl) stripping caches, or a
-                        // save from an engine that computed different values.
-                        // Excel users see these numbers until a recalc, so a
-                        // diff that ignores them under-reports the change.
-                        "cached_value"
-                    } else if o.formula.is_none() && o.raw != n.raw {
-                        // Raw values are the on-disk truth; formatted strings
-                        // would hide drift below display precision.
-                        "value"
-                    } else if o.formula.is_none() && o.value != n.value {
-                        // Same stored value, different rendering: a
-                        // number-format change, not a data change.
-                        "format"
-                    } else {
-                        continue;
-                    }
-                }
-                (Some(_), None) => "removed",
-                (None, Some(_)) => "added",
-                (None, None) => unreachable!("coord came from union of keys"),
+            let Some(kind) = classify_kind(old_snap, new_snap) else {
+                continue;
             };
             match kind {
                 "added" => {

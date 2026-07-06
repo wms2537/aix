@@ -563,7 +563,10 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
         while i < b.len() && b[i].is_ascii_alphabetic() {
             i += 1;
         }
-        let has_col = i > col_start;
+        // a valid Excel column is 1..=3 letters (max XFD); a longer run of letters
+        // is a name (e.g. `Sales2020`), not a column, so it is not a reference.
+        let col_len = i - col_start;
+        let has_col = (1..=3).contains(&col_len);
         let mut had_row_dollar = false;
         if i < b.len() && b[i] == b'$' {
             had_row_dollar = true;
@@ -584,8 +587,15 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
     if l1 == 0 {
         return (0, false);
     }
+    let sb = s.as_bytes();
+    // A reference immediately followed by a letter or '_' is NOT a reference — it
+    // is the head of a longer identifier. e.g. in the function name `BIN2DEC`, the
+    // prefix `BIN2` scans as a cell ref (column BIN, row 2); left unchecked, a row
+    // insert would rewrite it to `BIN3DEC`, silently corrupting the formula. Excel
+    // cell refs are never followed by a letter, so reject when the tail is one.
+    let ident_tail = |end: usize| end < sb.len() && (sb[end].is_ascii_alphabetic() || sb[end] == b'_');
     // range?
-    if s.as_bytes().get(l1) == Some(&b':') {
+    if sb.get(l1) == Some(&b':') {
         let (l2, c2, r2) = scan_endpoint(&s[l1 + 1..]);
         if l2 > 0 {
             // A valid range is one of three KINDS, both endpoints the same kind:
@@ -597,11 +607,12 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
             let both_full = (c1 && r1) && (c2 && r2);
             let both_wholecol = (c1 && !r1) && (c2 && !r2);
             let both_wholerow = (!c1 && r1) && (!c2 && r2);
-            return (total, both_full || both_wholecol || both_wholerow);
+            return (total, (both_full || both_wholecol || both_wholerow) && !ident_tail(total));
         }
     }
-    // single endpoint: a real cell ref needs a row number (else it's a name)
-    (l1, c1 && r1)
+    // single endpoint: a real cell ref needs a row number (else it's a name), and
+    // must not be the prefix of a longer identifier (BIN2DEC, Sales2024, …).
+    (l1, c1 && r1 && !ident_tail(l1))
 }
 
 /// Detect a 3D span reference (`SheetA:SheetB!…`) in a formula whose endpoint
@@ -914,6 +925,21 @@ mod tests {
         let (nf, n) = shift_formula("A5+A6+A100", "Sheet1", &row_edit(Op::Insert, 50, 1));
         assert_eq!(nf, "A5+A6+A101");
         assert_eq!(n, 1); // only A100 shifted
+    }
+    #[test]
+    fn formula_function_name_with_digits_not_shifted() {
+        // REGRESSION: `BIN2DEC` prefix `BIN2` scans as a cell ref (col BIN, row 2);
+        // a row insert must NOT rewrite it to `BIN3DEC`. The real cell arg shifts.
+        assert_eq!(
+            sf("BIN2DEC(A2)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "BIN2DEC(A3)"
+        );
+        assert_eq!(
+            sf("BIN2HEX(A2,B2)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "BIN2HEX(A3,B3)"
+        );
+        // a defined-name-like identifier with a digit tail is also left alone
+        assert_eq!(sf("Sales2020+A2", "Sheet1", &row_edit(Op::Insert, 2, 1)), "Sales2020+A3");
     }
 
     // ---- offset_formula (shared-formula materialization) ----
