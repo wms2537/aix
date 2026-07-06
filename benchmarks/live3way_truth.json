@@ -1,0 +1,155 @@
+{
+  "experiment": "LIVE-AGENT 3-way vs xlq's PROVEN transform (no LibreOffice): a real (Haiku) agent rewrites formula references for insert-row@2; its edit is scored by the real `xlq certify` guard, ground-truth = xlq's shift.",
+  "files": 20,
+  "skipped": 0,
+  "agent_error_rate": 0.05,
+  "GUARDED": {
+    "task_completed_certified": 19,
+    "safely_refused": 1,
+    "FALSE_CERT_must_be_0": 0
+  },
+  "UNGUARDED_silent_corruptions": 1,
+  "headline": "agent erred on 1/20 workbooks; GUARDED by xlq certify: 19 completed+certified, 1 safely refused, 0 false certs. UNGUARDED those 1 ship silently.",
+  "per_file": [
+    {
+      "file": "calc_tests/DATABASE/DAVERAGE.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/DATE.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/DATE_DAY_MONTH_YEAR.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/EOMONTH.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/YEARFRAC.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/BESSEL.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/BITs.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/ERFs.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/GESTEP_DELTA.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/NUMBER_SYSTEMS.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/ACCRINT_ACCRINTM.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/ACCRINT_extended.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/DATABASE/DCOUNT_DCOUNTA_DGET_DPRODUCT.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/TIME_HOUR_MINUTE_SECOND.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/COUPDAYS.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/TBILLs.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/PRODUCT_SUM.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/trigonometric_functions.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/TEXT/TEXTBEFORE_TEXTAFTER.xlsx",
+      "agent_correct": true,
+      "mismatches": 0,
+      "xlq_certify": "CERTIFIED",
+      "guarded": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/COMPLEXs.xlsx",
+      "agent_correct": false,
+      "mismatches": 1,
+      "xlq_certify": "REFUSED",
+      "guarded": "safely_refused"
+    }
+  ]
+}
