@@ -120,17 +120,46 @@ def sigma_insert_row(k):
     return s
 
 
-def has_table_ref(path):
-    """True if any first-sheet formula uses a STRUCTURED TABLE reference (Table1[...]).
-    My A1 extractor cannot see these, so a mangled table ref would go undetected —
-    the sound response is to REFUSE (this is exactly what xlq does via its residual
-    gate: tables -> residual -> refuse)."""
+# Reference forms this A1 extractor CANNOT model, so a mis-shift of them would go
+# undetected -> a silent false certification. FAIL CLOSED: if a formula contains any
+# of these, the file is uncertifiable by this extractor and must be REFUSED (the same
+# residual-gate discipline xlq applies to tables). Adversarial review found that
+# whole-row (6:6), whole-column (A:A), cross-sheet (Sheet2!A5), defined names (NC_1),
+# and table refs ([...]) all slipped past the earlier '[' -only gate.
+_WHOLE_ROW = re.compile(r"\$?\d+:\$?\d+")                       # 6:6  $6:$7
+_WHOLE_COL = re.compile(r"(?<![A-Z0-9])\$?[A-Z]{1,3}:\$?[A-Z]{1,3}(?![A-Z0-9])")  # A:A
+_FUNC = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*\s*\(")            # a function call name
+_STR = re.compile(r'"[^"]*"')
+
+
+def uncertifiable_formula(f):
+    """True if this formula contains any reference form the extractor cannot fully
+    model (so a mis-shift could go undetected). Conservative — errs toward REFUSE."""
+    if "[" in f:                       # structured table reference
+        return True
+    if "!" in f:                       # cross-sheet ref (σ here does not model sheet scoping)
+        return True
+    if _WHOLE_ROW.search(f) or _WHOLE_COL.search(f):
+        return True
+    # defined names / any unmodeled identifier: strip strings, ranges, cells, and
+    # function-call NAMES, then if any alphabetic residue remains it is an
+    # unmodeled name (e.g. NC_1) -> cannot certify.
+    s = _STR.sub("", f)
+    s = RANGE.sub("", s)
+    s = REF.sub("", s)
+    s = _FUNC.sub("(", s)
+    s = re.sub(r"\b(TRUE|FALSE|AND|OR|NOT|XOR)\b", "", s, flags=re.I)
+    return bool(re.search(r"[A-Za-z]", s))
+
+
+def has_uncertifiable(path):
+    """True if any first-sheet formula is uncertifiable by this extractor."""
     part = first_sheet_part(path)
     if not part:
         return False
     data = zipfile.ZipFile(path).read(part)
     for m in FTAG.finditer(data):
-        if b"[" in m.group(1):
+        if uncertifiable_formula(m.group(1).decode("utf-8", "replace")):
             return True
     return False
 
@@ -140,8 +169,10 @@ def has_any_cell_ref(A):
 
 
 def certify_foreign(orig_path, foreign_path, k):
-    # tables are outside this extractor's grammar -> REFUSE (matches xlq residuals)
-    if has_table_ref(orig_path) or has_table_ref(foreign_path):
+    # FAIL CLOSED: any formula the extractor cannot fully model -> REFUSE (matches
+    # xlq's residual gate; without this, whole-row/whole-col/cross-sheet/defined-name
+    # refs would be silently certified — the hole adversarial review found).
+    if has_uncertifiable(orig_path) or has_uncertifiable(foreign_path):
         return "REFUSED"
     A = extract(orig_path)
     B = extract(foreign_path)
@@ -216,12 +247,15 @@ if __name__ == "__main__":
         "faithful_foreign_certified": conf["certified_faithful_CORRECT"],
         "faithful_foreign_refused_conservative": conf["refused_faithful_conservative"],
         "no_ref_oracle_disagreements_router_correct": oracle_dis,
-        "note_extraction_completeness": "REFUSED includes files with STRUCTURED TABLE "
-            "references (outside the A1 extractor's grammar) — refused conservatively, "
-            "matching xlq's residual gate. The soundness of engine-free foreign-edit "
-            "certification rests on the extractor being COMPLETE: a reference the extractor "
-            "cannot see is a mis-shift it cannot catch. This Python A1 extractor is a proxy; "
-            "the production certifier must use xlq's full formula parser (the TCB).",
+        "note_extraction_completeness": "FAIL-CLOSED gate: REFUSED includes every file "
+            "whose formulas contain a reference form this A1 extractor cannot fully model "
+            "— whole-row (6:6), whole-column (A:A), cross-sheet (Sheet2!A5), table ([...]), "
+            "or a bare defined-name identifier. Adversarial review found these were "
+            "silently CERTIFIED by the earlier '['-only gate (and laundered into the no-ref "
+            "'provably correct' bucket). Soundness rests on extraction COMPLETENESS: a "
+            "reference the extractor cannot see is a mis-shift it cannot catch. Cost: it now "
+            "certifies only 1/23 faithful foreign edits — USEFUL soundness requires xlq's "
+            "complete formula parser (the TCB) to model+shift these forms instead of refusing.",
         "breakdown": dict(conf),
         "headline": (f"router ruled on {n} foreign edits ENGINE-FREE: "
                      f"{fc} false certifications (ref-shift corruption wrongly certified); "

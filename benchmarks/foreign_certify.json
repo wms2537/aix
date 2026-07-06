@@ -3,18 +3,18 @@
   "foreign_edits_tested": 172,
   "FALSE_CERTIFICATIONS_ref_shift_corruption_certified": 0,
   "false_certification_files": [],
-  "corrupted_foreign_edits_caught_REFUSED": 146,
-  "corrupted_foreign_edits_total_excl_oracle_noise": 146,
+  "corrupted_foreign_edits_caught_REFUSED": 147,
+  "corrupted_foreign_edits_total_excl_oracle_noise": 147,
   "recall_on_corrupted_foreign_edits": 1.0,
-  "faithful_foreign_certified": 3,
-  "faithful_foreign_refused_conservative": 20,
-  "no_ref_oracle_disagreements_router_correct": 3,
-  "note_extraction_completeness": "REFUSED includes files with STRUCTURED TABLE references (outside the A1 extractor's grammar) \u2014 refused conservatively, matching xlq's residual gate. The soundness of engine-free foreign-edit certification rests on the extractor being COMPLETE: a reference the extractor cannot see is a mis-shift it cannot catch. This Python A1 extractor is a proxy; the production certifier must use xlq's full formula parser (the TCB).",
+  "faithful_foreign_certified": 1,
+  "faithful_foreign_refused_conservative": 22,
+  "no_ref_oracle_disagreements_router_correct": 2,
+  "note_extraction_completeness": "FAIL-CLOSED gate: REFUSED includes every file whose formulas contain a reference form this A1 extractor cannot fully model \u2014 whole-row (6:6), whole-column (A:A), cross-sheet (Sheet2!A5), table ([...]), or a bare defined-name identifier. Adversarial review found these were silently CERTIFIED by the earlier '['-only gate (and laundered into the no-ref 'provably correct' bucket). Soundness rests on extraction COMPLETENESS: a reference the extractor cannot see is a mis-shift it cannot catch. Cost: it now certifies only 1/23 faithful foreign edits \u2014 USEFUL soundness requires xlq's complete formula parser (the TCB) to model+shift these forms instead of refusing.",
   "breakdown": {
-    "refused_corrupted_CORRECT": 146,
-    "refused_faithful_conservative": 20,
-    "certified_faithful_CORRECT": 3,
-    "certified_norefs_ORACLE_DISAGREEMENT": 3
+    "refused_corrupted_CORRECT": 147,
+    "refused_faithful_conservative": 22,
+    "certified_norefs_ORACLE_DISAGREEMENT": 2,
+    "certified_faithful_CORRECT": 1
   },
-  "headline": "router ruled on 172 foreign edits ENGINE-FREE: 0 false certifications (ref-shift corruption wrongly certified); caught 146/146 genuine corrupted foreign edits by REFUSING; 3 no-ref cases were oracle disagreements (router provably correct). The certifier checking UNTRUSTED work."
+  "headline": "router ruled on 172 foreign edits ENGINE-FREE: 0 false certifications (ref-shift corruption wrongly certified); caught 147/147 genuine corrupted foreign edits by REFUSING; 2 no-ref cases were oracle disagreements (router provably correct). The certifier checking UNTRUSTED work."
 }
