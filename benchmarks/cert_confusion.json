@@ -1,0 +1,20 @@
+{
+  "validation": "xlq certify vs INDEPENDENT LibreOffice oracle; positive=truly corrupted",
+  "workbooks": 16,
+  "edits_scored": 29,
+  "confusion_matrix": {
+    "TP_refused_corrupt": 14,
+    "FN_certified_corrupt_FALSE_CERT": 0,
+    "TN_certified_faithful": 13,
+    "FP_refused_faithful": 2
+  },
+  "false_certification_rate": 0.0,
+  "recall_on_corruption": 1.0,
+  "false_refusal_rate": 0.1333,
+  "FN_files": [],
+  "FP_files": [
+    "calc_tests/LOOKUP_AND_REFERENCE/SORT.xlsx:corrupt",
+    "calc_tests/simple_arrays.xlsx:corrupt"
+  ],
+  "headline": "29 real edits, independent oracle: 0 FALSE CERTIFICATIONS, caught 14/14 corrupted, 2 false refusals."
+}
