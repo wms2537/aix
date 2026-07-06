@@ -1,0 +1,20 @@
+{
+  "thesis": "certify-or-refuse router ruling on UNTRUSTED FOREIGN edits (openpyxl's, xlq did not author), ENGINE-FREE, cross-checked vs the independent LibreOffice oracle from the edit-path A/B",
+  "foreign_edits_tested": 172,
+  "FALSE_CERTIFICATIONS_ref_shift_corruption_certified": 0,
+  "false_certification_files": [],
+  "corrupted_foreign_edits_caught_REFUSED": 146,
+  "corrupted_foreign_edits_total_excl_oracle_noise": 146,
+  "recall_on_corrupted_foreign_edits": 1.0,
+  "faithful_foreign_certified": 3,
+  "faithful_foreign_refused_conservative": 20,
+  "no_ref_oracle_disagreements_router_correct": 3,
+  "note_extraction_completeness": "REFUSED includes files with STRUCTURED TABLE references (outside the A1 extractor's grammar) \u2014 refused conservatively, matching xlq's residual gate. The soundness of engine-free foreign-edit certification rests on the extractor being COMPLETE: a reference the extractor cannot see is a mis-shift it cannot catch. This Python A1 extractor is a proxy; the production certifier must use xlq's full formula parser (the TCB).",
+  "breakdown": {
+    "refused_corrupted_CORRECT": 146,
+    "refused_faithful_conservative": 20,
+    "certified_faithful_CORRECT": 3,
+    "certified_norefs_ORACLE_DISAGREEMENT": 3
+  },
+  "headline": "router ruled on 172 foreign edits ENGINE-FREE: 0 false certifications (ref-shift corruption wrongly certified); caught 146/146 genuine corrupted foreign edits by REFUSING; 3 no-ref cases were oracle disagreements (router provably correct). The certifier checking UNTRUSTED work."
+}
