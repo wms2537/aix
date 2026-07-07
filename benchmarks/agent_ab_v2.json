@@ -1,0 +1,144 @@
+{
+  "benchmark": "edit-path A/B \u2014 4 structural ops x 2 independent engines (openpyxl vs xlq)",
+  "ops": [
+    "insert-rows",
+    "delete-rows",
+    "insert-cols",
+    "delete-cols"
+  ],
+  "openpyxl_silent_corruption": {
+    "libreoffice": [
+      438,
+      467,
+      0.938
+    ],
+    "formulas": [
+      438,
+      467,
+      0.938
+    ]
+  },
+  "xlq_silent_corruption": {
+    "libreoffice": [
+      0,
+      449,
+      0.0
+    ],
+    "formulas": [
+      0,
+      449,
+      0.0
+    ]
+  },
+  "per_op": [
+    {
+      "op": "insert-rows",
+      "xlq": {
+        "libreoffice": {
+          "checked": 140,
+          "corrupted": 0,
+          "rate": 0.0
+        },
+        "formulas": {
+          "checked": 140,
+          "corrupted": 0,
+          "rate": 0.0
+        }
+      },
+      "openpyxl": {
+        "libreoffice": {
+          "checked": 140,
+          "corrupted": 140,
+          "rate": 1.0
+        },
+        "formulas": {
+          "checked": 140,
+          "corrupted": 140,
+          "rate": 1.0
+        }
+      }
+    },
+    {
+      "op": "delete-rows",
+      "xlq": {
+        "libreoffice": {
+          "checked": 82,
+          "corrupted": 0,
+          "rate": 0.0
+        },
+        "formulas": {
+          "checked": 82,
+          "corrupted": 0,
+          "rate": 0.0
+        }
+      },
+      "openpyxl": {
+        "libreoffice": {
+          "checked": 86,
+          "corrupted": 85,
+          "rate": 0.988
+        },
+        "formulas": {
+          "checked": 86,
+          "corrupted": 85,
+          "rate": 0.988
+        }
+      }
+    },
+    {
+      "op": "insert-cols",
+      "xlq": {
+        "libreoffice": {
+          "checked": 140,
+          "corrupted": 0,
+          "rate": 0.0
+        },
+        "formulas": {
+          "checked": 140,
+          "corrupted": 0,
+          "rate": 0.0
+        }
+      },
+      "openpyxl": {
+        "libreoffice": {
+          "checked": 140,
+          "corrupted": 132,
+          "rate": 0.943
+        },
+        "formulas": {
+          "checked": 140,
+          "corrupted": 132,
+          "rate": 0.943
+        }
+      }
+    },
+    {
+      "op": "delete-cols",
+      "xlq": {
+        "libreoffice": {
+          "checked": 87,
+          "corrupted": 0,
+          "rate": 0.0
+        },
+        "formulas": {
+          "checked": 87,
+          "corrupted": 0,
+          "rate": 0.0
+        }
+      },
+      "openpyxl": {
+        "libreoffice": {
+          "checked": 101,
+          "corrupted": 81,
+          "rate": 0.802
+        },
+        "formulas": {
+          "checked": 101,
+          "corrupted": 81,
+          "rate": 0.802
+        }
+      }
+    }
+  ],
+  "headline": "4 ops, 2 engines: naive openpyxl silently corrupts 0.938 (LO) of edits; xlq corrupts 0.0 (LO). formulas-engine agrees."
+}
