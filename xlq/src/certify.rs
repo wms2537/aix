@@ -143,6 +143,21 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        reference was not shifted faithfully",
         }));
     }
+    // SEMANTIC structural references the transform shifts (mergeCell / hyperlink /
+    // autoFilter `ref`) must also match xlq's transform. These are the ref-bearing
+    // elements a foreign edit can revert while shifting cells (the reviewer's merge
+    // exploit); comparing them keeps certify's surface a superset of the transform's
+    // value/structure write-surface. Pure view-state (dimension/selection/pane/brk)
+    // is deliberately excluded — it is non-semantic and foreign tools legitimately
+    // vary it; it does not affect computed values.
+    if structural_ref_attrs(expected) != structural_ref_attrs(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "structural_ref_mismatch",
+            "detail": "a mergeCell/hyperlink/autoFilter reference differs from xlq's \
+                       transform — a structural reference was not shifted faithfully",
+        }));
+    }
     // fail closed on SHEET-level reference constructs certify does not compare
     for (needle, label) in [
         ("<dataValidation", "data_validation"),
@@ -199,6 +214,39 @@ fn defined_names(bytes: &[u8]) -> Vec<(String, String)> {
         let refers = after.find("</definedName>").map(|e| &after[..e]).unwrap_or("");
         out.push((name, refers.to_string()));
         rest = after;
+    }
+    out.sort();
+    out
+}
+
+/// (element, ref) for every mergeCell/hyperlink/autoFilter across all sheets, sorted
+/// — the semantic structural references the transform shifts. Part names are excluded
+/// (robust to a foreign tool renumbering sheet parts); the multiset is compared.
+fn structural_ref_attrs(bytes: &[u8]) -> Vec<(String, String)> {
+    let Ok(names) = structural::archive_names(bytes) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for n in names {
+        if !(n.starts_with("xl/worksheets/sheet") && n.ends_with(".xml")) {
+            continue;
+        }
+        let Ok(part) = crate::ooxml::read_part(bytes, &n) else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&part);
+        for elem in ["mergeCell", "hyperlink", "autoFilter"] {
+            let open = format!("<{elem}");
+            let mut rest: &str = &text;
+            while let Some(p) = rest.find(&open) {
+                rest = &rest[p..];
+                let Some(gt) = rest.find('>') else { break };
+                if let Some(r) = attr(&rest[..gt], "ref") {
+                    out.push((elem.to_string(), r));
+                }
+                rest = &rest[gt..];
+            }
+        }
     }
     out.sort();
     out
