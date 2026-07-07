@@ -83,6 +83,18 @@ pub fn run(
         }));
     }
 
+    // (1b) NON-CELL references. diff::snapshot (below) compares only sheet CELLS, so
+    // a foreign edit that shifts every cell formula correctly but leaves a defined
+    // name / data-validation / conditional-formatting / chart reference unshifted
+    // would be invisible to it — a reachable false certification. We close it here:
+    // defined names must match xlq's (proven) transform exactly, and any other
+    // reference-bearing part certify does not compare fails closed.
+    let edited_bytes = std::fs::read(edited)
+        .with_context(|| format!("read {}", diff::basename(edited)))?;
+    if let Some(refusal) = verify_noncell_refs(&expected_bytes, &edited_bytes) {
+        return Ok(refusal);
+    }
+
     // (2) Load xlq's transform (from a unique temp file, same discipline as
     // restructure.rs's proof-carrying re-open) and the foreign edited file.
     let expected_model = load_from_bytes(&expected_bytes, original)
@@ -115,6 +127,101 @@ pub fn run(
         },
         "sample_diffs": samples,
     }))
+}
+
+/// Verify the reference-bearing content diff::snapshot (sheet cells only) does not
+/// compare. Returns Some(refusal) if the foreign edit's defined names differ from
+/// xlq's transform, or if the workbook carries a reference-bearing part certify cannot
+/// verify (fail closed). None if all clear.
+fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
+    // defined names must match xlq's proven transform exactly (name -> refers-to)
+    if defined_names(expected) != defined_names(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "defined_name_mismatch",
+            "detail": "a defined name's target differs from xlq's transform — a non-cell \
+                       reference was not shifted faithfully",
+        }));
+    }
+    // fail closed on other reference-bearing parts certify does not compare
+    for (needle, label) in [
+        ("<dataValidation", "data_validation"),
+        ("<conditionalFormatting", "conditional_formatting"),
+    ] {
+        if sheets_contain(edited, needle) || sheets_contain(expected, needle) {
+            return Some(json!({
+                "status": "REFUSED",
+                "reason": "unverified_reference_part",
+                "detail": format!("{label} may carry references certify does not compare — \
+                                   refused (fail-closed; outside the verified surface)"),
+            }));
+        }
+    }
+    let has_chart = |b: &[u8]| {
+        structural::archive_names(b)
+            .map(|ns| ns.iter().any(|n| n.starts_with("xl/charts/")))
+            .unwrap_or(false)
+    };
+    if has_chart(edited) || has_chart(expected) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "unverified_reference_part",
+            "detail": "chart series references are not compared — refused (fail-closed)",
+        }));
+    }
+    None
+}
+
+/// (name, refers-to) for every defined name in workbook.xml, sorted.
+fn defined_names(bytes: &[u8]) -> Vec<(String, String)> {
+    let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") else {
+        return Vec::new();
+    };
+    let text = String::from_utf8_lossy(&wb);
+    let mut out = Vec::new();
+    let mut rest: &str = &text;
+    while let Some(p) = rest.find("<definedName") {
+        rest = &rest[p..];
+        let Some(gt) = rest.find('>') else { break };
+        let tag = &rest[..gt];
+        let name = attr(tag, "name").unwrap_or_default();
+        let after = &rest[gt + 1..];
+        let refers = after.find("</definedName>").map(|e| &after[..e]).unwrap_or("");
+        out.push((name, refers.to_string()));
+        rest = after;
+    }
+    out.sort();
+    out
+}
+
+/// Value of attribute `key` in a start tag (quote-agnostic).
+fn attr(tag: &str, key: &str) -> Option<String> {
+    let pat = format!("{key}=");
+    let i = tag.find(&pat)? + pat.len();
+    let q = *tag.as_bytes().get(i)?;
+    if q != b'"' && q != b'\'' {
+        return None;
+    }
+    let rest = &tag[i + 1..];
+    let end = rest.find(q as char)?;
+    Some(rest[..end].to_string())
+}
+
+/// True if any worksheet part contains `needle`.
+fn sheets_contain(bytes: &[u8], needle: &str) -> bool {
+    let Ok(names) = structural::archive_names(bytes) else {
+        return false;
+    };
+    for n in names {
+        if n.starts_with("xl/worksheets/sheet") && n.ends_with(".xml") {
+            if let Ok(part) = crate::ooxml::read_part(bytes, &n) {
+                if String::from_utf8_lossy(&part).contains(needle) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 #[derive(Default)]

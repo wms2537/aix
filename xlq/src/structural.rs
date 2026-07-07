@@ -309,7 +309,7 @@ fn emit_dependent(
     Ok(())
 }
 
-fn archive_names(input: &[u8]) -> Result<Vec<String>> {
+pub(crate) fn archive_names(input: &[u8]) -> Result<Vec<String>> {
     let mut a = zip::ZipArchive::new(Cursor::new(input)).map_err(|e| anyhow!("zip: {e}"))?;
     Ok((0..a.len())
         .filter_map(|i| a.by_index(i).ok().map(|f| f.name().to_string()))
