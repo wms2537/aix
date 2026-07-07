@@ -93,18 +93,22 @@ silently wrong. We report a production certifier
 (\texttt{xlq\ certify}), the trusted reference-shift tokenizer it rests
 on (hardened to an exact grid-validity predicate and corroborated by
 value-preservation against an independent engine over 264 formulas), and
-fail-closed boundaries for the cases the certifier cannot verify (a
-defined name spelled like a cell reference; a non-cell reference in a
-defined name, data-validation, conditional-formatting, or chart). We are
-deliberate about what is \emph{proof} and what is \emph{corroboration}:
-the theorem is the result; the empirical harness --- an engine-free
-foreign-edit certifier that refuses 147/147 corrupted edits, an
-independent-oracle A/B in which the naive edit path silently corrupts
-86.6\% of real workbooks while the certified path corrupts none, and a
-diverse-corruptor confusion matrix in which every injected corruption is
-refused --- corroborates it, and we report each with its confound
-(including a false certification our own review found and we then
-closed), not as an independent soundness argument.
+--- for the non-cell references a cell diff cannot see --- a
+compare-and-fail-close net (defined-name and merge/hyperlink/autoFilter
+targets compared against the transform; data-validation,
+conditional-formatting, charts, pivots, external links refused) that we
+are careful to label an \emph{enumerated denylist}, not a
+proven-complete allowlist, having ourselves shipped and then closed one
+silent false certification exactly where the enumeration was incomplete.
+We are deliberate about what is \emph{proof} and what is
+\emph{corroboration}: the theorem is the result; the empirical harness
+--- an engine-free foreign-edit certifier that refuses 147/147 corrupted
+edits, an independent-oracle A/B in which the naive edit path silently
+corrupts 86.6\% of real workbooks while the certified path corrupts
+none, and a diverse-corruptor confusion matrix in which every injected
+corruption is refused --- corroborates it, and we report each with its
+confound (including a false certification our own review found and we
+then closed), not as an independent soundness argument.
 
 \section{1. Introduction}\label{introduction}
 
@@ -485,35 +489,60 @@ certification} in the production certifier itself, where a foreign edit
 that shifts every cell formula correctly but leaves a defined name's
 target unshifted was certified with all-zero diffs, because the cell
 diff never compared non-cell references. We built the exploit, confirmed
-it, and closed it (defined names now checked against the tool's
-transform; data-validation, conditional-formatting, and chart parts
-fail-closed). We report each as a fixed defect. This is part of the
-contribution: a certify-or-refuse claim is only credible if its authors
-have tried hardest to break it --- the record of what broke, and what
-the fix was, is the evidence that the remaining boundary is real, and it
-is why we are conservative about calling the corroboration anything more
-than corroboration.
+it, and closed it (defined names now compared against the tool's
+transform; data-validation, conditional-formatting, charts, pivots, and
+external links fail-closed). A subsequent review then falsified a
+\emph{universal} phrasing of that fix by the same pattern --- a foreign
+edit that reverts a
+\texttt{mergeCell}/\texttt{hyperlink}/\texttt{autoFilter} reference,
+which the transform shifts but the cell diff never compared, was
+certified --- so we extended the net to those semantic structural
+references and reframed the boundary as an explicitly \emph{enumerated
+denylist} whose completeness we do not claim to have proven. We report
+each as a fixed defect. This is part of the contribution: a
+certify-or-refuse claim is only credible if its authors have tried
+hardest to break it --- the record of what broke, and what the fix was,
+is the evidence that the remaining boundary is real, and it is why we
+are conservative about calling the corroboration anything more than
+corroboration, and the denylist anything more than a denylist.
 
 \section{7. Scope and limitations}\label{scope-and-limitations}
 
 The \textbf{verified surface} the certifier certifies (rather than
 refuses) is: row/column insert/delete, single-sheet, in-grid
 coordinates, cell formulas over single-cell and range-endpoint
-references, with no defined-name/cell collision and no defined-name
-mismatch. Everything outside it --- data-validation,
-conditional-formatting, chart, table, 3D, and sheet-qualified
-references, and any defined name whose target differs from the tool's
-transform --- routes to refusal, not silent acceptance. Value edits are
-out of the exact tier by construction. The \textbf{trusted base}
-(narrowed by Theorem 3 but not eliminated) is: the byte→token parse; the
-correctness of the shift map \texttt{σ} itself (the Z3-proved
-arithmetic, not re-proved in the graph layer); the asymmetric six-case
-delete clamp and its \texttt{\#REF!} outcomes; the multi-cell interior
-of ranges (modeled by endpoints); and the constructs absent from the
-token type. The corroboration is bounded accordingly: value-preservation
-is necessary-not-sufficient and validated against one engine
-(LibreOffice, with its own array/spill blindness); the confusion
-matrix's \texttt{FN=0} is by-construction over
+references, with no defined-name/cell collision. On top of the
+sheet-cell diff, certify explicitly compares the reference-bearing
+constructs the transform shifts that a cell diff cannot see ---
+defined-name targets and mergeCell/hyperlink/autoFilter \texttt{ref}s
+--- refusing any that differ from the transform, and fail-closes on
+data-validation, conditional-formatting, sparklines, charts, pivot
+tables, and external links. Two honesty caveats, both learned from this
+artifact's own failures. First, this compare-and-fail-close net is an
+\textbf{enumerated denylist}, not a machine-checked allowlist: its
+completeness over value-affecting non-cell references is \emph{asserted,
+not proven}, so an un-enumerated value-bearing construct would be
+silently certified --- the exact failure the defined-name case exhibited
+until a reviewer built the exploit. (We keep certify's compare surface a
+superset of the transform's write surface, which makes the enumeration
+mechanically checkable against \texttt{has\_ref\_attr}, but that
+superset relation is a code invariant, not a proof.) Second, the
+guarantee is over \textbf{computed values}: pure view-state the
+transform also shifts --- the used-range \texttt{dimension},
+\texttt{selection}, frozen \texttt{pane}, and page \texttt{brk}s --- is
+deliberately \emph{not} compared, because it is non-value-bearing and
+foreign tools legitimately vary it; a certified file may differ from the
+transform there without affecting any value. Value edits are out of the
+exact tier by construction. The \textbf{trusted base} (narrowed by
+Theorem 3 but not eliminated) is: the byte→token parse; the correctness
+of the shift map \texttt{σ} itself (the Z3-proved arithmetic, not
+re-proved in the graph layer); the asymmetric six-case delete clamp and
+its \texttt{\#REF!} outcomes; the multi-cell interior of ranges (modeled
+by endpoints); the constructs absent from the token type; and the
+completeness of the non-cell denylist. The corroboration is bounded
+accordingly: value-preservation is necessary-not-sufficient and
+validated against one engine (LibreOffice, with its own array/spill
+blindness); the confusion matrix's \texttt{FN=0} is by-construction over
 deviations-from-transform, so the informative test is the non-cell
 corruptor of §5.3, which found and closed a real false certification.
 The exact tier certifies a measured 37.5\% of operations and 27\% of
