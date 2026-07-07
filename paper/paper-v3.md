@@ -17,8 +17,9 @@ cone. On this spine we build a **certify-or-refuse router**: an untrusted agent'
 structural edit is accepted only when it equals the tool's own proven coordinate-
 shift transform, and otherwise explicitly refused — never silently wrong. We report a
 production certifier (`xlq certify`), the trusted reference-shift tokenizer it rests
-on (hardened to an exact grid-validity predicate and differentially cross-checked),
-and a fail-closed boundary for the one undecidable-from-syntax case (a defined name
+on (hardened to an exact grid-validity predicate and validated for value-preservation
+against an independent engine over 264 formulas with zero divergences), and a
+fail-closed boundary for the one undecidable-from-syntax case (a defined name
 spelled like a cell reference). We are deliberate about what is *proof* and what is
 *corroboration*: the theorem is the result; the empirical harness — an engine-free
 foreign-edit certifier that refuses 147/147 corrupted edits, an independent-oracle
@@ -165,18 +166,25 @@ token is a cell reference iff its column is in `A..XFD` (1..16384) and its row i
 `1..1048576`, boundary-gated so an identifier or function call is never mistaken for a
 reference. This one rule subsumes all four bug classes.
 
-We validate the tokenizer by **differential cross-checking** against an independent
-A1 shifter over 19 digit-bearing Excel functions, out-of-grid tokens, `$`-absolutes,
-and ranges, across two operations (insert-rows and delete-rows): 175 (formula, op)
-pairs, 0 disagreements (`tokenizer_fuzz.py`). We are precise about the strength of
-this: the independent shifter is a second implementation of *our own* grid-validity
-spec, so 0 disagreements demonstrates **mechanization consistency** between the Rust
-scanner and the reference — not conformance to Excel's reference semantics, which our
-same-spec check cannot establish. Column operations, sheet-qualified/3D/table/R1C1
-references, and unicode sheet names are not yet in the differential; they are covered
-only by same-spec unit tests. The honest label is *hardened and cross-checked, with
-the un-fuzzed construct classes stated as scope* — not *validated against ground
-truth*.
+We validate the tokenizer at two levels. First, **differential cross-checking**
+against an independent A1 shifter over 19 digit-bearing Excel functions, out-of-grid
+tokens, `$`-absolutes, and ranges, across insert-rows and delete-rows: 175 (formula,
+op) pairs, 0 disagreements (`tokenizer_fuzz.py`). This establishes *mechanization
+consistency* between the Rust scanner and the reference — but the reference is a
+second implementation of *our own* grid-validity spec, so it cannot establish
+conformance to a spreadsheet engine's semantics. Second, therefore, **conformance
+against an independent engine**: a blank-row insert is value-preserving under a
+correct reference shift, so recomputing the same file with LibreOffice *before and
+after* the edit must leave every formula's value unchanged (`tokenizer_conformance.py`,
+seeded property-based generation over evaluable formulas — digit-bearing function
+names, single/mixed/absolute refs, ranges). Over 264 engine-checked formulas across
+insert and delete, **0 value divergences**. Because both grids come from LibreOffice,
+there is no Excel-versus-LibreOffice disagreement and no reliability gate — every
+function is measurable. This is conformance to an independent engine's reference
+semantics, not merely spec-consistency. We remain precise about its bound: it is one
+engine (LibreOffice), not Excel, and column operations and sheet-qualified/3D/table/
+R1C1 constructs are not yet in the property-based generator — those are the stated
+remaining scope.
 
 **The one undecidable case, made a fail-closed boundary.** A defined name spelled like
 a grid-valid cell (`FY2021` = column FY, row 2021; `Q1`; `Tax2020`) is
@@ -224,21 +232,27 @@ which is why the oracle excludes position-dependent functions.
 
 ### 5.3 Independent-oracle confusion matrix for the production certifier
 
-Adjudicating `xlq certify`'s verdicts by LibreOffice recompute (not by the tool), over
-16 oracle-reliable workbooks (files where LibreOffice reproduces Excel's cache on the
-*unedited* original; ACCRINT/BESSEL-class engine disagreements are gated out so they
-cannot be miscounted): TP=14, **FN=0**, TN=13, FP=2 (`cert_confusion`). Three honest
-qualifications. First, `FN=0` on 14 corrupted edits is a *point estimate*; the
-rule-of-three 95% upper bound on the false-certification rate is ≈ 3/14 ≈ 21%.
-Second, the corrupt arm is a monoculture — all 14 corruptions are `openpyxl`'s single
-deterministic no-op-shift, the maximally-detectable corruption — so the FN cell is
-satisfied, not stressed by adversarial partial-shift edits; and the certify verdict is
-confounded with editor identity (REFUSE ⇔ openpyxl, CERTIFY ⇔ tool). Third, the two
-FPs are on array/spill files where LibreOffice is itself blind to the corruption, so
-they are likely oracle blindness rather than over-conservatism — meaning the oracle
-has its own false negatives. The matrix establishes "the certifier refuses openpyxl's
-corruption and certifies the tool's transform"; it does not, by construction, exercise
-a self-consistent error, which is why §4's fail-closed name-collision boundary matters.
+We adjudicate `xlq certify`'s verdicts *independently of the tool* over **diverse**
+corruption. An initial matrix used a single corruptor — `openpyxl`'s deterministic
+no-op-shift — and the Excel cache with a reliability gate; its `FN=0` on 14 edits was
+a point estimate (rule-of-three ≈ 21%) confounded with editor identity. We diversified
+to three corruptor types — `openpyxl` (no-op), `unshift_one` (revert one shifted
+reference), and `wrong_delta` (over-shift one reference) — with ground truth **by
+construction** (we inject the corruption, so its label is independent of any engine)
+and a LibreOffice *self-consistent* oracle as cross-check (recompute before/after; no
+reliability gate). Over 45 injected corruptions: **0 false certifications**, Wilson-95
+upper bound **0.079** (down from ≈ 0.21); every corruptor type refused 15/15; and all
+15 faithful (tool-produced) edits certified, 0 falsely refused (`cert_confusion_v2`).
+Two honest points remain. First, `FN=0` is, by the certifier's design, structural — it
+certifies iff the edit equals the tool's transform, so a corruption can be falsely
+certified only via a *self-consistent error* (the tool's transform itself wrong and
+the edit reproducing it), the path §4's engine-conformance validation and fail-closed
+name-collision boundary are built to close. Second — and in the certifier's favor —
+6 of the injected corruptions were **value-preserving** (a reference error that does
+not change the current computed value); the value oracle called them faithful, but
+`xlq certify` refused all 6, demonstrating that its structural equality is *stricter*
+than a value check and catches latent reference errors a human eyeballing recomputed
+numbers would miss.
 
 ### 5.4 The interventional finding: differential testing hardened the trusted base
 
@@ -268,12 +282,15 @@ is the evidence that the remaining boundary is real.
 The verified guarantee covers the structural fragment (row/column insert/delete) on
 single-sheet, in-grid coordinates with no defined-name collision; everything outside
 this surface routes to refusal, not silent acceptance. Value edits are out of the
-exact tier by construction. The tokenizer is hardened and cross-checked for
-mechanization consistency, not validated against Excel; column operations and
-sheet-qualified/3D/table/R1C1 constructs are not yet in the differential. The
-empirical corroboration is single-op (insert-row@2 for the certify eval), single
-oracle engine (LibreOffice, with its own array/spill blindness), and its corrupt arm
-is a one-tool monoculture — so its point estimates carry wide intervals. The exact
+exact tier by construction. The tokenizer is value-preservation-validated against one
+independent engine (LibreOffice), not Excel, and column operations and
+sheet-qualified/3D/table/R1C1 constructs are not yet in the property-based generator.
+The certify eval is single-op (insert-row@2) with one oracle engine (which has its own
+array/spill blindness), though the corrupt arm is now three types rather than a
+monoculture and its false-certification rate carries a Wilson-95 upper bound of 0.079.
+The deeper open item is that the theorem proves fidelity *given* a faithful `(fn, deps)`
+extraction; the extraction predicate is validated against an engine but not itself
+machine-checked — closing that proof↔extraction gap is the natural next step. The exact
 tier certifies a measured 37.5% of operations and 27% of whole tasks on a realistic
 edit-distribution study; the majority of real tasks are mixed and need the probabilistic
 tier, whose soundness rests on the self-oracle's completeness rather than a proof.
