@@ -19,7 +19,11 @@ under a function-and-dependency-preserving isomorphism, so a structural (coordin
 relabeling) edit whose reference-dependency graph is isomorphic to the original's
 reproduces every computed value — *under any semantics, without running the engine*.
 A companion locality theorem bounds what a value edit can affect to its downstream
-cone. On this spine we build a **certify-or-refuse router**: an untrusted agent's
+cone, and a third machine-checked theorem shows the tool's reference-shift
+*constructively produces* that isomorphism on a token-level formula model — so the
+theorem's hypothesis is discharged by the operation the tool performs, leaving only the
+byte→token parse as a trusted step, which we validate against an independent engine.
+On this spine we build a **certify-or-refuse router**: an untrusted agent's
 structural edit is accepted only when it equals the tool's own proven coordinate-
 shift transform, and otherwise explicitly refused — never silently wrong. We report a
 production certifier (`xlq certify`), the trusted reference-shift tokenizer it rests
@@ -130,12 +134,29 @@ Both theorems are machine-checked in Lean 4, self-contained (no Mathlib), with
 set-theoretic truth) are separately proved for all inputs by the Z3 SMT solver
 (`formal/shift_laws.py`).
 
+**Theorem 3 (graph preservation — the shift discharges the hypothesis).** Theorems 1
+and 2 *assume* the edited graph is the `σ`-relabeling of the original's; the tool does
+not assume it, it produces it by shifting references. We model a formula as a list of
+tokens — each an opaque literal (number, string, function name) or a cell reference —
+and machine-check that the reference-shift produces exactly the relabeled graph:
+`refs (shiftF σ f) = (refs f).map σ`, with literals provably untouched
+(`formal/RefShift.lean`). This is *verbatim* the `hdeps` premise of Theorem 1, so the
+graph isomorphism the value-fidelity theorem assumes is discharged **constructively by
+the operation the tool performs**, not assumed for free. We also machine-check that the
+concrete row-insert / row-delete cell maps satisfy `delete∘insert = id` (and hence a
+formula shifted by an insert then its matching delete is unchanged) — the structural
+counterpart of the Z3-proved arithmetic law. All `sorry`-free, axioms `[propext,
+Quot.sound]`.
+
 **What the theorem does and does not give.** It gives: structural-edit value-fidelity
-reduces to a graph-isomorphism check that is engine-free and semantics-agnostic. It
-does *not* give: fidelity of value edits (out of scope by construction — routed to the
-probabilistic tier), nor a guarantee that the *extraction* of `(fn, deps)` from the
-concrete file is itself faithful. That extraction is the trusted computing base, and
-§4 is about making it small and checked rather than assumed.
+reduces to a graph-isomorphism check that is engine-free and semantics-agnostic, and —
+with Theorem 3 — that check is discharged by the tool's own shift on the token-level
+formula model. The token→graph→value chain is therefore machine-checked end to end.
+The *sole* remaining trusted step is the byte→token parse (does the tokenizer read the
+concrete formula bytes into the right `lit`/`ref` tokens?), which §4 hardens to an exact
+grid-validity predicate and §5.1 validates for value-preservation against an independent
+engine. Fidelity of value edits remains out of the exact tier by construction (routed
+to the probabilistic tier).
 
 # 4. The certify-or-refuse router and its trusted base
 
@@ -294,9 +315,10 @@ sheet-qualified/3D/table/R1C1 constructs are not yet in the property-based gener
 The certify eval is single-op (insert-row@2) with one oracle engine (which has its own
 array/spill blindness), though the corrupt arm is now three types rather than a
 monoculture and its false-certification rate carries a Wilson-95 upper bound of 0.079.
-The deeper open item is that the theorem proves fidelity *given* a faithful `(fn, deps)`
-extraction; the extraction predicate is validated against an engine but not itself
-machine-checked — closing that proof↔extraction gap is the natural next step. The exact
+The proof↔extraction gap is now closed at the token→graph layer — the shift is
+machine-checked to produce the required graph isomorphism (Theorem 3) — so the sole
+remaining trusted step is the byte→token parse, which is engine-validated but not itself
+formally verified; a verified byte-level tokenizer is the natural next step. The exact
 tier certifies a measured 37.5% of operations and 27% of whole tasks on a realistic
 edit-distribution study; the majority of real tasks are mixed and need the probabilistic
 tier, whose soundness rests on the self-oracle's completeness rather than a proof.
