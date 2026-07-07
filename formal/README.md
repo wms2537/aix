@@ -27,6 +27,28 @@ export PATH="$HOME/.elan/bin:$PATH"
 lean SelfOracle.lean          # exit 0 = verified
 ```
 
+## Lean 4 — closing the proof↔extraction gap (`RefShift.lean`)
+
+Theorem 1 assumes the edited computation's dependency graph is the `σ`-relabeling of
+the original's. The tool does not assume this — it PRODUCES it, by shifting the
+references in each formula. `RefShift.lean` models a formula as a list of tokens
+(`lit` = literal/function-name/constant, `ref` = cell reference) and machine-checks
+the missing link:
+
+**Graph preservation (`refs_shiftF`).** `refs (shiftF σ f) = (refs f).map σ` — the
+reference-shift produces exactly the `σ`-image of the reference graph, with literals
+provably untouched. This is verbatim the `hdeps` premise of Theorem 1, so the
+hypothesis the value-fidelity theorem assumes is now *discharged constructively* by
+the operation the tool performs.
+
+**Invertibility (`delete_insert_id`, `insert_delete_form_id`).** On the cell model,
+delete-after-insert at the same index is the identity, and a formula shifted by an
+insert then its matching delete is unchanged — the structural counterpart of the
+Z3-proved arithmetic law. `#print axioms` reports only `[propext, Quot.sound]`, no
+`sorry`. The only remaining trusted step is the byte→token parse into this model,
+which is validated for value-preservation against an independent engine
+(`benchmarks/tokenizer_conformance.py`, 264 formulas, 0 divergences).
+
 ## Z3 — the reference-shift algebra laws (`shift_laws.py`)
 
 The algebraic laws underpinning the shift map, proved for **all** positions,
