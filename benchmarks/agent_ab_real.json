@@ -1,0 +1,24 @@
+{
+  "benchmark": "real-corpus edit-path A/B (LibreOffice self-consistent), insert-row + insert-col",
+  "workbooks": 22,
+  "per_op": {
+    "insert-rows": {
+      "openpyxl_corrupt": 16,
+      "openpyxl_faithful": 6,
+      "openpyxl_silent_corruption_rate": 0.727,
+      "xlq_corrupt": 11,
+      "xlq_faithful": 11,
+      "xlq_refused": 2,
+      "xlq_false_faithful_rate": 0.5
+    },
+    "insert-cols": {
+      "openpyxl_corrupt": 13,
+      "openpyxl_faithful": 7,
+      "openpyxl_silent_corruption_rate": 0.65,
+      "xlq_corrupt": 11,
+      "xlq_faithful": 11,
+      "xlq_refused": 2,
+      "xlq_false_faithful_rate": 0.5
+    }
+  }
+}
