@@ -1,0 +1,64 @@
+{
+  "benchmark": "tokenizer conformance \u2014 4 structural ops x 2 independent engines",
+  "ops": [
+    "insert-rows",
+    "delete-rows",
+    "insert-cols",
+    "delete-cols"
+  ],
+  "libreoffice": {
+    "checked": 465,
+    "divergences": 0
+  },
+  "formulas_engine": {
+    "checked": 465,
+    "divergences": 0
+  },
+  "per_op": [
+    {
+      "op": "insert-rows",
+      "libreoffice": {
+        "checked": 140,
+        "divergences": 0
+      },
+      "formulas": {
+        "checked": 140,
+        "divergences": 0
+      }
+    },
+    {
+      "op": "delete-rows",
+      "libreoffice": {
+        "checked": 97,
+        "divergences": 0
+      },
+      "formulas": {
+        "checked": 97,
+        "divergences": 0
+      }
+    },
+    {
+      "op": "insert-cols",
+      "libreoffice": {
+        "checked": 140,
+        "divergences": 0
+      },
+      "formulas": {
+        "checked": 140,
+        "divergences": 0
+      }
+    },
+    {
+      "op": "delete-cols",
+      "libreoffice": {
+        "checked": 88,
+        "divergences": 0
+      },
+      "formulas": {
+        "checked": 88,
+        "divergences": 0
+      }
+    }
+  ],
+  "headline": "4 structural ops, TWO independent engines: LibreOffice 465 checks/0 divergences, formulas 465 checks/0 divergences."
+}
