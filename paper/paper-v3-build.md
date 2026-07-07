@@ -20,23 +20,23 @@ relabeling) edit whose reference-dependency graph is isomorphic to the original'
 reproduces every computed value — *under any semantics, without running the engine*.
 A companion locality theorem bounds what a value edit can affect to its downstream
 cone, and a third machine-checked theorem shows the tool's reference-shift
-*constructively produces* that isomorphism on a token-level formula model — so the
-theorem's hypothesis is discharged by the operation the tool performs, leaving only the
-byte→token parse as a trusted step, which we validate against an independent engine.
+*constructively produces* that isomorphism on a token-level formula model (single-cell
+and range-endpoint references) — narrowing the trusted base rather than eliminating it.
 On this spine we build a **certify-or-refuse router**: an untrusted agent's
 structural edit is accepted only when it equals the tool's own proven coordinate-
 shift transform, and otherwise explicitly refused — never silently wrong. We report a
 production certifier (`xlq certify`), the trusted reference-shift tokenizer it rests
-on (hardened to an exact grid-validity predicate and validated for value-preservation
-against an independent engine over 264 formulas with zero divergences), and a
-fail-closed boundary for the one undecidable-from-syntax case (a defined name
-spelled like a cell reference). We are deliberate about what is *proof* and what is
-*corroboration*: the theorem is the result; the empirical harness — an engine-free
-foreign-edit certifier that refuses 147/147 corrupted edits, an independent-oracle
-A/B in which the naive edit path silently corrupts 86.6% of real workbooks while the
-certified path corrupts none, and an independent-oracle confusion matrix with zero
-observed false certifications — corroborates it, and we report each with its
-confound and its confidence interval, not as an independent soundness argument.
+on (hardened to an exact grid-validity predicate and corroborated by value-preservation
+against an independent engine over 264 formulas), and fail-closed boundaries for the
+cases the certifier cannot verify (a defined name spelled like a cell reference; a
+non-cell reference in a defined name, data-validation, conditional-formatting, or
+chart). We are deliberate about what is *proof* and what is *corroboration*: the
+theorem is the result; the empirical harness — an engine-free foreign-edit certifier
+that refuses 147/147 corrupted edits, an independent-oracle A/B in which the naive edit
+path silently corrupts 86.6% of real workbooks while the certified path corrupts none,
+and a diverse-corruptor confusion matrix in which every injected corruption is refused —
+corroborates it, and we report each with its confound (including a false certification
+our own review found and we then closed), not as an independent soundness argument.
 
 # 1. Introduction
 
@@ -134,29 +134,32 @@ Both theorems are machine-checked in Lean 4, self-contained (no Mathlib), with
 set-theoretic truth) are separately proved for all inputs by the Z3 SMT solver
 (`formal/shift_laws.py`).
 
-**Theorem 3 (graph preservation — the shift discharges the hypothesis).** Theorems 1
-and 2 *assume* the edited graph is the `σ`-relabeling of the original's; the tool does
-not assume it, it produces it by shifting references. We model a formula as a list of
-tokens — each an opaque literal (number, string, function name) or a cell reference —
-and machine-check that the reference-shift produces exactly the relabeled graph:
-`refs (shiftF σ f) = (refs f).map σ`, with literals provably untouched
-(`formal/RefShift.lean`). This is *verbatim* the `hdeps` premise of Theorem 1, so the
-graph isomorphism the value-fidelity theorem assumes is discharged **constructively by
-the operation the tool performs**, not assumed for free. We also machine-check that the
-concrete row-insert / row-delete cell maps satisfy `delete∘insert = id` (and hence a
-formula shifted by an insert then its matching delete is unchanged) — the structural
-counterpart of the Z3-proved arithmetic law. All `sorry`-free, axioms `[propext,
-Quot.sound]`.
+**Theorem 3 (graph preservation — the shift discharges the hypothesis, for single
+cells and range endpoints).** Theorems 1 and 2 *assume* the edited graph is the
+`σ`-relabeling of the original's; the tool does not assume it, it produces it by
+shifting references. We model a formula as a list of tokens — each an opaque literal
+(number, string, function name), a single cell reference, or a range carrying its two
+endpoints — and machine-check that the reference-shift produces exactly the relabeled
+graph: `refs (shiftF σ f) = (refs f).map σ`, with literals provably untouched
+(`formal/RefShift.lean`). This is *verbatim* the `hdeps` premise of Theorem 1, so for
+these token shapes the graph isomorphism is discharged **constructively by the tool's
+operation**, not assumed. We also machine-check `delete∘insert = id` on the cell maps.
+All `sorry`-free, axioms `[propext, Quot.sound]`.
 
-**What the theorem does and does not give.** It gives: structural-edit value-fidelity
-reduces to a graph-isomorphism check that is engine-free and semantics-agnostic, and —
-with Theorem 3 — that check is discharged by the tool's own shift on the token-level
-formula model. The token→graph→value chain is therefore machine-checked end to end.
-The *sole* remaining trusted step is the byte→token parse (does the tokenizer read the
-concrete formula bytes into the right `lit`/`ref` tokens?), which §4 hardens to an exact
-grid-validity predicate and §5.1 validates for value-preservation against an independent
-engine. Fidelity of value edits remains out of the exact tier by construction (routed
-to the probabilistic tier).
+**What Theorem 3 does and does not give.** It is a fusion law parametric in an
+*arbitrary total* map `σ : Cell → Cell`: it proves the shift *transports* the reference
+graph by whatever `σ` it is given — it does **not** verify that `σ` is Excel's shift
+arithmetic (that is the separate Z3-proved algebra), nor does the total-map model
+express the asymmetric six-case delete *clamp* (head-in-band → k, tail-in-band → k−1),
+the `#REF!` a fully-consumed reference produces, or the true multi-cell interior of a
+range (we model a range by its endpoints). So the honest statement is: **the
+token→graph→value chain is machine-checked for single-cell references and
+range-endpoint pairs under a value-preserving relabeling**; the explicitly *trusted*
+surface is the byte→token parse (§4, §5.1), the correctness of `σ` itself, the
+asymmetric clamp / `#REF!` algebra, range-interior dependencies, and
+sheet-qualified/3D/table/external references. This is a real narrowing of the trusted
+base — not its elimination. Fidelity of value edits remains out of the exact tier by
+construction.
 
 # 4. The certify-or-refuse router and its trusted base
 
@@ -199,19 +202,24 @@ tokens, `$`-absolutes, and ranges, across insert-rows and delete-rows: 175 (form
 op) pairs, 0 disagreements (`tokenizer_fuzz.py`). This establishes *mechanization
 consistency* between the Rust scanner and the reference — but the reference is a
 second implementation of *our own* grid-validity spec, so it cannot establish
-conformance to a spreadsheet engine's semantics. Second, therefore, **conformance
-against an independent engine**: a blank-row insert is value-preserving under a
-correct reference shift, so recomputing the same file with LibreOffice *before and
-after* the edit must leave every formula's value unchanged (`tokenizer_conformance.py`,
-seeded property-based generation over evaluable formulas — digit-bearing function
-names, single/mixed/absolute refs, ranges). Over 264 engine-checked formulas across
-insert and delete, **0 value divergences**. Because both grids come from LibreOffice,
-there is no Excel-versus-LibreOffice disagreement and no reliability gate — every
-function is measurable. This is conformance to an independent engine's reference
-semantics, not merely spec-consistency. We remain precise about its bound: it is one
-engine (LibreOffice), not Excel, and column operations and sheet-qualified/3D/table/
-R1C1 constructs are not yet in the property-based generator — those are the stated
-remaining scope.
+conformance to a spreadsheet engine's semantics. Second, therefore, **differential value-preservation against an independent engine**:
+a blank-row insert is value-preserving under a correct reference shift, so recomputing
+the same file with LibreOffice *before and after* the edit must leave every formula's
+value unchanged (`tokenizer_conformance.py`, seeded property-based generation over
+evaluable formulas — digit-bearing function names, single/mixed/absolute refs, ranges,
+strictly-distinct cell values so a mis-shift onto another cell changes the value). Over
+264 formulas across insert and delete, **0 value divergences**. We are precise about
+what this does and does not establish. Value-preservation is *necessary but not
+sufficient* for reference-graph correctness: a mis-shift of a reference that the
+formula's value does not depend on (a zero-weighted term, a non-max argument of `MAX`,
+a range endpoint whose only effect is to add the all-zero inserted blank row) would
+pass undetected, so the 264 figure over-counts references actually *witnessed* by the
+value. It is also one engine (LibreOffice), so it validates that the shift commutes
+with LibreOffice evaluation, not conformance to Excel's tokenization; and column
+operations and sheet-qualified/3D/table/R1C1 constructs are outside the generator. The
+honest label is *differential value-preservation against LibreOffice — a
+necessary-not-sufficient corroboration of the trusted parse, complementing the
+same-spec fuzzer* — not full conformance to an engine's reference semantics.
 
 **The one undecidable case, made a fail-closed boundary.** A defined name spelled like
 a grid-valid cell (`FY2021` = column FY, row 2021; `Q1`; `Tax2020`) is
@@ -267,19 +275,28 @@ to three corruptor types — `openpyxl` (no-op), `unshift_one` (revert one shift
 reference), and `wrong_delta` (over-shift one reference) — with ground truth **by
 construction** (we inject the corruption, so its label is independent of any engine)
 and a LibreOffice *self-consistent* oracle as cross-check (recompute before/after; no
-reliability gate). Over 45 injected corruptions: **0 false certifications**, Wilson-95
-upper bound **0.079** (down from ≈ 0.21); every corruptor type refused 15/15; and all
-15 faithful (tool-produced) edits certified, 0 falsely refused (`cert_confusion_v2`).
-Two honest points remain. First, `FN=0` is, by the certifier's design, structural — it
-certifies iff the edit equals the tool's transform, so a corruption can be falsely
-certified only via a *self-consistent error* (the tool's transform itself wrong and
-the edit reproducing it), the path §4's engine-conformance validation and fail-closed
-name-collision boundary are built to close. Second — and in the certifier's favor —
-6 of the injected corruptions were **value-preserving** (a reference error that does
-not change the current computed value); the value oracle called them faithful, but
-`xlq certify` refused all 6, demonstrating that its structural equality is *stricter*
-than a value check and catches latent reference errors a human eyeballing recomputed
-numbers would miss.
+reliability gate). All 45 injected corruptions were refused (each type 15/15) and all 15 faithful
+tool-produced edits certified (`cert_confusion_v2`). We are careful about what this
+does *not* show: because the certifier accepts iff the edit equals the tool's transform,
+and all three corruptors are *defined* as deviations from that transform, `FN=0` here is
+**by construction**, not a sampled bound — we do not attach a confidence interval to a
+structurally-guaranteed zero, and `unshift_one`/`wrong_delta` differ only in the sign of
+a perturbation the certifier does not weigh. The one *reachable* false certification is
+not in this family at all: the cell diff compares only sheet cells, so a foreign edit
+that shifts every cell formula correctly but leaves a **non-cell reference** (a defined
+name's target, a data-validation or conditional-formatting formula, a chart series)
+unshifted is invisible to it. We built exactly that edit (`cert_noncell_test.py`): with
+a defined name `Rate = $A$10` left unshifted while all cells moved, an earlier `xlq
+certify` **CERTIFIED it with all-zero diffs — a genuine false certification.** We closed
+it: certify now checks that defined names match the tool's transform (refusing the
+unshifted one, certifying the correct one) and *fail-closes* on data-validation,
+conditional-formatting, and chart parts it does not compare — a stated coverage
+boundary. Separately, 6 of the cell-formula corruptions were **value-preserving** (a
+reference error that does not change the current value); the value oracle called them
+faithful but certify refused all 6 — its structural equality is *stricter* than a value
+check. The symmetric cost, stated plainly: certify equally refuses a *faithful but
+non-identical* rewrite (a commuted `A1+B1` → `B1+A1`), so its accept class is
+"byte-for-formula identical to the tool's transform," narrower than "value-faithful."
 
 ## 5.4 The interventional finding: differential testing hardened the trusted base
 
@@ -296,32 +313,42 @@ framing is that the method proved its worth, not that it produced a soundness nu
 
 # 6. On finding our own defects
 
-Three independent adversarial reviews of these artifacts each landed a real hole: the
-tokenizer's syntactic proxies (silent corruption), the circular live-agent experiment
-(a tautological "0 false certifications"), and the unimplemented defined-name boundary
-(a genuine open soundness gap). We fixed each and report it as fixed. We consider this
-part of the contribution: a certify-or-refuse claim is only credible if its authors
-have tried hardest to break it, and the record of what broke — and what the fix was —
-is the evidence that the remaining boundary is real.
+Successive adversarial reviews of these artifacts each landed a real hole: the
+tokenizer's syntactic proxies (silent corruption); the circular live-agent experiment
+(a tautological "0 false certifications"); the unimplemented defined-name *aliasing*
+boundary; and — most consequentially — a **reachable false certification** in the
+production certifier itself, where a foreign edit that shifts every cell formula
+correctly but leaves a defined name's target unshifted was certified with all-zero
+diffs, because the cell diff never compared non-cell references. We built the exploit,
+confirmed it, and closed it (defined names now checked against the tool's transform;
+data-validation, conditional-formatting, and chart parts fail-closed). We report each
+as a fixed defect. This is part of the contribution: a certify-or-refuse claim is only
+credible if its authors have tried hardest to break it — the record of what broke, and
+what the fix was, is the evidence that the remaining boundary is real, and it is why we
+are conservative about calling the corroboration anything more than corroboration.
 
 # 7. Scope and limitations
 
-The verified guarantee covers the structural fragment (row/column insert/delete) on
-single-sheet, in-grid coordinates with no defined-name collision; everything outside
-this surface routes to refusal, not silent acceptance. Value edits are out of the
-exact tier by construction. The tokenizer is value-preservation-validated against one
-independent engine (LibreOffice), not Excel, and column operations and
-sheet-qualified/3D/table/R1C1 constructs are not yet in the property-based generator.
-The certify eval is single-op (insert-row@2) with one oracle engine (which has its own
-array/spill blindness), though the corrupt arm is now three types rather than a
-monoculture and its false-certification rate carries a Wilson-95 upper bound of 0.079.
-The proof↔extraction gap is now closed at the token→graph layer — the shift is
-machine-checked to produce the required graph isomorphism (Theorem 3) — so the sole
-remaining trusted step is the byte→token parse, which is engine-validated but not itself
-formally verified; a verified byte-level tokenizer is the natural next step. The exact
-tier certifies a measured 37.5% of operations and 27% of whole tasks on a realistic
+The **verified surface** the certifier certifies (rather than refuses) is: row/column
+insert/delete, single-sheet, in-grid coordinates, cell formulas over single-cell and
+range-endpoint references, with no defined-name/cell collision and no defined-name
+mismatch. Everything outside it — data-validation, conditional-formatting, chart, table,
+3D, and sheet-qualified references, and any defined name whose target differs from the
+tool's transform — routes to refusal, not silent acceptance. Value edits are out of the
+exact tier by construction. The **trusted base** (narrowed by Theorem 3 but not
+eliminated) is: the byte→token parse; the correctness of the shift map `σ` itself (the
+Z3-proved arithmetic, not re-proved in the graph layer); the asymmetric six-case delete
+clamp and its `#REF!` outcomes; the multi-cell interior of ranges (modeled by endpoints);
+and the constructs absent from the token type. The corroboration is bounded accordingly:
+value-preservation is necessary-not-sufficient and validated against one engine
+(LibreOffice, with its own array/spill blindness); the confusion matrix's `FN=0` is
+by-construction over deviations-from-transform, so the informative test is the non-cell
+corruptor of §5.3, which found and closed a real false certification. The exact tier
+certifies a measured 37.5% of operations and 27% of whole tasks on a realistic
 edit-distribution study; the majority of real tasks are mixed and need the probabilistic
-tier, whose soundness rests on the self-oracle's completeness rather than a proof.
+tier, whose soundness rests on the self-oracle's completeness rather than a proof. A
+verified byte-level tokenizer, and a model faithful to the clamp/`#REF!` algebra, are
+the natural next steps.
 
 # 8. Related work
 
