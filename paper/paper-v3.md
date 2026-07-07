@@ -270,6 +270,20 @@ is auditability and explicit refusal, which the A/B does not isolate. We found a
 `ROW()`/`COLUMN()` are position-dependent and legitimately change on a row insert —
 which is why the oracle excludes position-dependent functions.
 
+On the **real** corpus across all four ops we check shift correctness
+*deterministically* rather than by recompute, because real-corpus value-preservation is
+confounded — LibreOffice recomputes exotic financial/date functions (ACCRINT, CUMPRINC,
+DB, DAYS360, TIME) inconsistently with the Excel cache, flagging as "corrupt" files
+whose shifted formulas we verified correct by hand. So we compare xlq's output formulas
+to the two-engine-validated reference shifter over ~6,000 real formula cells
+(`shift_correctness_real.py`): **xlq is 100% correct on every op** (insert-rows 1651
+cells, delete-rows 1608, insert-cols 1648, delete-cols 1076; 0 mismatches), while the
+naive path leaves 17–72% of shift-requiring cells wrong. Constructs the simple checker
+cannot independently verify (whole-column/row, cross-sheet, tables, range-with-function
+endpoint) are skipped, not guessed; every early "mismatch" was a checker bug (comparing a
+deleted-band cell to the wrong output cell; the reference shifter not handling `F:F`,
+which xlq correctly shifts to `G:G`), and xlq had zero real errors.
+
 ### 5.3 Independent-oracle confusion matrix for the production certifier
 
 We adjudicate `xlq certify`'s verdicts *independently of the tool* over **diverse**
@@ -373,9 +387,11 @@ deviations-from-transform, so the informative test is the non-cell corruptor of 
 which found and closed a real false certification. The exact tier certifies a measured
 37.5% of operations and 27% of whole tasks on a realistic edit-distribution study; the
 majority of real tasks are mixed and need the probabilistic tier — but by Theorem 2 a
-mixed task still factors into a *certified structural scaffold* plus a bounded value-fill
-cone, so 87% of tasks have a certifiable structural skeleton even when not fully
-certified. A
+mixed task factors into a *certified structural scaffold* plus a bounded value-fill cone,
+and we measure this (`composition_coverage.py`): on mixed edits the scaffold is always
+certified and the audit surface collapses to the value-fill cone (100/84/68/52% of the
+artifact certified untouched as fills grow, mean 76%), so the certifiable *component*
+rises from **27% fully certified to 87% with a certified scaffold**. A
 verified byte-level tokenizer, and a model faithful to the clamp/`#REF!` algebra, are
 the natural next steps.
 
