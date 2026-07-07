@@ -39,22 +39,29 @@ each maximal token, whether it is a `ref` or a `lit`. Everything downstream is p
 inductive Tok (V : Type) where
   | lit : V → Tok V
   | ref : Cell → Tok V
+  | rng : Cell → Cell → Tok V     -- a range A1:B2, carrying both endpoints
 
 abbrev Form (V : Type) := List (Tok V)
 
-/-- The reference-dependency graph of a formula: the cells it reads, in order.
-    Literals contribute nothing. This is the `deps` a computation carries. -/
+/-- The reference-dependency graph of a formula: the cells it reads, in order. A range
+    contributes both endpoints (the extent is determined by them); literals contribute
+    nothing. This is the `deps` a computation carries. -/
 def refs {V : Type} : Form V → List Cell
-  | []            => []
-  | (.ref c) :: t => c :: refs t
-  | (.lit _) :: t => refs t
+  | []               => []
+  | (.ref c) :: t    => c :: refs t
+  | (.rng a b) :: t  => a :: b :: refs t
+  | (.lit _) :: t    => refs t
 
-/-- Apply a coordinate map to every reference, leaving literals untouched. This is
-    exactly what the reference-shift does to a formula. -/
+/-- Apply a coordinate map to every reference (single cell AND both range endpoints),
+    leaving literals untouched. This is exactly what the reference-shift does — and it
+    holds for ANY cell map `σ`, including the 6-case delete CLAMP that maps a range
+    endpoint landing on a deleted row (the clamp's arithmetic is separately Z3-proved;
+    here we prove that whatever `σ` is, the graph is its image). -/
 def shiftF {V : Type} (σ : Cell → Cell) : Form V → Form V
-  | []            => []
-  | (.ref c) :: t => (.ref (σ c)) :: shiftF σ t
-  | (.lit v) :: t => (.lit v)     :: shiftF σ t
+  | []               => []
+  | (.ref c) :: t    => (.ref (σ c)) :: shiftF σ t
+  | (.rng a b) :: t  => (.rng (σ a) (σ b)) :: shiftF σ t
+  | (.lit v) :: t    => (.lit v)     :: shiftF σ t
 
 /-! ## The key theorem: the shift produces the σ-relabeled reference graph -/
 
@@ -67,24 +74,27 @@ def shiftF {V : Type} (σ : Cell → Cell) : Form V → Form V
     are provably untouched. -/
 theorem refs_shiftF {V : Type} (σ : Cell → Cell) :
     ∀ f : Form V, refs (shiftF σ f) = (refs f).map σ
-  | []            => rfl
-  | (.ref c) :: t => by simp [refs, shiftF, refs_shiftF σ t]
-  | (.lit v) :: t => by simp [refs, shiftF, refs_shiftF σ t]
+  | []               => rfl
+  | (.ref c) :: t    => by simp [refs, shiftF, refs_shiftF σ t]
+  | (.rng a b) :: t  => by simp [refs, shiftF, refs_shiftF σ t]
+  | (.lit v) :: t    => by simp [refs, shiftF, refs_shiftF σ t]
 
 /-! ## Functoriality and invertibility of the shift -/
 
 /-- The shift is functorial: shifting by `τ` then `σ` equals shifting by `σ ∘ τ`. -/
 theorem shiftF_comp {V : Type} (σ τ : Cell → Cell) :
     ∀ f : Form V, shiftF σ (shiftF τ f) = shiftF (σ ∘ τ) f
-  | []            => rfl
-  | (.ref c) :: t => by simp [shiftF, shiftF_comp σ τ t]
-  | (.lit v) :: t => by simp [shiftF, shiftF_comp σ τ t]
+  | []               => rfl
+  | (.ref c) :: t    => by simp [shiftF, shiftF_comp σ τ t]
+  | (.rng a b) :: t  => by simp [shiftF, shiftF_comp σ τ t]
+  | (.lit v) :: t    => by simp [shiftF, shiftF_comp σ τ t]
 
 /-- Shifting by the identity map is the identity. -/
 theorem shiftF_id {V : Type} : ∀ f : Form V, shiftF id f = f
-  | []            => rfl
-  | (.ref c) :: t => by simp [shiftF, shiftF_id t]
-  | (.lit v) :: t => by simp [shiftF, shiftF_id t]
+  | []               => rfl
+  | (.ref c) :: t    => by simp [shiftF, shiftF_id t]
+  | (.rng a b) :: t  => by simp [shiftF, shiftF_id t]
+  | (.lit v) :: t    => by simp [shiftF, shiftF_id t]
 
 /-- If the cell maps compose to the identity, the formula shifts round-trip to the
     original — so an insert followed by the matching delete restores every formula

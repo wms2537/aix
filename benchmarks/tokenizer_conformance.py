@@ -68,9 +68,12 @@ def gen_formula(rng):
 
 def build(path, formulas, rng):
     wb = openpyxl.Workbook(); ws = wb.active; ws.title = "S"
+    # STRICTLY DISTINCT positive values per cell: any mis-shift lands on a cell with a
+    # different value, so a wrong shift changes the recomputed value and is caught —
+    # closing the value-coincidence blind spot of a value-preservation oracle.
     for r in range(1, DATA_ROWS + 1):
         for c in range(1, DATA_COLS + 1):
-            ws.cell(r, c).value = round(1.0 + ((r * 7 + c * 3) % 41) + rng.random(), 4)
+            ws.cell(r, c).value = round((r - 1) * DATA_COLS + c + 0.5 + rng.random() * 0.4, 4)
     placed = []
     for i, f in enumerate(formulas):
         col = get_column_letter(DATA_COLS + 2 + i)   # formulas start past the data block
