@@ -1,0 +1,30 @@
+{
+  "validation": "xlq certify over DIVERSE corruptors; ground truth BY CONSTRUCTION (injected corruptions), LibreOffice self-consistent oracle as cross-check (no reliability gate)",
+  "corruptor_types": [
+    "openpyxl(no-op-shift)",
+    "unshift_one",
+    "wrong_delta"
+  ],
+  "known_corrupt_edits": 45,
+  "FALSE_CERTIFICATIONS": 0,
+  "false_certification_rate": 0.0,
+  "false_cert_rate_wilson95_ci": [
+    0,
+    0.0787
+  ],
+  "known_faithful_edits": 15,
+  "faithful_falsely_refused": 0,
+  "value_preserving_corruptions_certify_caught_but_value_oracle_missed": 6,
+  "by_corruptor_certify_verdict": {
+    "openpyxl": {
+      "refused": 15
+    },
+    "unshift_one": {
+      "refused": 15
+    },
+    "wrong_delta": {
+      "refused": 15
+    }
+  },
+  "headline": "45 injected corruptions over 3 types: 0 false certifications (Wilson95 upper 0.079); 15/15 faithful xlq edits certified; certify caught 6 value-preserving corruptions the value-oracle could not see (it is stricter than a value check)."
+}
