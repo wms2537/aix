@@ -350,9 +350,10 @@ compare-and-fail-close net is an **enumerated denylist**, not a machine-checked
 allowlist: its completeness over value-affecting non-cell references is *asserted, not
 proven*, so an un-enumerated value-bearing construct would be silently certified — the
 exact failure the defined-name case exhibited until a reviewer built the exploit. (We
-keep certify's compare surface a superset of the transform's write surface, which makes
-the enumeration mechanically checkable against `has_ref_attr`, but that superset relation
-is a code invariant, not a proof.) Second, the guarantee is over **computed values**:
+keep certify's compare surface a superset of the transform's *value-bearing* write
+surface — every reference-bearing construct except the deliberately-excluded view-state
+`dimension`/`selection`/`pane`/`brk` — which makes the enumeration mechanically checkable
+against `has_ref_attr`, but that superset relation is a code invariant, not a proof.) Second, the guarantee is over **computed values**:
 pure view-state the transform also shifts — the used-range `dimension`, `selection`,
 frozen `pane`, and page `brk`s — is deliberately *not* compared, because it is
 non-value-bearing and foreign tools legitimately vary it; a certified file may differ

@@ -524,25 +524,28 @@ completeness over value-affecting non-cell references is \emph{asserted,
 not proven}, so an un-enumerated value-bearing construct would be
 silently certified --- the exact failure the defined-name case exhibited
 until a reviewer built the exploit. (We keep certify's compare surface a
-superset of the transform's write surface, which makes the enumeration
-mechanically checkable against \texttt{has\_ref\_attr}, but that
-superset relation is a code invariant, not a proof.) Second, the
-guarantee is over \textbf{computed values}: pure view-state the
-transform also shifts --- the used-range \texttt{dimension},
-\texttt{selection}, frozen \texttt{pane}, and page \texttt{brk}s --- is
-deliberately \emph{not} compared, because it is non-value-bearing and
-foreign tools legitimately vary it; a certified file may differ from the
-transform there without affecting any value. Value edits are out of the
-exact tier by construction. The \textbf{trusted base} (narrowed by
-Theorem 3 but not eliminated) is: the byte→token parse; the correctness
-of the shift map \texttt{σ} itself (the Z3-proved arithmetic, not
-re-proved in the graph layer); the asymmetric six-case delete clamp and
-its \texttt{\#REF!} outcomes; the multi-cell interior of ranges (modeled
-by endpoints); the constructs absent from the token type; and the
-completeness of the non-cell denylist. The corroboration is bounded
-accordingly: value-preservation is necessary-not-sufficient and
-validated against one engine (LibreOffice, with its own array/spill
-blindness); the confusion matrix's \texttt{FN=0} is by-construction over
+superset of the transform's \emph{value-bearing} write surface --- every
+reference-bearing construct except the deliberately-excluded view-state
+\texttt{dimension}/\texttt{selection}/\texttt{pane}/\texttt{brk} ---
+which makes the enumeration mechanically checkable against
+\texttt{has\_ref\_attr}, but that superset relation is a code invariant,
+not a proof.) Second, the guarantee is over \textbf{computed values}:
+pure view-state the transform also shifts --- the used-range
+\texttt{dimension}, \texttt{selection}, frozen \texttt{pane}, and page
+\texttt{brk}s --- is deliberately \emph{not} compared, because it is
+non-value-bearing and foreign tools legitimately vary it; a certified
+file may differ from the transform there without affecting any value.
+Value edits are out of the exact tier by construction. The
+\textbf{trusted base} (narrowed by Theorem 3 but not eliminated) is: the
+byte→token parse; the correctness of the shift map \texttt{σ} itself
+(the Z3-proved arithmetic, not re-proved in the graph layer); the
+asymmetric six-case delete clamp and its \texttt{\#REF!} outcomes; the
+multi-cell interior of ranges (modeled by endpoints); the constructs
+absent from the token type; and the completeness of the non-cell
+denylist. The corroboration is bounded accordingly: value-preservation
+is necessary-not-sufficient and validated against one engine
+(LibreOffice, with its own array/spill blindness); the confusion
+matrix's \texttt{FN=0} is by-construction over
 deviations-from-transform, so the informative test is the non-cell
 corruptor of §5.3, which found and closed a real false certification.
 The exact tier certifies a measured 37.5\% of operations and 27\% of
