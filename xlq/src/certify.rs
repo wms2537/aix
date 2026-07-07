@@ -143,10 +143,11 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        reference was not shifted faithfully",
         }));
     }
-    // fail closed on other reference-bearing parts certify does not compare
+    // fail closed on SHEET-level reference constructs certify does not compare
     for (needle, label) in [
         ("<dataValidation", "data_validation"),
         ("<conditionalFormatting", "conditional_formatting"),
+        ("sparkline", "sparkline"),
     ] {
         if sheets_contain(edited, needle) || sheets_contain(expected, needle) {
             return Some(json!({
@@ -157,17 +158,26 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
             }));
         }
     }
-    let has_chart = |b: &[u8]| {
-        structural::archive_names(b)
-            .map(|ns| ns.iter().any(|n| n.starts_with("xl/charts/")))
-            .unwrap_or(false)
-    };
-    if has_chart(edited) || has_chart(expected) {
-        return Some(json!({
-            "status": "REFUSED",
-            "reason": "unverified_reference_part",
-            "detail": "chart series references are not compared — refused (fail-closed)",
-        }));
+    // fail closed on whole reference-bearing PARTS certify does not compare
+    for (prefix, label) in [
+        ("xl/charts/", "chart"),
+        ("xl/pivotTables/", "pivot_table"),
+        ("xl/pivotCache/", "pivot_cache"),
+        ("xl/externalLinks/", "external_link"),
+    ] {
+        let present = |b: &[u8]| {
+            structural::archive_names(b)
+                .map(|ns| ns.iter().any(|n| n.starts_with(prefix)))
+                .unwrap_or(false)
+        };
+        if present(edited) || present(expected) {
+            return Some(json!({
+                "status": "REFUSED",
+                "reason": "unverified_reference_part",
+                "detail": format!("{label} references are not compared — refused (fail-closed; \
+                                   outside the verified surface)"),
+            }));
+        }
     }
     None
 }
