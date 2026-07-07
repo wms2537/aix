@@ -338,22 +338,26 @@ every formula's value unchanged (\texttt{tokenizer\_conformance.py},
 seeded property-based generation over evaluable formulas ---
 digit-bearing function names, single/mixed/absolute refs, ranges,
 strictly-distinct cell values so a mis-shift onto another cell changes
-the value). Over 264 formulas across insert and delete, \textbf{0 value
-divergences}. We are precise about what this does and does not
-establish. Value-preservation is \emph{necessary but not sufficient} for
-reference-graph correctness: a mis-shift of a reference that the
-formula's value does not depend on (a zero-weighted term, a non-max
-argument of \texttt{MAX}, a range endpoint whose only effect is to add
-the all-zero inserted blank row) would pass undetected, so the 264
-figure over-counts references actually \emph{witnessed} by the value. It
-is also one engine (LibreOffice), so it validates that the shift
-commutes with LibreOffice evaluation, not conformance to Excel's
-tokenization; and column operations and sheet-qualified/3D/table/R1C1
-constructs are outside the generator. The honest label is
-\emph{differential value-preservation against LibreOffice --- a
-necessary-not-sufficient corroboration of the trusted parse,
-complementing the same-spec fuzzer} --- not full conformance to an
-engine's reference semantics.
+the value). We run this across \textbf{all four structural ops}
+(insert/delete × rows/columns) and against \textbf{two independent
+engines} --- LibreOffice \emph{and} the pure-Python \texttt{formulas}
+engine, neither of which is xlq's IronCalc
+(\texttt{conformance\_v2.py}): \textbf{465 formulas checked per engine,
+0 value divergences, with the two engines agreeing exactly.} (The
+earlier single-op/one-engine run, \texttt{tokenizer\_conformance.py},
+gave 264 formulas / 0 divergences.) We are precise about what this does
+and does not establish. Value-preservation is \emph{necessary but not
+sufficient} for reference-graph correctness: a mis-shift of a reference
+that the formula's value does not depend on (a zero-weighted term, a
+non-max argument of \texttt{MAX}) would pass undetected, so the count
+over-counts references actually \emph{witnessed} by the value. Two
+independent engines agreeing rules out a single-engine artifact, but
+both are open-source engines, not Excel; and
+sheet-qualified/3D/table/R1C1 constructs are outside the generator. The
+honest label is \emph{differential value-preservation against
+LibreOffice --- a necessary-not-sufficient corroboration of the trusted
+parse, complementing the same-spec fuzzer} --- not full conformance to
+an engine's reference semantics.
 
 \textbf{The one undecidable case, made a fail-closed boundary.} A
 defined name spelled like a grid-valid cell (\texttt{FY2021} = column
@@ -404,14 +408,21 @@ against Excel's cache: the naive \texttt{openpyxl} edit path
 \textbf{silently corrupts 86.6\%} of workbooks (149/172), while the
 tool's structural edit is engine-confirmed faithful on 150/172 and
 explicitly refuses the remaining 22 --- \textbf{0 silent corruptions}
-(\texttt{agent\_ab}). We flag the confound: 86.6\% is a corpus property
-× one known-library bug (openpyxl shifts no references), not an
-agent-error distribution, and a competent reference-shifting engine also
-gets this op right; the tool's differentiator is auditability and
-explicit refusal, which this A/B does not isolate. We found and fixed an
-oracle false-positive during this study ---
-\texttt{ROW()}/\texttt{COLUMN()} are position-dependent and legitimately
-change on a row insert --- which is why the oracle excludes
+(\texttt{agent\_ab}). We extend this across \textbf{all four structural
+ops and both independent engines} on generated distinct-value workbooks
+(\texttt{agent\_ab\_v2.py}): the naive path silently corrupts
+insert-rows 100\% / delete-rows 98.8\% / insert-cols 94.3\% /
+delete-cols 80.2\% (\textbf{93.8\% overall}), the tool \textbf{0\% on
+every op}, and the \texttt{formulas} engine agrees with LibreOffice
+\emph{exactly} --- so the protection is not a LibreOffice artifact and
+holds across the op space, not just insert-row@2. We flag the confound
+that remains: the openpyxl figure is a corpus/tool property (openpyxl
+shifts no references), not an agent-error distribution, and a competent
+reference-shifting engine also gets these ops right; the tool's
+differentiator is auditability and explicit refusal, which the A/B does
+not isolate. We found and fixed an oracle false-positive during this
+study --- \texttt{ROW()}/\texttt{COLUMN()} are position-dependent and
+legitimately change on a row insert --- which is why the oracle excludes
 position-dependent functions.
 
 \subsection{5.3 Independent-oracle confusion matrix for the production
@@ -543,17 +554,20 @@ asymmetric six-case delete clamp and its \texttt{\#REF!} outcomes; the
 multi-cell interior of ranges (modeled by endpoints); the constructs
 absent from the token type; and the completeness of the non-cell
 denylist. The corroboration is bounded accordingly: value-preservation
-is necessary-not-sufficient and validated against one engine
-(LibreOffice, with its own array/spill blindness); the confusion
-matrix's \texttt{FN=0} is by-construction over
-deviations-from-transform, so the informative test is the non-cell
-corruptor of §5.3, which found and closed a real false certification.
-The exact tier certifies a measured 37.5\% of operations and 27\% of
-whole tasks on a realistic edit-distribution study; the majority of real
-tasks are mixed and need the probabilistic tier, whose soundness rests
-on the self-oracle's completeness rather than a proof. A verified
-byte-level tokenizer, and a model faithful to the clamp/\texttt{\#REF!}
-algebra, are the natural next steps.
+is necessary-not-sufficient (though now confirmed across all four
+structural ops and by two independent engines that agree, ruling out a
+single-engine artifact, and still not Excel); the confusion matrix's
+\texttt{FN=0} is by-construction over deviations-from-transform, so the
+informative test is the non-cell corruptor of §5.3, which found and
+closed a real false certification. The exact tier certifies a measured
+37.5\% of operations and 27\% of whole tasks on a realistic
+edit-distribution study; the majority of real tasks are mixed and need
+the probabilistic tier --- but by Theorem 2 a mixed task still factors
+into a \emph{certified structural scaffold} plus a bounded value-fill
+cone, so 87\% of tasks have a certifiable structural skeleton even when
+not fully certified. A verified byte-level tokenizer, and a model
+faithful to the clamp/\texttt{\#REF!} algebra, are the natural next
+steps.
 
 \section{8. Related work}\label{related-work}
 

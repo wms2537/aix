@@ -210,16 +210,19 @@ a blank-row insert is value-preserving under a correct reference shift, so recom
 the same file with LibreOffice *before and after* the edit must leave every formula's
 value unchanged (`tokenizer_conformance.py`, seeded property-based generation over
 evaluable formulas — digit-bearing function names, single/mixed/absolute refs, ranges,
-strictly-distinct cell values so a mis-shift onto another cell changes the value). Over
-264 formulas across insert and delete, **0 value divergences**. We are precise about
-what this does and does not establish. Value-preservation is *necessary but not
-sufficient* for reference-graph correctness: a mis-shift of a reference that the
-formula's value does not depend on (a zero-weighted term, a non-max argument of `MAX`,
-a range endpoint whose only effect is to add the all-zero inserted blank row) would
-pass undetected, so the 264 figure over-counts references actually *witnessed* by the
-value. It is also one engine (LibreOffice), so it validates that the shift commutes
-with LibreOffice evaluation, not conformance to Excel's tokenization; and column
-operations and sheet-qualified/3D/table/R1C1 constructs are outside the generator. The
+strictly-distinct cell values so a mis-shift onto another cell changes the value). We
+run this across **all four structural ops** (insert/delete × rows/columns) and against
+**two independent engines** — LibreOffice *and* the pure-Python `formulas` engine,
+neither of which is xlq's IronCalc (`conformance_v2.py`): **465 formulas checked per
+engine, 0 value divergences, with the two engines agreeing exactly.** (The earlier
+single-op/one-engine run, `tokenizer_conformance.py`, gave 264 formulas / 0
+divergences.) We are precise about what this does and does not establish.
+Value-preservation is *necessary but not sufficient* for reference-graph correctness: a
+mis-shift of a reference that the formula's value does not depend on (a zero-weighted
+term, a non-max argument of `MAX`) would pass undetected, so the count over-counts
+references actually *witnessed* by the value. Two independent engines agreeing rules out
+a single-engine artifact, but both are open-source engines, not Excel; and
+sheet-qualified/3D/table/R1C1 constructs are outside the generator. The
 honest label is *differential value-preservation against LibreOffice — a
 necessary-not-sufficient corroboration of the trusted parse, complementing the
 same-spec fuzzer* — not full conformance to an engine's reference semantics.
@@ -260,11 +263,16 @@ On 172 real workbooks, insert-row@2, with LibreOffice (independent of both `open
 and the tool's engine) recomputing each edit against Excel's cache: the naive
 `openpyxl` edit path **silently corrupts 86.6%** of workbooks (149/172), while the
 tool's structural edit is engine-confirmed faithful on 150/172 and explicitly refuses
-the remaining 22 — **0 silent corruptions** (`agent_ab`). We flag the confound: 86.6%
-is a corpus property × one known-library bug (openpyxl shifts no references), not an
-agent-error distribution, and a competent reference-shifting engine also gets this op
-right; the tool's differentiator is auditability and explicit refusal, which this A/B
-does not isolate. We found and fixed an oracle false-positive during this study —
+the remaining 22 — **0 silent corruptions** (`agent_ab`). We extend this across **all
+four structural ops and both independent engines** on generated distinct-value
+workbooks (`agent_ab_v2.py`): the naive path silently corrupts insert-rows 100% /
+delete-rows 98.8% / insert-cols 94.3% / delete-cols 80.2% (**93.8% overall**), the tool
+**0% on every op**, and the `formulas` engine agrees with LibreOffice *exactly* — so the
+protection is not a LibreOffice artifact and holds across the op space, not just
+insert-row@2. We flag the confound that remains: the openpyxl figure is a corpus/tool
+property (openpyxl shifts no references), not an agent-error distribution, and a
+competent reference-shifting engine also gets these ops right; the tool's differentiator
+is auditability and explicit refusal, which the A/B does not isolate. We found and fixed an oracle false-positive during this study —
 `ROW()`/`COLUMN()` are position-dependent and legitimately change on a row insert —
 which is why the oracle excludes position-dependent functions.
 
@@ -364,13 +372,16 @@ arithmetic, not re-proved in the graph layer); the asymmetric six-case delete cl
 its `#REF!` outcomes; the multi-cell interior of ranges (modeled by endpoints); the
 constructs absent from the token type; and the completeness of the non-cell denylist. The
 corroboration is bounded accordingly:
-value-preservation is necessary-not-sufficient and validated against one engine
-(LibreOffice, with its own array/spill blindness); the confusion matrix's `FN=0` is
-by-construction over deviations-from-transform, so the informative test is the non-cell
-corruptor of §5.3, which found and closed a real false certification. The exact tier
-certifies a measured 37.5% of operations and 27% of whole tasks on a realistic
-edit-distribution study; the majority of real tasks are mixed and need the probabilistic
-tier, whose soundness rests on the self-oracle's completeness rather than a proof. A
+value-preservation is necessary-not-sufficient (though now confirmed across all four
+structural ops and by two independent engines that agree, ruling out a single-engine
+artifact, and still not Excel); the confusion matrix's `FN=0` is by-construction over
+deviations-from-transform, so the informative test is the non-cell corruptor of §5.3,
+which found and closed a real false certification. The exact tier certifies a measured
+37.5% of operations and 27% of whole tasks on a realistic edit-distribution study; the
+majority of real tasks are mixed and need the probabilistic tier — but by Theorem 2 a
+mixed task still factors into a *certified structural scaffold* plus a bounded value-fill
+cone, so 87% of tasks have a certifiable structural skeleton even when not fully
+certified. A
 verified byte-level tokenizer, and a model faithful to the clamp/`#REF!` algebra, are
 the natural next steps.
 
