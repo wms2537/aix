@@ -1,0 +1,45 @@
+{
+  "measurement": "composition-rule coverage \u2014 router certifies the structural scaffold of a mixed edit and bounds the value-fill audit surface (Theorem 2)",
+  "per_task": [
+    {
+      "task": "pure-structural rename",
+      "scaffold_certified": true,
+      "certified_nodes": 25,
+      "audit_surface_cells": 0,
+      "total_cells": 25,
+      "collapse_pct": 100
+    },
+    {
+      "task": "mixed: rename + 1 value fill",
+      "scaffold_certified": true,
+      "certified_nodes": 24,
+      "audit_surface_cells": 4,
+      "total_cells": 25,
+      "collapse_pct": 84
+    },
+    {
+      "task": "mixed: rename + 2 value fills",
+      "scaffold_certified": true,
+      "certified_nodes": 23,
+      "audit_surface_cells": 8,
+      "total_cells": 25,
+      "collapse_pct": 68
+    },
+    {
+      "task": "mixed: rename + 3 value fills",
+      "scaffold_certified": true,
+      "certified_nodes": 22,
+      "audit_surface_cells": 12,
+      "total_cells": 25,
+      "collapse_pct": 52
+    }
+  ],
+  "all_scaffolds_certified": true,
+  "avg_audit_surface_collapse_pct": 76.0,
+  "edit_distribution_coverage": {
+    "tasks": 15,
+    "fully_certified_pure_structural_pct": 26.7,
+    "certifiable_scaffold_any_structural_pct": 86.7
+  },
+  "headline": "every mixed task's structural scaffold is certified with the audit surface collapsed to the value-fill cone (avg 76.0% of the artifact certified untouched); on the edit distribution the certifiable component rises from 27% fully certified to 87% with a certified scaffold."
+}
