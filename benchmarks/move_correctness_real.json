@@ -1,0 +1,8 @@
+{
+  "benchmark": "real-corpus move-rows shift correctness (move [3,5) -> before 8), deterministic",
+  "workbooks_checked": 60,
+  "workbooks_refused_or_residual": 25,
+  "cells_checked": 1538,
+  "xlq_mismatch": 0,
+  "xlq_correct_rate": 1.0
+}
