@@ -117,6 +117,27 @@ theorem fresh_skeleton_uncertifiable {Node : Type}
   rw [if_pos rfl]
   exact Nat.succ_ne_self predict
 
+/-- **Corollary (no engine-free predictor — the checker as a formal object).**
+    An engine-free checker that CERTIFIES a fresh-skeleton edit commits (implicitly
+    or explicitly) to the edited node's value as a function of syntax alone. Model
+    that commitment as ANY `predictor : SynComp → SynComp → ℕ` — a function of the
+    two syntactic artifacts and nothing else (the engine is not among its inputs).
+    Then for every predictor there is an engine consistent with the original
+    artifact under which the prediction is wrong. Hence no sound checker may
+    certify a value for a fresh-skeleton node: it must refuse. The quantification
+    over checkers is now itself a machine-checked object, not a prose step. -/
+theorem no_engine_free_predictor {Node : Type}
+    (S0 S1 : SynComp Node String) (g : String)
+    (hfresh : ∀ n, S0.skel n ≠ g)
+    (b : Node) (hb : S1.skel b = g)
+    (I0 : String → List Nat → Nat)
+    (k : Nat)
+    (predictor : SynComp Node String → SynComp Node String → Nat) :
+    ∃ I : String → List Nat → Nat,
+      (∀ j n, eval (toComp I S0) j n = eval (toComp I0 S0) j n)
+      ∧ eval (toComp I S1) (k+1) b ≠ predictor S0 S1 :=
+  fresh_skeleton_uncertifiable S0 S1 g hfresh b hb I0 k (predictor S0 S1)
+
 /-- **Corollary (two indistinguishable worlds disagree).** There exist two
     engines that evaluate the original artifact identically everywhere, yet
     disagree on the edited node's value — the direct two-world form. -/

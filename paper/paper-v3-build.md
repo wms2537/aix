@@ -13,9 +13,9 @@ an artifact that *opens fine* but may be silently wrong: a structural edit that 
 to propagate references corrupts computed values with no visible symptom, and neither
 the agent nor a human reviewer can see it without the defining engine. We ask which
 such edits can be certified **engine-free** — offline, against the artifact's own
-structure, trusting neither the editor nor a recomputation — and we answer with a
-machine-checked **characterization of the boundary** (Lean 4, no `sorry`, axioms
-`propext` and `Quot.sound` only). On the certifiable side: the premise of our
+structure, trusting neither the editor nor a recomputation — and we answer by
+machine-checking **both sides of the boundary** (Lean 4, no `sorry`, axioms
+`propext` and `Quot.sound` only), with the remaining middle ground stated open. On the certifiable side: the premise of our
 invariance theorem — the edit's reference-dependency graph is a function-preserving
 relabeling of the original's — is *decidable from syntax*, and we ship an executable
 decision procedure `check` with a machine-checked soundness theorem: if `check`
@@ -26,7 +26,9 @@ theorem — an edit introducing function semantics unwitnessed in the original a
 two engines that are pointwise indistinguishable through the original artifact yet
 disagree on the edited value, so *no* engine-free checker can certify it. Certify-or-
 refuse is therefore not a design choice but the only sound shape, and our checker's
-accept class is exactly the certifiable class. A companion locality theorem factors
+accept class is exactly the *proven-certifiable* relabeling class — every accept is
+certifiable; whether the certifiable class extends further (edits reusing witnessed
+semantics) is stated open. A companion locality theorem factors
 mixed edits into a certified structural scaffold plus a bounded value-fill audit cone.
 The theory is load-bearing in the running system: the deployed checker agrees with the
 Lean decision procedure on a randomized differential battery, a production certifier
@@ -34,9 +36,10 @@ Lean decision procedure on a randomized differential battery, a production certi
 format-parametric core certifies dbt model refactors engine-free — catching dangling
 references and silent logic changes that re-materialization confirms, while certifying
 faithful renames with no SQL executed. We are deliberate about what is *proof* and
-what is *corroboration*: the characterization is the result; the empirical harness
-(147/147 corrupted foreign edits refused; a naive edit path silently corrupts 86.6% of
-real workbooks while the certified path corrupts none; every injected corruption in a
+what is *corroboration*: the machine-checked boundary is the result; the empirical harness
+(147/147 corrupted foreign edits refused; a naive edit path silently corrupts 85.5% of
+real workbooks (confirmed-genuine, after our own study corrected two mislabels)
+while the certified path corrupts none; every injected corruption in a
 diverse-corruptor battery refused) corroborates it, and we report each measurement
 with its confound — including two false certifications our own adversarial reviews
 found in earlier versions of the system, which we closed and report as fixed defects.
@@ -66,14 +69,15 @@ capable agent should be *required* to pass, not a crutch for a weak one.
 
 Our claims, in order of strength:
 
-1. **(Characterization, both sides proven.)** Engine-free certification of an agent
-   edit is possible *exactly* when the edit is a function-preserving relabeling of the
-   reference-dependency graph: the certifiable side is witnessed by an executable
-   decision procedure `check` for that premise with a machine-checked soundness
-   theorem quantifying over **all** engines; the uncertifiable side by an
-   impossibility theorem — fresh function semantics admit indistinguishable engines
-   that disagree, so no engine-free checker can certify them and *certify-or-refuse
-   is the only sound shape* (§3, Lean 4, no `sorry`).
+1. **(The boundary, both sides machine-checked.)** We *bracket* engine-free
+   certification of agent edits: function-preserving relabelings of the
+   reference-dependency graph are certifiable — witnessed by an executable decision
+   procedure `check` for that premise with a machine-checked soundness theorem
+   quantifying over **all** engines — while edits introducing function semantics
+   unwitnessed in the original are uncertifiable by *any* engine-free checker
+   (impossibility: indistinguishable engines disagree), so *certify-or-refuse is the
+   only sound shape* (§3, Lean 4, no `sorry`). The middle ground (edits reusing
+   witnessed semantics at new positions) is stated open.
 2. **(Composition.)** A locality theorem factors a mixed edit into a certified
    structural scaffold plus value fills whose effect is provably contained in their
    downstream cone — collapsing the audit surface from the whole artifact to a
@@ -200,11 +204,16 @@ unwitnessed skeleton changes no evaluation of the original artifact
 realize every cached observation identically), yet the edited node's value can be
 made to differ from *any* value a checker might commit to
 (`fresh_skeleton_uncertifiable`), and two such worlds disagree with each other
-(`two_worlds_disagree`). An engine-free checker's verdict is a function of inputs
-that are identical across these worlds, so it cannot be simultaneously sound and
-complete: sound checkers **must refuse**. Certify-or-refuse is thereby proven to be
-the only sound shape for engine-free certification — a characterization, not a
-design preference.
+(`two_worlds_disagree`) — and the quantification over checkers is itself a
+machine-checked object: `no_engine_free_predictor` models a checker's value
+commitment as *any* function of the two syntactic artifacts and proves every such
+predictor is refuted by an engine consistent with the original. Sound checkers
+**must refuse**. One scope note, stated plainly: the impossibility is for
+*semantics-agnostic* checkers — a checker carrying a trusted specification of
+particular function semantics (say, documented Excel built-ins) has a partial
+engine and escapes the hypothesis; that is an oracle assumption, exactly what
+"engine-free" excludes. Within that scope, certify-or-refuse is the only sound
+shape — proven, not a design preference.
 
 **The boundary, stated.** Together, Theorems 4 and 5 bracket engine-free
 certification: edits whose reference graph is a skeleton-preserving relabeling are
@@ -465,12 +474,21 @@ fast model) make the error distribution the agent's own rather than injected. Th
 harness was first validated on synthetic perfect/sloppy agents (perfect: zero
 corruption in both arms; sloppy: all seven injected corruptions blocked).
 
-Results: the careful agent erred on 2/21 tasks, the hasty agent on 4/21. Unguarded,
-all six erroneous artifacts ship as silent corruption. Guarded, **zero ship — all six
-are refused (save rate 1.0), with zero false certifications and zero unambiguous
-completion cost** (the guarded arm's two refusals of "correct" hasty work are on
+Results: the careful agent erred on 2/21 tasks, the hasty agent on 4/21 (six saves
+total across the two arms — which share tasks and model, so they are not independent
+runs — spanning four distinct workbooks; with n this small we report counts, not
+rates: 6/6 blocked has a 95% binomial lower bound of 0.54). Unguarded, all six
+erroneous artifacts ship as silent corruption; four are content errors and two are
+protocol-keying errors (the agent's formulas were right but returned under shifted
+addresses — interface-dependent corruption, still corruption as shipped). Guarded,
+**zero ship — all six are refused, with zero false certifications on the 137/196
+truth-visible cells and zero unambiguous completion cost**. The symmetric caveats,
+both stated: certified artifacts contain truth-blind cells (11 of 19 certified tasks
+carry cells outside the truth grammar), where corruption would be invisible to the
+truth instrument just as hidden saves are — the instrument cannot contradict the
+guard there in either direction; and the two refusals of "correct" hasty work are on
 truth-partial tasks whose unverifiable cells may themselves be wrong — possible
-hidden saves, split-reported). Two findings deserve emphasis. First, the live error
+hidden saves, split-reported. Two findings deserve emphasis. First, the live error
 distribution *naturally* contained the adversarial classes our earlier synthetic
 corruptors were criticized for omitting: partial shifts (`F.INV(F2,B3,C3)` — two
 references shifted, one missed), a protocol misread (formulas returned under
@@ -493,15 +511,21 @@ higher at k=5 and **~2×10⁴×** at k=10, and tracks a Monte-Carlo simulation o
 formulas within ~25% at every k. Measured on 230 real first sheets under Excel read
 semantics, the off-by-one-row collision rate — exactly the naive edit path's error —
 is q̂ = 0.178 pooled (file median 0.125, p90 0.40; spreadsheets are full of repeated
-values). Detection therefore needs **k = 5 checked cells for 99% and k = 9 for
-99.9%** against *systemic* errors — double the naive prescription. Against
+values). Detection therefore needs **k = 5 checked cells for 99% and k = 9–10 for
+99.9%** (the mixture bound is itself still mildly optimistic within-file — the MC
+sits just above it at k = 10) against *systemic* errors — double the naive prescription. Against
 *localized* errors the tier is coverage-bound, not collision-bound: a single
 mis-routed reference corrupts one cell plus its cone, so a k-of-N sampled check
 detects it with probability at most k/N regardless of q. And the hard limit,
-engine-verified: **of 161 workbooks where the naive path's error is genuinely
-present, 19 (11.8%; conservatively 12 = 7.5%) pass a full k = N value check** —
-LibreOffice recomputes identical values on a *wrong reference graph* (aggregates,
-`MIN`/`MAX`, `MODE`-class functions absorb the misread). This is the quantified case
+engine-verified **on this corpus** (engine calc-test suites plus templates — not
+in-the-wild business workbooks): **of 161 workbooks where the naive path's error is
+genuinely present, 19 (11.8%; conservatively 12 = 7.5%) pass a full k = N value
+check** — LibreOffice recomputes identical values on a *wrong reference graph*
+(aggregates, `MIN`/`MAX`, `MODE`-class functions absorb the misread). The
+passing files are dominated by test suites for exotic non-injective functions,
+over-represented here by construction; the floor's magnitude plausibly *shrinks* on
+arithmetic-dominated business sheets, and we state that direction rather than claim
+transfer. This is the quantified case
 for the exact tier: value checking, even exhaustive, cannot close the gap that the
 graph check closes by construction.
 
@@ -587,12 +611,13 @@ analogues, and our production mode (§4.ii) is honestly an instance of TV's weak
 form — accept iff the output equals a proven reference transform. The delta of this
 work over TV is twofold. First, the *direct-premise mode* (§4.i) does what TV does
 not: it decides the invariance theorem's hypothesis directly on the untrusted
-artifact, so its accept class is the entire certifiable class (any producer's
-faithful edit, not only outputs identical to a canonical transform), and its
+artifact, so its accept class is the entire *proven-certifiable* relabeling class
+(any producer's faithful relabeling, not only outputs identical to a canonical
+transform; whether certifiability extends past that class is stated open), and its
 soundness quantifies over **all** engines — TV assumes the semantics it validates
 against, whereas our setting's defining engine is opaque and absent. Second, TV has
 no analogue of our impossibility side: Theorem 5 shows the refusal half of
-certify-or-refuse is forced, characterizing the boundary rather than picking a point
+certify-or-refuse is forced, bracketing the boundary rather than picking a point
 on it. Proof-carrying code shares the shape of "checkable evidence, small checker,"
 and our decision procedure plays the checker's role with the certificate being the
 edit descriptor `σ` itself.
@@ -600,7 +625,7 @@ edit descriptor `σ` itself.
 # 9. Conclusion
 
 Verifiability, not capability, is the durable constraint on agent edits to
-opaque-semantics artifacts. We characterized — machine-checked on both sides — what
+opaque-semantics artifacts. We bracketed — machine-checked on both sides, middle ground stated open — what
 can be certified about such edits without the engine: the relabeling class is
 certifiable, witnessed by an executable decision procedure proven sound under every
 possible engine; anything introducing unwitnessed semantics is not, so

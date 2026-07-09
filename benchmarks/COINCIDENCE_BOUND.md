@@ -66,7 +66,7 @@ reads the cell one row (column) away from its intended target. This is exactly
 the standard-tool failure documented in `EDIT_PATH_AB.md`/`agent_ab.json`:
 `openpyxl.insert_rows(2)` moves the data down but rewrites **zero**
 references, so every reference to row ≥ 2 reads one row above its data —
-149/172 real workbooks (86.6%) silently corrupted by the default programmatic
+149/172 real workbooks flagged (86.6% as originally measured; 147/172 = 85.5% confirmed-genuine after this study's own label correction, §7) silently corrupted by the default programmatic
 edit path. The Monte Carlo simulates this exact read map: a reference to row 1
 is unaffected; to row 2 reads the inserted blank; to row j ≥ 3 reads old row
 j−1.
