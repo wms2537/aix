@@ -1,0 +1,1931 @@
+{
+ "experiment": "COINCIDENCE MC: simulate reference errors on real workbooks; empirical miss rate of a k-cell value check vs the analytic bound and vs LibreOffice engine ground truth (agent_ab.json)",
+ "seed": 20260709,
+ "eligible_files": 147,
+ "mc_files": 30,
+ "m1_trials_per_file": 400,
+ "results": {
+  "m2_openpyxl_insert2": {
+   "files_with_error_present": 29,
+   "files_no_error(no affected read; excluded from miss stats)": 1,
+   "per_formula_pass_rate_affected": {
+    "mean": 0.0472,
+    "median": 0.0164,
+    "p90": 0.0923
+   },
+   "mc_miss_k_mean_over_files": {
+    "1": 0.15847,
+    "2": 0.04425,
+    "3": 0.01762,
+    "5": 0.00538,
+    "10": 0.00066
+   },
+   "analytic_naive_qk_pooled_M2v": {
+    "1": 0.17825,
+    "2": 0.03177,
+    "3": 0.00566,
+    "5": 0.00018,
+    "10": 0.0
+   },
+   "full_check_miss_rate(error-present files where ALL cells pass, input-level)": 0.0,
+   "note": "mc_miss uses EXACT hypergeometric per file over real per-formula indicators (real shared-input and value-repetition dependence), then averages over files \u2014 the empirical counterpart of the mixture bound."
+  },
+  "m1_single_ref_retarget": {
+   "files": 27,
+   "trials": 10750,
+   "q_input_pooled": 0.1074,
+   "q_input_file_mean": 0.107,
+   "q_input_file_median": 0.045,
+   "detect_k_sampled_mean": {
+    "1": 0.0184,
+    "2": 0.0397,
+    "3": 0.0593,
+    "5": 0.0963,
+    "10": 0.1923
+   },
+   "coverage_bound_mean_k_over_N": {
+    "1": 0.0221,
+    "2": 0.0442,
+    "3": 0.0664,
+    "5": 0.1106,
+    "10": 0.2212
+   },
+   "note": "a single-reference error corrupts ONE cell (plus dependents); a k-of-N sampled check detects it with P <= k/N REGARDLESS of q \u2014 coverage, not collision, is binding."
+  },
+  "m2_output_level": {
+   "files": 7,
+   "validated_formulas_total": 613,
+   "affected_validated_total": 352,
+   "input_collision_rate_mean": 0.1028,
+   "output_collision_rate_mean": 0.2518
+  },
+  "m1_output_level": {
+   "files": 11,
+   "trials": 4363,
+   "input_collision_rate_mean": 0.0398,
+   "output_collision_rate_mean": 0.1395,
+   "note": "output >= input is the injectivity gap: non-injective formulas pass the value check even when they read a DIFFERENT value."
+  },
+  "agent_ab_ground_truth_anchor": {
+   "files": 172,
+   "confusion": {
+    "pred_fail_engine_corrupt": 142,
+    "pred_pass_engine_faithful": 4,
+    "pred_fail_engine_faithful": 19,
+    "pred_pass_engine_corrupt": 3,
+    "indeterminate": 4
+   },
+   "agreement_rate": 0.869,
+   "error_present_files(affected>=1)": 161,
+   "engine_verified_latent_corruption": {
+    "count": 19,
+    "full_value_check_miss_rate_by_engine_truth": 0.118,
+    "meaning": "openpyxl left references pointing at WRONG cells, yet LibreOffice's recompute matched every original numeric cache \u2014 the wrong dependency graph is value-invisible to a full (k=N) value check at the cells the oracle compared. Caveat: the A/B oracle compared numeric cells only; see latent_class.",
+    "by_class": {
+     "input_coincidence": 0,
+     "output_noninjective": 13,
+     "oracle_blind": 6
+    },
+    "files": [
+     {
+      "file": "calc_tests/DATABASE/DCOUNT_DCOUNTA_DGET_DPRODUCT.xlsx",
+      "class": "output_noninjective",
+      "affected": 97
+     },
+     {
+      "file": "calc_tests/DATABASE/DMIN_DMAX_DAVERAGE_DSUM.xlsx",
+      "class": "output_noninjective",
+      "affected": 164
+     },
+     {
+      "file": "calc_tests/DATABASE/DVAR_DVARP_DSTDEV_DSTDEVP.xlsx",
+      "class": "output_noninjective",
+      "affected": 164
+     },
+     {
+      "file": "calc_tests/FINANCIAL/RATE.xlsx",
+      "class": "output_noninjective",
+      "affected": 38
+     },
+     {
+      "file": "calc_tests/INFORMATION/FORMULATEXT.xlsx",
+      "class": "oracle_blind",
+      "affected": 18
+     },
+     {
+      "file": "calc_tests/INFORMATION/ISREF_ISFORMULA_ISODD_ISEVEN.xlsx",
+      "class": "oracle_blind",
+      "affected": 10
+     },
+     {
+      "file": "calc_tests/LOGICAL/AND_OR_XOR.xlsx",
+      "class": "oracle_blind",
+      "affected": 135
+     },
+     {
+      "file": "calc_tests/LOGICAL/IFERROR.xlsx",
+      "class": "output_noninjective",
+      "affected": 15
+     },
+     {
+      "file": "calc_tests/LOOKUP_AND_REFERENCE/SORT.xlsx",
+      "class": "output_noninjective",
+      "affected": 7
+     },
+     {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/ARABIC_ROMAN.xlsx",
+      "class": "output_noninjective",
+      "affected": 20377
+     },
+     {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/MMULT.xlsx",
+      "class": "output_noninjective",
+      "affected": 44
+     },
+     {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/SEQUENCE.xlsx",
+      "class": "oracle_blind",
+      "affected": 2
+     },
+     {
+      "file": "calc_tests/MATH_AND_TRIGONOMETRY/SERIESSUM.xlsx",
+      "class": "output_noninjective",
+      "affected": 4
+     },
+     {
+      "file": "calc_tests/STATISTICAL/MIN_MAX.xlsx",
+      "class": "output_noninjective",
+      "affected": 12
+     },
+     {
+      "file": "calc_tests/STATISTICAL/MODE.xlsx",
+      "class": "output_noninjective",
+      "affected": 12
+     },
+     {
+      "file": "calc_tests/STATISTICAL/STDEV.xlsx",
+      "class": "output_noninjective",
+      "affected": 4
+     },
+     {
+      "file": "calc_tests/TEXT/EXACT.xlsx",
+      "class": "oracle_blind",
+      "affected": 11
+     },
+     {
+      "file": "calc_tests/TEXT/TEXT.xlsx",
+      "class": "oracle_blind",
+      "affected": 210
+     },
+     {
+      "file": "dynamic_arrays.xlsx",
+      "class": "output_noninjective",
+      "affected": 6
+     }
+    ]
+   },
+   "mismatches": [
+    {
+     "file": "calc_test_no_export/tables.xlsx",
+     "predicted": "pass",
+     "predicted_numeric_only": "pass",
+     "affected_formulas": 0,
+     "unanalyzable": 19,
+     "engine": "SILENT_CORRUPTION"
+    },
+    {
+     "file": "calc_tests/DATABASE/DCOUNT_DCOUNTA_DGET_DPRODUCT.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 97,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/DATABASE/DMIN_DMAX_DAVERAGE_DSUM.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 164,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/DATABASE/DVAR_DVARP_DSTDEV_DSTDEVP.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 164,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/FINANCIAL/ACCRINT.xlsx",
+     "predicted": "pass",
+     "predicted_numeric_only": "pass",
+     "affected_formulas": 0,
+     "unanalyzable": 0,
+     "engine": "SILENT_CORRUPTION"
+    },
+    {
+     "file": "calc_tests/FINANCIAL/ACCRINTM.xlsx",
+     "predicted": "pass",
+     "predicted_numeric_only": "pass",
+     "affected_formulas": 0,
+     "unanalyzable": 0,
+     "engine": "SILENT_CORRUPTION"
+    },
+    {
+     "file": "calc_tests/FINANCIAL/RATE.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 38,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/INFORMATION/FORMULATEXT.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "pass",
+     "affected_formulas": 18,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "oracle_blind: outputs are text/boolean; the numeric-only A/B oracle compared few or no cells \u2014 a text-aware check might still catch these"
+    },
+    {
+     "file": "calc_tests/INFORMATION/ISREF_ISFORMULA_ISODD_ISEVEN.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "pass",
+     "affected_formulas": 10,
+     "unanalyzable": 1,
+     "engine": "faithful",
+     "latent_class": "oracle_blind: outputs are text/boolean; the numeric-only A/B oracle compared few or no cells \u2014 a text-aware check might still catch these"
+    },
+    {
+     "file": "calc_tests/LOGICAL/AND_OR_XOR.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "no_checkable",
+     "affected_formulas": 135,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "oracle_blind: outputs are text/boolean; the numeric-only A/B oracle compared few or no cells \u2014 a text-aware check might still catch these"
+    },
+    {
+     "file": "calc_tests/LOGICAL/IFERROR.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 15,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/LOOKUP_AND_REFERENCE/SORT.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 7,
+     "unanalyzable": 1,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/MATH_AND_TRIGONOMETRY/ARABIC_ROMAN.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 20377,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/MATH_AND_TRIGONOMETRY/MMULT.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 44,
+     "unanalyzable": 3,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/MATH_AND_TRIGONOMETRY/SEQUENCE.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "pass",
+     "affected_formulas": 2,
+     "unanalyzable": 2,
+     "engine": "faithful",
+     "latent_class": "oracle_blind: outputs are text/boolean; the numeric-only A/B oracle compared few or no cells \u2014 a text-aware check might still catch these"
+    },
+    {
+     "file": "calc_tests/MATH_AND_TRIGONOMETRY/SERIESSUM.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 4,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/STATISTICAL/MIN_MAX.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 12,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/STATISTICAL/MODE.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 12,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/STATISTICAL/STDEV.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "fail",
+     "affected_formulas": 4,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "output_noninjective: some numeric formula READS a different value, yet engine recompute matched every numeric cache"
+    },
+    {
+     "file": "calc_tests/TEXT/EXACT.xlsx",
+     "predicted": "fail",
+     "predicted_numeric_only": "pass",
+     "affected_formulas": 11,
+     "unanalyzable": 0,
+     "engine": "faithful",
+     "latent_class": "oracle_blind: outputs are text/boolean; the numeric-only A/B oracle compared few or no cells \u2014 a text-aware check might still catch these"
+    }
+   ]
+  }
+ },
+ "what_level_A_measures": "input-level miss (misread value == correct value), per the derivation's q; understates per-cell miss for non-injective formulas and understates detection via propagation from unchecked cells. Sheet-wide input-collision => the edit passes ANY check (induction over dependency order).",
+ "per_file": [
+  {
+   "n_formulas": 108,
+   "n_analyzable": 108,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 99.48,
+   "m2_input": {
+    "affected": 97,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.10185185185185185,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.10185185185185185,
+     "2": 0.009518864659051574,
+     "3": 0.0008082054899194733,
+     "5": 4.144643538048581e-06,
+     "10": 2.8407022573521185e-13
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.0075,
+    "detect_k_sampled": {
+     "1": 0.01,
+     "2": 0.0175,
+     "3": 0.0175,
+     "5": 0.0425,
+     "10": 0.07
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.009259259259259259,
+     "2": 0.018518518518518517,
+     "3": 0.027777777777777776,
+     "5": 0.046296296296296294,
+     "10": 0.09259259259259259
+    }
+   },
+   "evaluator_validated": 9,
+   "m2_output": {
+    "affected_validated": 1,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 0.0
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/DATABASE/DCOUNT_DCOUNTA_DGET_DPRODUCT.xlsx"
+  },
+  {
+   "n_formulas": 68,
+   "n_analyzable": 68,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 1.56,
+   "m2_input": {
+    "affected": 66,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.029411764705882353,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.029411764705882353,
+     "2": 0.0004389815627743635,
+     "3": 0.0,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 396,
+    "q_input": 0.04292929292929293,
+    "detect_k_sampled": {
+     "1": 0.010101010101010102,
+     "2": 0.03282828282828283,
+     "3": 0.047979797979797977,
+     "5": 0.06818181818181818,
+     "10": 0.16161616161616163
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.014705882352941176,
+     "2": 0.029411764705882353,
+     "3": 0.04411764705882353,
+     "5": 0.07352941176470588,
+     "10": 0.14705882352941177
+    }
+   },
+   "evaluator_validated": 2,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/DATE_AND_TIME/DATE_DAY_MONTH_YEAR.xlsx"
+  },
+  {
+   "n_formulas": 131,
+   "n_analyzable": 131,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 1.34,
+   "m2_input": {
+    "affected": 125,
+    "pass_rate_affected": 0.16,
+    "pass_rate_all": 0.1984732824427481,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.1984732824427481,
+     "2": 0.03816793893129771,
+     "3": 0.007101011894194923,
+     "5": 0.00022103297357668744,
+     "10": 1.841680114154855e-08
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.035,
+    "detect_k_sampled": {
+     "1": 0.005,
+     "2": 0.02,
+     "3": 0.0225,
+     "5": 0.03,
+     "10": 0.0725
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.007633587786259542,
+     "2": 0.015267175572519083,
+     "3": 0.022900763358778626,
+     "5": 0.03816793893129771,
+     "10": 0.07633587786259542
+    }
+   },
+   "evaluator_validated": 28,
+   "m2_output": {
+    "affected_validated": 25,
+    "input_collision_rate": 0.2,
+    "output_collision_rate": 0.2
+   },
+   "m1_output": {
+    "trials": 400,
+    "input_collision_rate": 0.0125,
+    "output_collision_rate": 0.0125
+   },
+   "file": "calc_tests/DATE_AND_TIME/TIME_HOUR_MINUTE_SECOND.xlsx"
+  },
+  {
+   "n_formulas": 923,
+   "n_analyzable": 923,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 1.05,
+   "m2_input": {
+    "affected": 921,
+    "pass_rate_affected": 0.003257328990228013,
+    "pass_rate_all": 0.005417118093174431,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.005417118093174431,
+     "2": 2.350159693351163e-05,
+     "3": 7.65524330081812e-08,
+     "5": 1.8108632494720444e-13,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.02,
+    "detect_k_sampled": {
+     "1": 0.0,
+     "2": 0.0,
+     "3": 0.005,
+     "5": 0.005,
+     "10": 0.015
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.0010834236186348862,
+     "2": 0.0021668472372697724,
+     "3": 0.0032502708559046588,
+     "5": 0.005417118093174431,
+     "10": 0.010834236186348862
+    }
+   },
+   "evaluator_validated": 2,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/ENGINEERING/COMPLEXs.xlsx"
+  },
+  {
+   "n_formulas": 39,
+   "n_analyzable": 39,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 0,
+   "m2_input": {
+    "affected": 0,
+    "pass_rate_affected": null,
+    "pass_rate_all": 1.0,
+    "full_check_miss": null,
+    "miss_k": null
+   },
+   "evaluator_validated": 0,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/FINANCIAL/ACCRINT.xlsx"
+  },
+  {
+   "n_formulas": 225,
+   "n_analyzable": 225,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 2.99,
+   "m2_input": {
+    "affected": 168,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.25333333333333335,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.25333333333333335,
+     "2": 0.06333333333333334,
+     "3": 0.0156203288490284,
+     "5": 0.0009112017684953587,
+     "10": 5.77242928321317e-07
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.4,
+    "detect_k_sampled": {
+     "1": 0.005,
+     "2": 0.0075,
+     "3": 0.0075,
+     "5": 0.01,
+     "10": 0.035
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.0044444444444444444,
+     "2": 0.008888888888888889,
+     "3": 0.013333333333333334,
+     "5": 0.022222222222222223,
+     "10": 0.044444444444444446
+    }
+   },
+   "evaluator_validated": 0,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/FINANCIAL/COUPDAYS.xlsx"
+  },
+  {
+   "n_formulas": 45,
+   "n_analyzable": 45,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 3.91,
+   "m2_input": {
+    "affected": 44,
+    "pass_rate_affected": 0.09090909090909091,
+    "pass_rate_all": 0.1111111111111111,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.1111111111111111,
+     "2": 0.0101010101010101,
+     "3": 0.000704721634954193,
+     "5": 8.184920266599222e-07,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.315,
+    "detect_k_sampled": {
+     "1": 0.0175,
+     "2": 0.0375,
+     "3": 0.045,
+     "5": 0.0925,
+     "10": 0.135
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.022222222222222223,
+     "2": 0.044444444444444446,
+     "3": 0.06666666666666667,
+     "5": 0.1111111111111111,
+     "10": 0.2222222222222222
+    }
+   },
+   "evaluator_validated": 1,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/FINANCIAL/FV.xlsx"
+  },
+  {
+   "n_formulas": 29,
+   "n_analyzable": 29,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 3.86,
+   "m2_input": {
+    "affected": 28,
+    "pass_rate_affected": 0.07142857142857142,
+    "pass_rate_all": 0.10344827586206896,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.10344827586206896,
+     "2": 0.007389162561576354,
+     "3": 0.00027367268746579087,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.0925,
+    "detect_k_sampled": {
+     "1": 0.0225,
+     "2": 0.0625,
+     "3": 0.115,
+     "5": 0.1775,
+     "10": 0.29
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.034482758620689655,
+     "2": 0.06896551724137931,
+     "3": 0.10344827586206896,
+     "5": 0.1724137931034483,
+     "10": 0.3448275862068966
+    }
+   },
+   "evaluator_validated": 14,
+   "m2_output": {
+    "affected_validated": 14,
+    "input_collision_rate": 0.07142857142857142,
+    "output_collision_rate": 0.14285714285714285
+   },
+   "m1_output": {
+    "trials": 400,
+    "input_collision_rate": 0.0575,
+    "output_collision_rate": 0.38
+   },
+   "file": "calc_tests/FINANCIAL/ISPMT.xlsx"
+  },
+  {
+   "n_formulas": 34,
+   "n_analyzable": 34,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 5.18,
+   "m2_input": {
+    "affected": 32,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.058823529411764705,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.058823529411764705,
+     "2": 0.0017825311942959003,
+     "3": 0.0,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.0325,
+    "detect_k_sampled": {
+     "1": 0.02,
+     "2": 0.0675,
+     "3": 0.0925,
+     "5": 0.1475,
+     "10": 0.2425
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.029411764705882353,
+     "2": 0.058823529411764705,
+     "3": 0.08823529411764706,
+     "5": 0.14705882352941177,
+     "10": 0.29411764705882354
+    }
+   },
+   "evaluator_validated": 2,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/FINANCIAL/NPV.xlsx"
+  },
+  {
+   "n_formulas": 45,
+   "n_analyzable": 45,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 3.91,
+   "m2_input": {
+    "affected": 44,
+    "pass_rate_affected": 0.09090909090909091,
+    "pass_rate_all": 0.1111111111111111,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.1111111111111111,
+     "2": 0.0101010101010101,
+     "3": 0.000704721634954193,
+     "5": 8.184920266599222e-07,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.29,
+    "detect_k_sampled": {
+     "1": 0.025,
+     "2": 0.035,
+     "3": 0.0475,
+     "5": 0.0975,
+     "10": 0.145
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.022222222222222223,
+     "2": 0.044444444444444446,
+     "3": 0.06666666666666667,
+     "5": 0.1111111111111111,
+     "10": 0.2222222222222222
+    }
+   },
+   "evaluator_validated": 1,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/FINANCIAL/PV.xlsx"
+  },
+  {
+   "n_formulas": 273,
+   "n_analyzable": 273,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 2.39,
+   "m2_input": {
+    "affected": 270,
+    "pass_rate_affected": 0.08888888888888889,
+    "pass_rate_all": 0.0989010989010989,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.0989010989010989,
+     "2": 0.009453781512605041,
+     "3": 0.0008721200657384725,
+     "5": 6.628256592147003e-06,
+     "10": 1.5729680337269298e-11
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.155,
+    "detect_k_sampled": {
+     "1": 0.0,
+     "2": 0.005,
+     "3": 0.01,
+     "5": 0.015,
+     "10": 0.0225
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.003663003663003663,
+     "2": 0.007326007326007326,
+     "3": 0.01098901098901099,
+     "5": 0.018315018315018316,
+     "10": 0.03663003663003663
+    }
+   },
+   "evaluator_validated": 183,
+   "m2_output": {
+    "affected_validated": 181,
+    "input_collision_rate": 0.13259668508287292,
+    "output_collision_rate": 0.15469613259668508
+   },
+   "m1_output": {
+    "trials": 400,
+    "input_collision_rate": 0.1775,
+    "output_collision_rate": 0.275
+   },
+   "file": "calc_tests/FINANCIAL/TBILLs.xlsx"
+  },
+  {
+   "n_formulas": 16,
+   "n_analyzable": 15,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 1,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 0.87,
+   "m2_input": {
+    "affected": 13,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.13333333333333333,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.13333333333333333,
+     "2": 0.009523809523809523,
+     "3": 0.0,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.0425,
+    "detect_k_sampled": {
+     "1": 0.0675,
+     "2": 0.1025,
+     "3": 0.1975,
+     "5": 0.2925,
+     "10": 0.6225
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.06666666666666667,
+     "2": 0.13333333333333333,
+     "3": 0.2,
+     "5": 0.3333333333333333,
+     "10": 0.6666666666666666
+    }
+   },
+   "evaluator_validated": 1,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/INFORMATION/ERROR.TYPE.xlsx"
+  },
+  {
+   "n_formulas": 317,
+   "n_analyzable": 317,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 4.0,
+   "m2_input": {
+    "affected": 135,
+    "pass_rate_affected": 0.24444444444444444,
+    "pass_rate_all": 0.6782334384858044,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.6782334384858044,
+     "2": 0.459309986822665,
+     "3": 0.3105810387086592,
+     "5": 0.14135763439404717,
+     "10": 0.019222057741997284
+    }
+   },
+   "m1_input": {
+    "trials": 354,
+    "q_input": 0.005649717514124294,
+    "detect_k_sampled": {
+     "1": 0.0,
+     "2": 0.005649717514124294,
+     "3": 0.014124293785310734,
+     "5": 0.01977401129943503,
+     "10": 0.03954802259887006
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.0031545741324921135,
+     "2": 0.006309148264984227,
+     "3": 0.00946372239747634,
+     "5": 0.015772870662460567,
+     "10": 0.031545741324921134
+    }
+   },
+   "evaluator_validated": 210,
+   "m2_output": {
+    "affected_validated": 90,
+    "input_collision_rate": 0.24444444444444444,
+    "output_collision_rate": 0.7222222222222222
+   },
+   "m1_output": {
+    "trials": 363,
+    "input_collision_rate": 0.008264462809917356,
+    "output_collision_rate": 0.6170798898071626
+   },
+   "file": "calc_tests/LOGICAL/AND_OR_XOR.xlsx"
+  },
+  {
+   "n_formulas": 34,
+   "n_analyzable": 32,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 2,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 2.44,
+   "m2_input": {
+    "affected": 26,
+    "pass_rate_affected": 0.15384615384615385,
+    "pass_rate_all": 0.3125,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.3125,
+     "2": 0.0907258064516129,
+     "3": 0.024193548387096774,
+     "5": 0.0012513904338153504,
+     "10": 1.550093439632541e-08
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.2,
+    "detect_k_sampled": {
+     "1": 0.0225,
+     "2": 0.055,
+     "3": 0.0675,
+     "5": 0.1175,
+     "10": 0.2325
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.03125,
+     "2": 0.0625,
+     "3": 0.09375,
+     "5": 0.15625,
+     "10": 0.3125
+    }
+   },
+   "evaluator_validated": 0,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/LOOKUP_AND_REFERENCE/ADDRESS.xlsx"
+  },
+  {
+   "n_formulas": 34,
+   "n_analyzable": 34,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 6.65,
+   "m2_input": {
+    "affected": 33,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.029411764705882353,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.029411764705882353,
+     "2": 0.0,
+     "3": 0.0,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.1625,
+    "detect_k_sampled": {
+     "1": 0.0225,
+     "2": 0.0475,
+     "3": 0.0725,
+     "5": 0.1125,
+     "10": 0.2575
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.029411764705882353,
+     "2": 0.058823529411764705,
+     "3": 0.08823529411764706,
+     "5": 0.14705882352941177,
+     "10": 0.29411764705882354
+    }
+   },
+   "evaluator_validated": 1,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/LOOKUP_AND_REFERENCE/MATCH.xlsx"
+  },
+  {
+   "n_formulas": 61,
+   "n_analyzable": 61,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 2.31,
+   "m2_input": {
+    "affected": 61,
+    "pass_rate_affected": 0.01639344262295082,
+    "pass_rate_all": 0.01639344262295082,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.01639344262295082,
+     "2": 0.0,
+     "3": 0.0,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.085,
+    "detect_k_sampled": {
+     "1": 0.015,
+     "2": 0.04,
+     "3": 0.0375,
+     "5": 0.0775,
+     "10": 0.155
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.01639344262295082,
+     "2": 0.03278688524590164,
+     "3": 0.04918032786885246,
+     "5": 0.08196721311475409,
+     "10": 0.16393442622950818
+    }
+   },
+   "evaluator_validated": 0,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/MATH_AND_TRIGONOMETRY/BASE.xlsx"
+  },
+  {
+   "n_formulas": 132,
+   "n_analyzable": 131,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 1,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 0.79,
+   "m2_input": {
+    "affected": 103,
+    "pass_rate_affected": 0.07766990291262135,
+    "pass_rate_all": 0.2748091603053435,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.2748091603053435,
+     "2": 0.0739870816206694,
+     "3": 0.019500471124827595,
+     "5": 0.0012667628880301388,
+     "10": 8.8131444429126e-07
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.02,
+    "detect_k_sampled": {
+     "1": 0.01,
+     "2": 0.005,
+     "3": 0.02,
+     "5": 0.045,
+     "10": 0.0975
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.007633587786259542,
+     "2": 0.015267175572519083,
+     "3": 0.022900763358778626,
+     "5": 0.03816793893129771,
+     "10": 0.07633587786259542
+    }
+   },
+   "evaluator_validated": 23,
+   "m2_output": {
+    "affected_validated": 1,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 0.0
+   },
+   "m1_output": {
+    "trials": 400,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 0.0
+   },
+   "file": "calc_tests/MATH_AND_TRIGONOMETRY/EXP_SIGN.xlsx"
+  },
+  {
+   "n_formulas": 132,
+   "n_analyzable": 129,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 3,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 2.36,
+   "m2_input": {
+    "affected": 103,
+    "pass_rate_affected": 0.038834951456310676,
+    "pass_rate_all": 0.23255813953488372,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.23255813953488372,
+     "2": 0.05268895348837209,
+     "3": 0.011616462186412744,
+     "5": 0.0005177623145943965,
+     "10": 1.2217947520361036e-07
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.32,
+    "detect_k_sampled": {
+     "1": 0.0025,
+     "2": 0.0075,
+     "3": 0.0,
+     "5": 0.02,
+     "10": 0.04
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.007751937984496124,
+     "2": 0.015503875968992248,
+     "3": 0.023255813953488372,
+     "5": 0.03875968992248062,
+     "10": 0.07751937984496124
+    }
+   },
+   "evaluator_validated": 23,
+   "m2_output": {
+    "affected_validated": 1,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 0.0
+   },
+   "m1_output": {
+    "trials": 400,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 0.0
+   },
+   "file": "calc_tests/MATH_AND_TRIGONOMETRY/LCM_GCD.xlsx"
+  },
+  {
+   "n_formulas": 92,
+   "n_analyzable": 90,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 2,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 1.32,
+   "m2_input": {
+    "affected": 60,
+    "pass_rate_affected": 0.03333333333333333,
+    "pass_rate_all": 0.35555555555555557,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.35555555555555557,
+     "2": 0.12384519350811486,
+     "3": 0.042219952332311884,
+     "5": 0.004582010330638499,
+     "10": 1.1277091056259564e-05
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.045,
+    "detect_k_sampled": {
+     "1": 0.0175,
+     "2": 0.0325,
+     "3": 0.0225,
+     "5": 0.0575,
+     "10": 0.095
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.011111111111111112,
+     "2": 0.022222222222222223,
+     "3": 0.03333333333333333,
+     "5": 0.05555555555555555,
+     "10": 0.1111111111111111
+    }
+   },
+   "evaluator_validated": 24,
+   "m2_output": {
+    "affected_validated": 1,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 0.0
+   },
+   "m1_output": {
+    "trials": 400,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 0.0
+   },
+   "file": "calc_tests/MATH_AND_TRIGONOMETRY/MROUND_TRUNC_INT.xlsx"
+  },
+  {
+   "n_formulas": 77,
+   "n_analyzable": 45,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 32,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 1.09,
+   "m2_input": {
+    "affected": 28,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.37777777777777777,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.37777777777777777,
+     "2": 0.13737373737373737,
+     "3": 0.04792107117688513,
+     "5": 0.005064828660971599,
+     "10": 6.096193814496946e-06
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.02,
+    "detect_k_sampled": {
+     "1": 0.0275,
+     "2": 0.035,
+     "3": 0.07,
+     "5": 0.115,
+     "10": 0.215
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.022222222222222223,
+     "2": 0.044444444444444446,
+     "3": 0.06666666666666667,
+     "5": 0.1111111111111111,
+     "10": 0.2222222222222222
+    }
+   },
+   "evaluator_validated": 37,
+   "m2_output": {
+    "affected_validated": 20,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 0.4
+   },
+   "m1_output": {
+    "trials": 400,
+    "input_collision_rate": 0.0475,
+    "output_collision_rate": 0.0575
+   },
+   "file": "calc_tests/MATH_AND_TRIGONOMETRY/PRODUCT_SUM.xlsx"
+  },
+  {
+   "n_formulas": 31,
+   "n_analyzable": 31,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 0.84,
+   "m2_input": {
+    "affected": 26,
+    "pass_rate_affected": 0.07692307692307693,
+    "pass_rate_all": 0.22580645161290322,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.22580645161290322,
+     "2": 0.04516129032258065,
+     "3": 0.007786429365962182,
+     "5": 0.00012359411692003462,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.0025,
+    "detect_k_sampled": {
+     "1": 0.04,
+     "2": 0.0425,
+     "3": 0.1,
+     "5": 0.1225,
+     "10": 0.315
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.03225806451612903,
+     "2": 0.06451612903225806,
+     "3": 0.0967741935483871,
+     "5": 0.16129032258064516,
+     "10": 0.3225806451612903
+    }
+   },
+   "evaluator_validated": 18,
+   "m2_output": {
+    "affected_validated": 14,
+    "input_collision_rate": 0.07142857142857142,
+    "output_collision_rate": 0.14285714285714285
+   },
+   "m1_output": {
+    "trials": 400,
+    "input_collision_rate": 0.005,
+    "output_collision_rate": 0.0625
+   },
+   "file": "calc_tests/MATH_AND_TRIGONOMETRY/SQRT_SQRTPI.xlsx"
+  },
+  {
+   "n_formulas": 122,
+   "n_analyzable": 121,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 1,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 0.83,
+   "m2_input": {
+    "affected": 100,
+    "pass_rate_affected": 0.09,
+    "pass_rate_all": 0.24793388429752067,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.24793388429752067,
+     "2": 0.05991735537190083,
+     "3": 0.014098201263976665,
+     "5": 0.0007168576913886439,
+     "10": 2.374634997493018e-07
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.01,
+    "detect_k_sampled": {
+     "1": 0.005,
+     "2": 0.015,
+     "3": 0.035,
+     "5": 0.035,
+     "10": 0.0925
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.008264462809917356,
+     "2": 0.01652892561983471,
+     "3": 0.024793388429752067,
+     "5": 0.04132231404958678,
+     "10": 0.08264462809917356
+    }
+   },
+   "evaluator_validated": 16,
+   "m2_output": {
+    "affected_validated": 1,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 0.0
+   },
+   "m1_output": {
+    "trials": 400,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 0.0
+   },
+   "file": "calc_tests/MATH_AND_TRIGONOMETRY/TRIGONOMETRIC.xlsx"
+  },
+  {
+   "n_formulas": 12,
+   "n_analyzable": 12,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 4.5,
+   "m2_input": {
+    "affected": 12,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.0,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.0,
+     "2": 0.0,
+     "3": 0.0,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.1875,
+    "detect_k_sampled": {
+     "1": 0.06,
+     "2": 0.135,
+     "3": 0.19,
+     "5": 0.3575,
+     "10": 0.67
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.08333333333333333,
+     "2": 0.16666666666666666,
+     "3": 0.25,
+     "5": 0.4166666666666667,
+     "10": 0.8333333333333334
+    }
+   },
+   "evaluator_validated": 0,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/STATISTICAL/BETA_GAMMA.xlsx"
+  },
+  {
+   "n_formulas": 67,
+   "n_analyzable": 67,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 18.96,
+   "m2_input": {
+    "affected": 65,
+    "pass_rate_affected": 0.09230769230769231,
+    "pass_rate_all": 0.11940298507462686,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.11940298507462686,
+     "2": 0.012663952962460425,
+     "3": 0.0011689802734578855,
+     "5": 5.798513261199829e-06,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.0125,
+    "detect_k_sampled": {
+     "1": 0.0075,
+     "2": 0.0225,
+     "3": 0.05,
+     "5": 0.1,
+     "10": 0.125
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.014925373134328358,
+     "2": 0.029850746268656716,
+     "3": 0.04477611940298507,
+     "5": 0.07462686567164178,
+     "10": 0.14925373134328357
+    }
+   },
+   "evaluator_validated": 2,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/STATISTICAL/COUNTIFS.xlsx"
+  },
+  {
+   "n_formulas": 29,
+   "n_analyzable": 29,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 0.9,
+   "m2_input": {
+    "affected": 26,
+    "pass_rate_affected": 0.038461538461538464,
+    "pass_rate_all": 0.13793103448275862,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.13793103448275862,
+     "2": 0.014778325123152709,
+     "3": 0.0010946907498631635,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.0125,
+    "detect_k_sampled": {
+     "1": 0.0325,
+     "2": 0.07,
+     "3": 0.105,
+     "5": 0.14,
+     "10": 0.3425
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.034482758620689655,
+     "2": 0.06896551724137931,
+     "3": 0.10344827586206896,
+     "5": 0.1724137931034483,
+     "10": 0.3448275862068966
+    }
+   },
+   "evaluator_validated": 1,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/STATISTICAL/GAMMA.xlsx"
+  },
+  {
+   "n_formulas": 12,
+   "n_analyzable": 12,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 4.33,
+   "m2_input": {
+    "affected": 9,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.25,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.25,
+     "2": 0.045454545454545456,
+     "3": 0.004545454545454546,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "evaluator_validated": 3,
+   "m2_output": {
+    "affected_validated": 2,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 1.0
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/STATISTICAL/MINA_MAXA.xlsx"
+  },
+  {
+   "n_formulas": 35,
+   "n_analyzable": 35,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 1.94,
+   "m2_input": {
+    "affected": 34,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.02857142857142857,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.02857142857142857,
+     "2": 0.0,
+     "3": 0.0,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.0825,
+    "detect_k_sampled": {
+     "1": 0.0125,
+     "2": 0.065,
+     "3": 0.0825,
+     "5": 0.105,
+     "10": 0.2625
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.02857142857142857,
+     "2": 0.05714285714285714,
+     "3": 0.08571428571428572,
+     "5": 0.14285714285714285,
+     "10": 0.2857142857142857
+    }
+   },
+   "evaluator_validated": 1,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/STATISTICAL/PERMUT_PERMUTATIONA.xlsx"
+  },
+  {
+   "n_formulas": 12,
+   "n_analyzable": 12,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 9.92,
+   "m2_input": {
+    "affected": 12,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.0,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.0,
+     "2": 0.0,
+     "3": 0.0,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "evaluator_validated": 0,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/STATISTICAL/TREND_GROWTH.xlsx"
+  },
+  {
+   "n_formulas": 29,
+   "n_analyzable": 29,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 2.69,
+   "m2_input": {
+    "affected": 26,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.10344827586206896,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.10344827586206896,
+     "2": 0.007389162561576354,
+     "3": 0.00027367268746579087,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.0925,
+    "detect_k_sampled": {
+     "1": 0.0325,
+     "2": 0.0725,
+     "3": 0.0875,
+     "5": 0.1275,
+     "10": 0.3
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.034482758620689655,
+     "2": 0.06896551724137931,
+     "3": 0.10344827586206896,
+     "5": 0.1724137931034483,
+     "10": 0.3448275862068966
+    }
+   },
+   "evaluator_validated": 11,
+   "m2_output": {
+    "affected_validated": 8,
+    "input_collision_rate": 0.0,
+    "output_collision_rate": 0.0
+   },
+   "m1_output": {
+    "trials": 400,
+    "input_collision_rate": 0.13,
+    "output_collision_rate": 0.13
+   },
+   "file": "calc_tests/TEXT/CONCAT.xlsx"
+  },
+  {
+   "n_formulas": 62,
+   "n_analyzable": 62,
+   "excluded": {
+    "no_text": 0,
+    "unparseable": 0,
+    "volatile": 0,
+    "no_cache": 0
+   },
+   "mean_reads_per_formula": 3,
+   "m2_input": {
+    "affected": 62,
+    "pass_rate_affected": 0.0,
+    "pass_rate_all": 0.0,
+    "full_check_miss": false,
+    "miss_k": {
+     "1": 0.0,
+     "2": 0.0,
+     "3": 0.0,
+     "5": 0.0,
+     "10": 0.0
+    }
+   },
+   "m1_input": {
+    "trials": 400,
+    "q_input": 0.1975,
+    "detect_k_sampled": {
+     "1": 0.0075,
+     "2": 0.0325,
+     "3": 0.04,
+     "5": 0.07,
+     "10": 0.14
+    },
+    "coverage_bound_k_over_N": {
+     "1": 0.016129032258064516,
+     "2": 0.03225806451612903,
+     "3": 0.04838709677419355,
+     "5": 0.08064516129032258,
+     "10": 0.16129032258064516
+    }
+   },
+   "evaluator_validated": 0,
+   "m2_output": {
+    "affected_validated": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "m1_output": {
+    "trials": 0,
+    "input_collision_rate": null,
+    "output_collision_rate": null
+   },
+   "file": "calc_tests/TEXT/FIND_SEARCH.xlsx"
+  }
+ ]
+}

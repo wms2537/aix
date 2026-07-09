@@ -1,58 +1,67 @@
-# Interventional A/B: does the guard eliminate silent corruption? (independent oracle)
+# Edit-path A/B (independent oracle) — what it does and does NOT show
 
-The gating experiment the reviewers named since round 1: not "does the certifier
-fire on cases I wrote," but "does routing a real edit through the certify-or-refuse
-guard prevent silent corruption, judged by an engine INDEPENDENT of the tool?"
+This is a **programmatic edit-path** comparison, **not an agent study**. Adversarial
+review was right that the earlier "agent" framing overclaimed; this is the honest
+version.
 
 ## Setup (`agent_ab.py`)
-- **Corpus:** 172 real formula-bearing workbooks (the vendored calc-test corpus:
-  FINANCIAL, LOOKUP, MATH, … — not authored by us).
-- **Task:** insert a blank row at row 2 — the canonical *invisible-damage*
-  structural edit (every formula that references below the insert must shift; a
-  wrong shift changes recomputed values with no visible symptom).
-- **ARM A — UNGUARDED:** edit with `openpyxl` (`insert_rows`), the library an
-  agent reaches for. The file opens fine; correctness is invisible without an engine.
-- **ARM B — GUARDED:** the same structural intent through xlq's certify-or-refuse
-  (σ-shift + residual gate). Certified → commit; can't certify → REFUSE.
-- **INDEPENDENT ORACLE:** LibreOffice recomputes each edited file; a formula value
-  at its shifted position that diverges from the original Excel-authored cache =
-  corruption. LibreOffice is independent of both openpyxl and xlq's IronCalc, and
-  the ground-truth caches were written by Excel. Position-dependent functions
-  (OFFSET, INDIRECT, ROW, COLUMN, NOW, …) are excluded — their value legitimately
-  changes on a row insert, so value-preservation does not apply to them.
+- **Corpus:** 172 real formula-bearing workbooks (vendored calc-test corpus:
+  FINANCIAL/LOOKUP/MATH — not author-written).
+- **Task:** insert a blank row at row 2.
+- **Path A:** `openpyxl.insert_rows` — the standard programmatic edit path.
+- **Path B:** xlq certify-or-refuse (σ-shift + residual gate).
+- **INDEPENDENT ORACLE:** LibreOffice recomputes each edited file; a formula value at
+  its shifted position that diverges from the original Excel-authored cache =
+  corruption. Independent of both openpyxl and xlq's IronCalc. Position-dependent
+  functions (OFFSET, INDIRECT, ROW, COLUMN, NOW, …) are excluded — their value
+  legitimately changes on a row insert.
 
-## Result
+## What is genuinely empirical (the result to trust)
+- **xlq's edit is engine-confirmed faithful on 150/172 files, with 0 false
+  certifications**, and **22 principled refusals** (shared/array formulas, tables —
+  correctly declined, not corrupted). This is a real forward-correctness result for
+  xlq's shifter on real workbooks against an independent engine, plus a working
+  certify-or-refuse routing.
 
-| | silent corruption | notes |
-|---|---:|---|
-| **UNGUARDED** (openpyxl) | **149 / 172 = 86.6%** | 23 faithful — files whose checkable formulas happened not to cross the insert |
-| **GUARDED** (xlq) | **0 / 172 = 0%** | 150 certified-faithful (engine-confirmed), 22 refused (explicit) |
-
-The naive edit path silently corrupts ~7 of every 8 real structural edits; the
-guarded path silently corrupts none — every commit is engine-confirmed faithful
-or explicitly refused. This is the certify-or-refuse contract holding on real
-files against an independent engine.
+## What is NOT a clean interventional claim (do not headline)
+- The **86.6%** openpyxl figure is a **corpus property × one known library bug**:
+  `insert_rows` rewrites zero references, so 86.6% is the fraction of these files
+  with a below-insert reference — not an agent-error rate. A competent ref-shifting
+  engine (LibreOffice/Excel/IronCalc) also gets this op right, so the guard's real
+  differentiator is auditability + explicit refusal + **engine-free certification**,
+  which this experiment does not isolate.
+- Path B has xlq **author** the edit and then **self-certify** it, so guarded
+  "0% silent corruption" is partly **definitional** (a fail-closed gate cannot
+  silently corrupt by construction). The certifier as a checker of **untrusted
+  foreign** edits — the actual verifiability thesis — is tested in
+  `foreign_certify.py`, not here.
 
 ## An oracle false-positive I found and fixed (transparency)
-The first full run reported **1** guarded "certified-but-WRONG"
-(`ROW_COLUM.xlsx`). Investigated: the file is almost entirely `ROW()`/`COLUMN()`
-formulas, which resolve by absolute position — `=ROW()` at row 2 *correctly*
-returns 3 after the insert, so its cached value legitimately changes. xlq shifted
-correctly; **my oracle's exclusion list was incomplete** (it had OFFSET/INDIRECT
-but not ROW/COLUMN). Adding them flipped the file to certified-faithful and the
-guard-failure count to 0. The "1 guard failure" was my measurement, not xlq.
+The first run reported 1 guarded "certified-but-WRONG" (`ROW_COLUM.xlsx`). It is
+almost entirely `ROW()`/`COLUMN()` formulas, which resolve by absolute position —
+`=ROW()` correctly returns a new number after the insert, so its cached value
+legitimately changes. xlq shifted correctly; **my oracle's exclusion list was
+incomplete** (missing ROW/COLUMN). Adding them → 0 false certifications. The "1
+failure" was my measurement, not xlq.
 
-## Honest scope — what this is and is NOT
-- It IS a real interventional A/B on the corruption *mechanism*: guarded vs
-  unguarded edit paths, 172 real workbooks, independent engine oracle, n≫ the
-  earlier 6-case harness.
-- ARM A is `openpyxl` — the standard programmatic edit path — **not a live LLM
-  writing varied edits.** The corruption is that tool's systematic failure to
-  shift references. A live-LLM slice (an agent making its own varied mistakes,
-  gated by the router) is the stronger version and remains the next step; this
-  establishes the mechanism and the independent-oracle methodology it needs.
-- One structural operation (row insert) and one oracle engine (LibreOffice). The
-  22 refusals are the guard declining files it cannot certify (shared/array
-  formulas, tables) — correct behavior, not corruption.
+## Honest standing
+This delivers the reusable independent-oracle scaffold, xlq shifter
+forward-correctness on 150 real files, and explicit refuse-routing — with disclosed
+caveats. It does **not** close the interventional gate: a live agent's own varied
+errors, certification of foreign edits, and task-completion scoring are the
+remaining work (`foreign_certify.py` starts on foreign-edit certification).
 
-Reproduce: `abenv/bin/python agent_ab.py 0 207` (needs openpyxl + libreoffice).
+## Correction (found by the coincidence-bound study, independently verified)
+
+The 86.6% (149/172) unguarded silent-corruption rate contains **2 confirmed label
+mislabels**: `ACCRINT.xlsx` and `ACCRINTM.xlsx` have formulas with **zero references
+of any kind** (pure constant arguments), so a failure to shift references cannot
+corrupt them — their "divergence" is LibreOffice recomputing ACCRINT differently from
+Excel's cache after openpyxl drops `<v>`. Three further flagged files (`tables.xlsx`,
+`defined_names*.xlsx`) carry only non-A1 reference classes (structured table refs,
+defined-name targets) that openpyxl also fails to shift — corruption there is
+plausible (name targets genuinely point at stale cells after the insert) but not
+attributable by this value oracle. **Corrected headline: 147/172 = 85.5%
+confirmed-genuine reference corruption** (144 A1-mediated + 3 via non-A1 reference
+classes), 2/172 oracle mislabels. The deterministic multi-op result
+(`shift_correctness_real`) is unaffected — it never used the value oracle.
