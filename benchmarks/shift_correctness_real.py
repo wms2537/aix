@@ -140,6 +140,13 @@ def formulas_of(path):
         if not fm:
             continue
         f = fm.group(1).decode("utf-8", "replace")
+        # XML entity decode (2nd locked-run harness artifact, research-log/017):
+        # LO-converted files store quotes as &quot; while xlq writes literal '"'
+        # (both valid XML for the SAME formula); compare the DECODED formula text.
+        # &amp; last, standard order.
+        for ent, ch in (("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'),
+                        ("&apos;", "'"), ("&amp;", "&")):
+            f = f.replace(ent, ch)
         if VOL.search(f):
             continue
         out[(m.group(1).decode(), int(m.group(2)))] = f
