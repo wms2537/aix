@@ -1,0 +1,63 @@
+{
+  "benchmark": "LOCKED in-the-wild test (pre-registered research-log/016)",
+  "corpus_dir": "/home/soh/aix/data/inthewild/enron/converted",
+  "eligibility": {
+    "ineligible_lt2_formulas": 423,
+    "eligible": 362,
+    "parse_failed": 1
+  },
+  "files_run": 362,
+  "leg1_shift_correctness": {
+    "insert-rows": {
+      "applied_workbooks": 324,
+      "refused_workbooks": 38,
+      "cells_checked": 47137,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "openpyxl_unshifted_cells": 46018,
+      "skipped_out_of_grammar_cells": 51917
+    },
+    "delete-rows": {
+      "applied_workbooks": 324,
+      "refused_workbooks": 38,
+      "cells_checked": 40729,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "openpyxl_unshifted_cells": 39043,
+      "skipped_out_of_grammar_cells": 58301
+    },
+    "insert-cols": {
+      "applied_workbooks": 324,
+      "refused_workbooks": 38,
+      "cells_checked": 47137,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "openpyxl_unshifted_cells": 44372,
+      "skipped_out_of_grammar_cells": 51917
+    },
+    "delete-cols": {
+      "applied_workbooks": 324,
+      "refused_workbooks": 38,
+      "cells_checked": 35793,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "openpyxl_unshifted_cells": 31655,
+      "skipped_out_of_grammar_cells": 59800
+    }
+  },
+  "leg2_prevalence": {
+    "would_corrupt_files": 323,
+    "no_shift_needed_files": 39,
+    "prevalence": 0.8923
+  },
+  "leg3_guard": {
+    "own_CERTIFIED": 246,
+    "opx_REFUSED": 345,
+    "own_REFUSED": 75,
+    "own_ERROR": 3,
+    "opx_ERROR": 13,
+    "opx_edit_failed": 4
+  },
+  "mismatch_samples": [],
+  "false_cert_samples": []
+}

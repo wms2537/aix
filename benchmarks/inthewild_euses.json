@@ -1,0 +1,143 @@
+{
+  "benchmark": "LOCKED in-the-wild test (pre-registered research-log/016)",
+  "corpus_dir": "/home/soh/aix/data/inthewild/euses/converted",
+  "eligibility": {
+    "ineligible_lt2_formulas": 633,
+    "eligible": 163
+  },
+  "files_run": 163,
+  "leg1_shift_correctness": {
+    "insert-rows": {
+      "applied_workbooks": 160,
+      "refused_workbooks": 3,
+      "cells_checked": 29616,
+      "xlq_mismatch": 10,
+      "xlq_correct_rate": 0.9997,
+      "openpyxl_unshifted_cells": 24678,
+      "skipped_out_of_grammar_cells": 4301
+    },
+    "delete-rows": {
+      "applied_workbooks": 160,
+      "refused_workbooks": 3,
+      "cells_checked": 28156,
+      "xlq_mismatch": 9,
+      "xlq_correct_rate": 0.9997,
+      "openpyxl_unshifted_cells": 22693,
+      "skipped_out_of_grammar_cells": 5720
+    },
+    "insert-cols": {
+      "applied_workbooks": 160,
+      "refused_workbooks": 3,
+      "cells_checked": 29616,
+      "xlq_mismatch": 10,
+      "xlq_correct_rate": 0.9997,
+      "openpyxl_unshifted_cells": 23285,
+      "skipped_out_of_grammar_cells": 4301
+    },
+    "delete-cols": {
+      "applied_workbooks": 160,
+      "refused_workbooks": 3,
+      "cells_checked": 25776,
+      "xlq_mismatch": 9,
+      "xlq_correct_rate": 0.9997,
+      "openpyxl_unshifted_cells": 18507,
+      "skipped_out_of_grammar_cells": 6933
+    }
+  },
+  "leg2_prevalence": {
+    "would_corrupt_files": 113,
+    "no_shift_needed_files": 50,
+    "prevalence": 0.6933
+  },
+  "leg3_guard": {
+    "own_CERTIFIED": 131,
+    "opx_REFUSED": 158,
+    "own_REFUSED": 20,
+    "own_ERROR": 9,
+    "opx_edit_failed": 3,
+    "opx_ERROR": 2
+  },
+  "mismatch_samples": [
+    {
+      "file": "10341003.xlsx",
+      "op": "insert-rows",
+      "cell": "G8",
+      "orig": "IF(C8=\"\",\"\",IF(C8=$IA$4,\"\u5927\u5f53\u305f\u308a\uff01\",\"\u306f\u305a\u308c\uff01\u3082\u3046\u4e00\u5ea6\u8003\u3048\u3088\u3046\uff01\"))",
+      "expected": "IF(C9=\"\",\"\",IF(C9=$IA$5,\"\u5927\u5f53\u305f\u308a\uff01\",\"\u306f\u305a\u308c\uff01\u3082\u3046\u4e00\u5ea6\u8003\u3048\u3088\u3046\uff01\"))",
+      "xlq": "IF(C9=\"\",\"\",IF(C9=$IA$5,\"\u00e5\u00a4\u00a7\u00e5\u00bd\u0093\u00e3\u0081\u009f\u00e3\u0082\u008a\u00ef\u00bc\u0081\",\"\u00e3\u0081\u00af\u00e3\u0081\u009a\u00e3\u0082\u008c\u00ef\u00bc\u0081\u00e3\u0082\u0082\u00e3\u0081\u0086\u00e4\u00b8\u0080\u00e5\u00ba\u00a6\u00e8\u0080\u0083\u00e3\u0081\u0088\u00e3\u0082\u0088\u00e3\u0081\u0086\u00ef\u00bc\u0081\"))"
+    },
+    {
+      "file": "10341003.xlsx",
+      "op": "insert-rows",
+      "cell": "B14",
+      "orig": "IF(OR($B$10=\"\",B13=\"\"),\"\",IF($B$10*B12=B13,\"\u25cb\",\"\u00d7\"))",
+      "expected": "IF(OR($B$11=\"\",B14=\"\"),\"\",IF($B$11*B13=B14,\"\u25cb\",\"\u00d7\"))",
+      "xlq": "IF(OR($B$11=\"\",B14=\"\"),\"\",IF($B$11*B13=B14,\"\u00e2\u0097\u008b\",\"\u00c3\u0097\"))"
+    },
+    {
+      "file": "10341003.xlsx",
+      "op": "insert-rows",
+      "cell": "C14",
+      "orig": "IF(OR($B$10=\"\",C13=\"\"),\"\",IF($B$10*C12=C13,\"\u25cb\",\"\u00d7\"))",
+      "expected": "IF(OR($B$11=\"\",C14=\"\"),\"\",IF($B$11*C13=C14,\"\u25cb\",\"\u00d7\"))",
+      "xlq": "IF(OR($B$11=\"\",C14=\"\"),\"\",IF($B$11*C13=C14,\"\u00e2\u0097\u008b\",\"\u00c3\u0097\"))"
+    },
+    {
+      "file": "10341003.xlsx",
+      "op": "insert-rows",
+      "cell": "D14",
+      "orig": "IF(OR($B$10=\"\",D13=\"\"),\"\",IF($B$10*D12=D13,\"\u25cb\",\"\u00d7\"))",
+      "expected": "IF(OR($B$11=\"\",D14=\"\"),\"\",IF($B$11*D13=D14,\"\u25cb\",\"\u00d7\"))",
+      "xlq": "IF(OR($B$11=\"\",D14=\"\"),\"\",IF($B$11*D13=D14,\"\u00e2\u0097\u008b\",\"\u00c3\u0097\"))"
+    },
+    {
+      "file": "10341003.xlsx",
+      "op": "insert-rows",
+      "cell": "E14",
+      "orig": "IF(OR($B$10=\"\",E13=\"\"),\"\",IF($B$10*E12=E13,\"\u25cb\",\"\u00d7\"))",
+      "expected": "IF(OR($B$11=\"\",E14=\"\"),\"\",IF($B$11*E13=E14,\"\u25cb\",\"\u00d7\"))",
+      "xlq": "IF(OR($B$11=\"\",E14=\"\"),\"\",IF($B$11*E13=E14,\"\u00e2\u0097\u008b\",\"\u00c3\u0097\"))"
+    },
+    {
+      "file": "10341003.xlsx",
+      "op": "insert-rows",
+      "cell": "F14",
+      "orig": "IF(OR($B$10=\"\",F13=\"\"),\"\",IF($B$10*F12=F13,\"\u25cb\",\"\u00d7\"))",
+      "expected": "IF(OR($B$11=\"\",F14=\"\"),\"\",IF($B$11*F13=F14,\"\u25cb\",\"\u00d7\"))",
+      "xlq": "IF(OR($B$11=\"\",F14=\"\"),\"\",IF($B$11*F13=F14,\"\u00e2\u0097\u008b\",\"\u00c3\u0097\"))"
+    },
+    {
+      "file": "10341003.xlsx",
+      "op": "insert-rows",
+      "cell": "G14",
+      "orig": "IF(OR($B$10=\"\",G13=\"\"),\"\",IF($B$10*G12=G13,\"\u25cb\",\"\u00d7\"))",
+      "expected": "IF(OR($B$11=\"\",G14=\"\"),\"\",IF($B$11*G13=G14,\"\u25cb\",\"\u00d7\"))",
+      "xlq": "IF(OR($B$11=\"\",G14=\"\"),\"\",IF($B$11*G13=G14,\"\u00e2\u0097\u008b\",\"\u00c3\u0097\"))"
+    },
+    {
+      "file": "10341003.xlsx",
+      "op": "insert-rows",
+      "cell": "H14",
+      "orig": "IF(OR($B$10=\"\",H13=\"\"),\"\",IF($B$10*H12=H13,\"\u25cb\",\"\u00d7\"))",
+      "expected": "IF(OR($B$11=\"\",H14=\"\"),\"\",IF($B$11*H13=H14,\"\u25cb\",\"\u00d7\"))",
+      "xlq": "IF(OR($B$11=\"\",H14=\"\"),\"\",IF($B$11*H13=H14,\"\u00e2\u0097\u008b\",\"\u00c3\u0097\"))"
+    },
+    {
+      "file": "10341003.xlsx",
+      "op": "insert-rows",
+      "cell": "I14",
+      "orig": "IF(OR($B$10=\"\",I13=\"\"),\"\",IF($B$10*I12=I13,\"\u25cb\",\"\u00d7\"))",
+      "expected": "IF(OR($B$11=\"\",I14=\"\"),\"\",IF($B$11*I13=I14,\"\u25cb\",\"\u00d7\"))",
+      "xlq": "IF(OR($B$11=\"\",I14=\"\"),\"\",IF($B$11*I13=I14,\"\u00e2\u0097\u008b\",\"\u00c3\u0097\"))"
+    },
+    {
+      "file": "10341003.xlsx",
+      "op": "insert-rows",
+      "cell": "J14",
+      "orig": "IF(OR($B$10=\"\",J13=\"\"),\"\",IF($B$10*J12=J13,\"\u25cb\",\"\u00d7\"))",
+      "expected": "IF(OR($B$11=\"\",J14=\"\"),\"\",IF($B$11*J13=J14,\"\u25cb\",\"\u00d7\"))",
+      "xlq": "IF(OR($B$11=\"\",J14=\"\"),\"\",IF($B$11*J13=J14,\"\u00e2\u0097\u008b\",\"\u00c3\u0097\"))"
+    }
+  ],
+  "false_cert_samples": []
+}

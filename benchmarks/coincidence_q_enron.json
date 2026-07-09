@@ -1,0 +1,696 @@
+{
+ "experiment": "COINCIDENCE q: value-collision rate of error-model cell pairs on the real corpus (first sheets), from Excel-cached <v> values",
+ "corpus_files": 786,
+ "files_measured": 779,
+ "files_skipped": 7,
+ "semantics": {
+  "excel": "pairs with >=1 nonempty cell; EMPTY collides with 0 and \"\" (what a formula read actually sees) \u2014 headline",
+  "strict": "both cells nonempty, typed equality only"
+ },
+ "models": {
+  "M2v_offbyone_row": {
+   "excel_semantics": {
+    "files_in_distribution": 777,
+    "pooled_pairs": 2858672,
+    "pooled_q": 0.566079,
+    "file_rate_mean": 0.277049,
+    "file_rate_median": 0.244527,
+    "file_rate_p10": 0.0,
+    "file_rate_p90": 0.568571,
+    "files_check_blind_rate>=0.99": 0,
+    "files_rate==0": 107,
+    "detection": {
+     "naive_independent": {
+      "miss_k": {
+       "1": 0.5660789345542265,
+       "2": 0.3204453601460483,
+       "3": 0.1813973680543204,
+       "4": 0.10268522883913059,
+       "5": 0.05812794493571198,
+       "6": 0.032905005137034586,
+       "7": 0.01862683024947389,
+       "8": 0.010544256221744616,
+       "9": 0.0059688813276719665,
+       "10": 0.003378857982449164
+      },
+      "detection_k": {
+       "1": 0.43392106544577347,
+       "2": 0.6795546398539517,
+       "3": 0.8186026319456796,
+       "4": 0.8973147711608694,
+       "5": 0.9418720550642881,
+       "6": 0.9670949948629655,
+       "7": 0.9813731697505261,
+       "8": 0.9894557437782554,
+       "9": 0.9940311186723281,
+       "10": 0.9966211420175508
+      },
+      "k_for_99pct": 9,
+      "k_for_99.9pct": 13
+     },
+     "mixture_dependent": {
+      "miss_k": {
+       "1": 0.27704930638060965,
+       "2": 0.12803599730125,
+       "3": 0.06793123713423134,
+       "4": 0.03919145808542609,
+       "5": 0.024153813703497364,
+       "6": 0.015776599828751618,
+       "7": 0.010861176772636219,
+       "8": 0.007836925392283322,
+       "9": 0.005890417438841037,
+       "10": 0.0045826360117698
+      },
+      "detection_k": {
+       "1": 0.7229506936193903,
+       "2": 0.87196400269875,
+       "3": 0.9320687628657687,
+       "4": 0.9608085419145739,
+       "5": 0.9758461862965027,
+       "6": 0.9842234001712484,
+       "7": 0.9891388232273638,
+       "8": 0.9921630746077167,
+       "9": 0.994109582561159,
+       "10": 0.9954173639882302
+      },
+      "k_for_99pct": 8,
+      "k_for_99.9pct": 20,
+      "asymptotic_miss_floor(frac files rate==1)": 0.0
+     }
+    }
+   },
+   "strict_both_nonempty": {
+    "files_in_distribution": 767,
+    "pooled_pairs": 2605010,
+    "pooled_q": 0.612958,
+    "file_rate_mean": 0.317477,
+    "file_rate_median": 0.290506,
+    "file_rate_p10": 0.0,
+    "file_rate_p90": 0.6175,
+    "files_check_blind_rate>=0.99": 0,
+    "files_rate==0": 104,
+    "detection": {
+     "naive_independent": {
+      "miss_k": {
+       "1": 0.6129577237707341,
+       "2": 0.3757171711301996,
+       "3": 0.2302987419975465,
+       "4": 0.14116339268207967,
+       "5": 0.08652719185816185,
+       "6": 0.053037510565652486,
+       "7": 0.03250975175078861,
+       "8": 0.019927103433515024,
+       "9": 0.012214471961951348,
+       "10": 0.007486954930859151
+      },
+      "detection_k": {
+       "1": 0.3870422762292659,
+       "2": 0.6242828288698004,
+       "3": 0.7697012580024535,
+       "4": 0.8588366073179203,
+       "5": 0.9134728081418382,
+       "6": 0.9469624894343475,
+       "7": 0.9674902482492114,
+       "8": 0.980072896566485,
+       "9": 0.9877855280380486,
+       "10": 0.9925130450691408
+      },
+      "k_for_99pct": 10,
+      "k_for_99.9pct": 15
+     },
+     "mixture_dependent": {
+      "miss_k": {
+       "1": 0.31747659691165464,
+       "2": 0.15830068493520688,
+       "3": 0.08929193621101146,
+       "4": 0.05413741871576235,
+       "5": 0.034641937442150224,
+       "6": 0.0232061324917059,
+       "7": 0.016197793004438372,
+       "8": 0.01173670864304665,
+       "9": 0.00879658916775962,
+       "10": 0.006794693531294444
+      },
+      "detection_k": {
+       "1": 0.6825234030883454,
+       "2": 0.8416993150647931,
+       "3": 0.9107080637889885,
+       "4": 0.9458625812842376,
+       "5": 0.9653580625578497,
+       "6": 0.9767938675082941,
+       "7": 0.9838022069955616,
+       "8": 0.9882632913569533,
+       "9": 0.9912034108322404,
+       "10": 0.9932053064687055
+      },
+      "k_for_99pct": 9,
+      "k_for_99.9pct": 24,
+      "asymptotic_miss_floor(frac files rate==1)": 0.0
+     }
+    }
+   }
+  },
+  "M2h_offbyone_col": {
+   "excel_semantics": {
+    "files_in_distribution": 772,
+    "pooled_pairs": 2603556,
+    "pooled_q": 0.145868,
+    "file_rate_mean": 0.130806,
+    "file_rate_median": 0.052045,
+    "file_rate_p10": 0.0,
+    "file_rate_p90": 0.37889,
+    "files_check_blind_rate>=0.99": 0,
+    "files_rate==0": 225,
+    "detection": {
+     "naive_independent": {
+      "miss_k": {
+       "1": 0.14586818950696662,
+       "2": 0.021277528710040326,
+       "3": 0.0031037145901160854,
+       "4": 0.0004527332280065903,
+       "5": 6.603937629896605e-05,
+       "6": 9.633044256899458e-06,
+       "7": 1.4051547251944067e-06,
+       "8": 2.049673757412673e-07,
+       "9": 2.989822000737281e-08,
+       "10": 4.361199221956438e-09
+      },
+      "detection_k": {
+       "1": 0.8541318104930333,
+       "2": 0.9787224712899597,
+       "3": 0.996896285409884,
+       "4": 0.9995472667719935,
+       "5": 0.999933960623701,
+       "6": 0.9999903669557431,
+       "7": 0.9999985948452748,
+       "8": 0.9999997950326243,
+       "9": 0.99999997010178,
+       "10": 0.9999999956388008
+      },
+      "k_for_99pct": 3,
+      "k_for_99.9pct": 4
+     },
+     "mixture_dependent": {
+      "miss_k": {
+       "1": 0.13080591998171168,
+       "2": 0.05110801968282643,
+       "3": 0.028050179376436418,
+       "4": 0.018229432313215922,
+       "5": 0.012920661704403515,
+       "6": 0.009623102656360892,
+       "7": 0.007402581845699959,
+       "8": 0.0058314228669325546,
+       "9": 0.004682525897815582,
+       "10": 0.0038220564154247735
+      },
+      "detection_k": {
+       "1": 0.8691940800182884,
+       "2": 0.9488919803171736,
+       "3": 0.9719498206235636,
+       "4": 0.9817705676867841,
+       "5": 0.9870793382955965,
+       "6": 0.9903768973436391,
+       "7": 0.9925974181543,
+       "8": 0.9941685771330675,
+       "9": 0.9953174741021844,
+       "10": 0.9961779435845752
+      },
+      "k_for_99pct": 6,
+      "k_for_99.9pct": 20,
+      "asymptotic_miss_floor(frac files rate==1)": 0.0
+     }
+    }
+   },
+   "strict_both_nonempty": {
+    "files_in_distribution": 725,
+    "pooled_pairs": 2300916,
+    "pooled_q": 0.14283,
+    "file_rate_mean": 0.145923,
+    "file_rate_median": 0.06,
+    "file_rate_p10": 0.0,
+    "file_rate_p90": 0.397919,
+    "files_check_blind_rate>=0.99": 0,
+    "files_rate==0": 228,
+    "detection": {
+     "naive_independent": {
+      "miss_k": {
+       "1": 0.1428296382831881,
+       "2": 0.02040030557210635,
+       "3": 0.0029137682657304565,
+       "4": 0.00041617246743531336,
+       "5": 5.9441762987207684e-05,
+       "6": 8.490045506377871e-06,
+       "7": 1.2126301286837579e-06,
+       "8": 1.7319952265119697e-07,
+       "9": 2.4738025171091306e-08,
+       "10": 3.5333231870273737e-09
+      },
+      "detection_k": {
+       "1": 0.8571703617168119,
+       "2": 0.9795996944278936,
+       "3": 0.9970862317342696,
+       "4": 0.9995838275325647,
+       "5": 0.9999405582370128,
+       "6": 0.9999915099544936,
+       "7": 0.9999987873698714,
+       "8": 0.9999998268004774,
+       "9": 0.9999999752619748,
+       "10": 0.9999999964666768
+      },
+      "k_for_99pct": 3,
+      "k_for_99.9pct": 4
+     },
+     "mixture_dependent": {
+      "miss_k": {
+       "1": 0.14592270295936036,
+       "2": 0.058537788391567105,
+       "3": 0.032300334881855075,
+       "4": 0.02110437411082687,
+       "5": 0.01502609342015714,
+       "6": 0.011209914845625288,
+       "7": 0.008609720028673981,
+       "8": 0.006751938282635445,
+       "9": 0.00538396243778878,
+       "10": 0.004354872478711166
+      },
+      "detection_k": {
+       "1": 0.8540772970406396,
+       "2": 0.9414622116084329,
+       "3": 0.9676996651181449,
+       "4": 0.9788956258891731,
+       "5": 0.9849739065798429,
+       "6": 0.9887900851543747,
+       "7": 0.991390279971326,
+       "8": 0.9932480617173646,
+       "9": 0.9946160375622112,
+       "10": 0.9956451275212889
+      },
+      "k_for_99pct": 7,
+      "k_for_99.9pct": 20,
+      "asymptotic_miss_floor(frac files rate==1)": 0.0
+     }
+    }
+   }
+  },
+  "M1c_uniform_same_column": {
+   "excel_semantics": {
+    "files_in_distribution": 777,
+    "pooled_pairs": 32958687733,
+    "pooled_q": 0.315654,
+    "file_rate_mean": 0.163006,
+    "file_rate_median": 0.111973,
+    "file_rate_p10": 0.001156,
+    "file_rate_p90": 0.400019,
+    "files_check_blind_rate>=0.99": 0,
+    "files_rate==0": 68,
+    "detection": {
+     "naive_independent": {
+      "miss_k": {
+       "1": 0.3156540979810739,
+       "2": 0.0996375095722454,
+       "3": 0.031450988209107744,
+       "4": 0.009927633313759296,
+       "5": 0.0031336981387415502,
+       "6": 0.0009891646593294342,
+       "7": 0.0003122338782953888,
+       "8": 9.855790321246337e-05,
+       "9": 3.1110206037436114e-05,
+       "10": 9.820064024752255e-06
+      },
+      "detection_k": {
+       "1": 0.6843459020189261,
+       "2": 0.9003624904277546,
+       "3": 0.9685490117908923,
+       "4": 0.9900723666862407,
+       "5": 0.9968663018612585,
+       "6": 0.9990108353406706,
+       "7": 0.9996877661217046,
+       "8": 0.9999014420967876,
+       "9": 0.9999688897939626,
+       "10": 0.9999901799359753
+      },
+      "k_for_99pct": 4,
+      "k_for_99.9pct": 6
+     },
+     "mixture_dependent": {
+      "miss_k": {
+       "1": 0.16300601582971772,
+       "2": 0.05469238903103192,
+       "3": 0.023726195827125433,
+       "4": 0.012333784641789082,
+       "5": 0.007430013051067609,
+       "6": 0.005023040691867342,
+       "7": 0.0036907627404929575,
+       "8": 0.0028703055677840577,
+       "9": 0.002318724330370803,
+       "10": 0.001922260984854503
+      },
+      "detection_k": {
+       "1": 0.8369939841702823,
+       "2": 0.9453076109689681,
+       "3": 0.9762738041728746,
+       "4": 0.9876662153582109,
+       "5": 0.9925699869489324,
+       "6": 0.9949769593081327,
+       "7": 0.996309237259507,
+       "8": 0.997129694432216,
+       "9": 0.9976812756696292,
+       "10": 0.9980777390151455
+      },
+      "k_for_99pct": 5,
+      "k_for_99.9pct": 15,
+      "asymptotic_miss_floor(frac files rate==1)": 0.0
+     }
+    }
+   },
+   "strict_both_nonempty": {
+    "files_in_distribution": 776,
+    "pooled_pairs": 28134759758,
+    "pooled_q": 0.36089,
+    "file_rate_mean": 0.194193,
+    "file_rate_median": 0.153252,
+    "file_rate_p10": 0.001293,
+    "file_rate_p90": 0.433494,
+    "files_check_blind_rate>=0.99": 0,
+    "files_rate==0": 69,
+    "detection": {
+     "naive_independent": {
+      "miss_k": {
+       "1": 0.3608899490998099,
+       "2": 0.1302415553612634,
+       "3": 0.047002868285006424,
+       "4": 0.01696286274292104,
+       "5": 0.006121726671879836,
+       "6": 0.002209269627017663,
+       "7": 0.0007973032032421604,
+       "8": 0.00028773871243517867,
+       "9": 0.00010384200928477648,
+       "10": 3.7475537445204974e-05
+      },
+      "detection_k": {
+       "1": 0.6391100509001901,
+       "2": 0.8697584446387366,
+       "3": 0.9529971317149936,
+       "4": 0.983037137257079,
+       "5": 0.9938782733281202,
+       "6": 0.9977907303729824,
+       "7": 0.9992026967967579,
+       "8": 0.9997122612875649,
+       "9": 0.9998961579907152,
+       "10": 0.9999625244625548
+      },
+      "k_for_99pct": 5,
+      "k_for_99.9pct": 7
+     },
+     "mixture_dependent": {
+      "miss_k": {
+       "1": 0.19419294672168508,
+       "2": 0.06926207927160413,
+       "3": 0.03053242853142154,
+       "4": 0.015634337725076344,
+       "5": 0.009086135839878063,
+       "6": 0.005876689221517312,
+       "7": 0.004139391626852695,
+       "8": 0.0031092945231784084,
+       "9": 0.0024476416080511424,
+       "10": 0.0019933964333495257
+      },
+      "detection_k": {
+       "1": 0.8058070532783149,
+       "2": 0.9307379207283959,
+       "3": 0.9694675714685784,
+       "4": 0.9843656622749236,
+       "5": 0.990913864160122,
+       "6": 0.9941233107784827,
+       "7": 0.9958606083731473,
+       "8": 0.9968907054768216,
+       "9": 0.9975523583919489,
+       "10": 0.9980066035666505
+      },
+      "k_for_99pct": 5,
+      "k_for_99.9pct": 15,
+      "asymptotic_miss_floor(frac files rate==1)": 0.0
+     }
+    }
+   }
+  },
+  "M1a_uniform_used_range": {
+   "excel_semantics": {
+    "files_in_distribution": 778,
+    "pooled_pairs": 422033073550,
+    "pooled_q": 0.052696,
+    "file_rate_mean": 0.05769,
+    "file_rate_median": 0.022935,
+    "file_rate_p10": 0.001043,
+    "file_rate_p90": 0.160953,
+    "files_check_blind_rate>=0.99": 0,
+    "files_rate==0": 49,
+    "detection": {
+     "naive_independent": {
+      "miss_k": {
+       "1": 0.05269595113228775,
+       "2": 0.0027768632657364585,
+       "3": 0.00014632945095229338,
+       "4": 7.710969596596548e-06,
+       "5": 4.063368770448083e-07,
+       "6": 2.1412308215999634e-08,
+       "7": 1.1283419473798002e-09,
+       "8": 5.945905211963634e-11,
+       "9": 3.133251304868507e-12,
+       "10": 1.6510965764652765e-13
+      },
+      "detection_k": {
+       "1": 0.9473040488677122,
+       "2": 0.9972231367342635,
+       "3": 0.9998536705490477,
+       "4": 0.9999922890304034,
+       "5": 0.999999593663123,
+       "6": 0.9999999785876917,
+       "7": 0.999999998871658,
+       "8": 0.9999999999405409,
+       "9": 0.9999999999968667,
+       "10": 0.9999999999998349
+      },
+      "k_for_99pct": 2,
+      "k_for_99.9pct": 3
+     },
+     "mixture_dependent": {
+      "miss_k": {
+       "1": 0.05768954230333655,
+       "2": 0.014060642351137924,
+       "3": 0.006702700346293209,
+       "4": 0.0042337498227285175,
+       "5": 0.0029859847702520697,
+       "6": 0.002204533998611773,
+       "7": 0.001664007975776411,
+       "8": 0.0012722684826455644,
+       "9": 0.0009812648211356982,
+       "10": 0.0007617823795745349
+      },
+      "detection_k": {
+       "1": 0.9423104576966634,
+       "2": 0.9859393576488621,
+       "3": 0.9932972996537068,
+       "4": 0.9957662501772715,
+       "5": 0.997014015229748,
+       "6": 0.9977954660013882,
+       "7": 0.9983359920242236,
+       "8": 0.9987277315173544,
+       "9": 0.9990187351788643,
+       "10": 0.9992382176204254
+      },
+      "k_for_99pct": 3,
+      "k_for_99.9pct": 9,
+      "asymptotic_miss_floor(frac files rate==1)": 0.0
+     }
+    }
+   },
+   "strict_both_nonempty": {
+    "files_in_distribution": 778,
+    "pooled_pairs": 333223451991,
+    "pooled_q": 0.051101,
+    "file_rate_mean": 0.049799,
+    "file_rate_median": 0.029873,
+    "file_rate_p10": 0.001567,
+    "file_rate_p90": 0.098479,
+    "files_check_blind_rate>=0.99": 0,
+    "files_rate==0": 49,
+    "detection": {
+     "naive_independent": {
+      "miss_k": {
+       "1": 0.05110129882292892,
+       "2": 0.002611342741390277,
+       "3": 0.00013344300575687094,
+       "4": 6.819110913011686e-06,
+       "5": 3.4846542447250586e-07,
+       "6": 1.780703578542829e-08,
+       "7": 9.0996265682176e-10,
+       "8": 4.6500273643955076e-11,
+       "9": 2.3762243788277143e-12,
+       "10": 1.214281520528037e-13
+      },
+      "detection_k": {
+       "1": 0.9488987011770711,
+       "2": 0.9973886572586097,
+       "3": 0.9998665569942431,
+       "4": 0.999993180889087,
+       "5": 0.9999996515345755,
+       "6": 0.9999999821929643,
+       "7": 0.9999999990900373,
+       "8": 0.9999999999534998,
+       "9": 0.9999999999976238,
+       "10": 0.9999999999998785
+      },
+      "k_for_99pct": 2,
+      "k_for_99.9pct": 3
+     },
+     "mixture_dependent": {
+      "miss_k": {
+       "1": 0.049798706451151954,
+       "2": 0.009928482981874516,
+       "3": 0.004864316749714259,
+       "4": 0.003177394478417205,
+       "5": 0.002246581895507412,
+       "6": 0.001640081783280151,
+       "7": 0.0012198462938892475,
+       "8": 0.000919362369801368,
+       "9": 0.0007000443956785578,
+       "10": 0.000537496761742562
+      },
+      "detection_k": {
+       "1": 0.9502012935488481,
+       "2": 0.9900715170181255,
+       "3": 0.9951356832502858,
+       "4": 0.9968226055215827,
+       "5": 0.9977534181044926,
+       "6": 0.9983599182167199,
+       "7": 0.9987801537061107,
+       "8": 0.9990806376301986,
+       "9": 0.9992999556043214,
+       "10": 0.9994625032382575
+      },
+      "k_for_99pct": 2,
+      "k_for_99.9pct": 8,
+      "asymptotic_miss_floor(frac files rate==1)": 0.0
+     }
+    }
+   }
+  }
+ },
+ "reading_the_tables": "miss_k = P(a WRONG edit passes a k-cell value check). naive_independent assumes k distinct, independent collision events (optimistic). mixture_dependent = mean_f(rate_f^k): conditionally-iid within file \u2014 still optimistic within file, but captures the dominant between-file dependence; >= naive by Jensen. k_for_*: smallest k reaching that detection; null = unachievable (files with rate 1 are check-blind at any k).",
+ "top10_most_collision_prone_files_M2v_excel": [
+  {
+   "rate": 0.9467,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1134093.IWSMV1VND2043LYE5CNFHQWMKPVIPQO1A.1.xlsx",
+   "pairs": 6658
+  },
+  {
+   "rate": 0.9088,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1160492.MCM3SXRYCX5VNDBB0CV03MGNBL2PKCWGA.1.xlsx",
+   "pairs": 3321
+  },
+  {
+   "rate": 0.8599,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1172258.JBSGHS5RBWGQYBVTDU54KJTLLMKNDQFEA.1.xlsx",
+   "pairs": 257
+  },
+  {
+   "rate": 0.8599,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1170478.J21COWY335PUZLJVVB0Q5BOGQH4ZJ4BDA.1.xlsx",
+   "pairs": 257
+  },
+  {
+   "rate": 0.8483,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1175630.O042EJUXNMJO3RT1BI1F0C0JCKVA3WX5A.1.xlsx",
+   "pairs": 5360
+  },
+  {
+   "rate": 0.8411,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1175930.AHCPSLF202O3OBW10F55GBOUJAVBZCQMA.1.xlsx",
+   "pairs": 119809
+  },
+  {
+   "rate": 0.8375,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1158648.OTYOAESZWYAEOJIANMIC4YCDRMEWLMUSA.1.xlsx",
+   "pairs": 3440
+  },
+  {
+   "rate": 0.8039,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1174623.JVM45W34RQSFYEAH3JDFWJ02CFYSF0CGB.1.xlsx",
+   "pairs": 320390
+  },
+  {
+   "rate": 0.7952,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1169662.IC3RVVUVY3MOVC1GLDLFQADCPMXXJP0IB.1.xlsx",
+   "pairs": 5440
+  },
+  {
+   "rate": 0.7795,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1136867.KGRI1GWQPU243FEJPHVFIXPFF0LWFQQ2B.1.xlsx",
+   "pairs": 5382
+  }
+ ],
+ "bottom5_least_collision_prone_M2v_excel": [
+  {
+   "rate": 0.0,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1133030.D2T3PFAWDZ1GNA5VIMWALZLCZ10BXAK5A.1.xlsx",
+   "pairs": 50
+  },
+  {
+   "rate": 0.0,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1132124.KGOHGJ5SX50IJJ53VJFVBFX5H21ZPZU5B.1.xlsx",
+   "pairs": 24
+  },
+  {
+   "rate": 0.0,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1131894.BVLSJ4VFBLAPVSGEXU2V3DXW1HL20QSXB.1.xlsx",
+   "pairs": 1815
+  },
+  {
+   "rate": 0.0,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1131818.ADPS30VBHLR2KBOAJUGVSAPM5I3C0G4SA.1.xlsx",
+   "pairs": 37
+  },
+  {
+   "rate": 0.0,
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1131816.BFDV0OJ2NFHXC1QE0U3WLB13WYXV3EMNA.1.xlsx",
+   "pairs": 1090
+  }
+ ],
+ "caveats": [
+  "q is INPUT-level; non-injective formulas (MAX/IF/COUNT/...) can pass with a differing input, so true miss >= these numbers there (output-level gap measured in coincidence_mc.py).",
+  "M1 uniform-pair rates weight pairs uniformly; real references target data cells non-uniformly (coincidence_mc.py measures the target-weighted version on real formulas).",
+  "Exact M1 counting classes numbers by exact float equality; the checker's 1e-9 tolerance could only merge near-equal values and RAISE q slightly.",
+  "Corpus is calc-test workbooks (dense formula tables); collision structure of business workbooks may differ in either direction."
+ ],
+ "skipped": [
+  {
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1134390.D2OEQNSG2H3N1MNBKOPGDMVIVL43XCDTB.1.xlsx",
+   "error": "empty_first_sheet"
+  },
+  {
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1137431.FHGQJAQ4WXVSNTLZVQCD04AC45IEFANXA.1.xlsx",
+   "error": "empty_first_sheet"
+  },
+  {
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1138109.EAQHAXRTAZUMFFH5AAO01B5VFPRSGP2LA.4.xlsx",
+   "error": "empty_first_sheet"
+  },
+  {
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1138668.B41LVLJECSG5KSK5M3QJ2TO3QX3CNVNJB.1.xlsx",
+   "error": "empty_first_sheet"
+  },
+  {
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1167494.M5CBDHTF03P1ZG5YJWU2VWSGJ5N2UIG2B.1.xlsx",
+   "error": "empty_first_sheet"
+  },
+  {
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1174069.AQXWWPM2X1MBOGVBQP5RS1QYYOVZ5KQCB.1.xlsx",
+   "error": "empty_first_sheet"
+  },
+  {
+   "file": "../../../../data/inthewild/enron/converted/native_000%2F3.1175680.I3PWKFSRICWF4LURLCO2R5P0SM1NR1BSA.2.xlsx",
+   "error": "empty_first_sheet"
+  }
+ ]
+}
