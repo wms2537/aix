@@ -13,5 +13,5 @@ itw-prevalence	would_corrupt_prevalence	0.80-0.95	match-literature	medium	-	-	-	
 itw-guard-falsecert	false_certifications	0	match-literature	high	-	-	-	-	-	LOCKED TEST: certify(openpyxl output) on would-corrupt files — the central soundness claim on untouched data
 itw-guard-ownrefuse	false_refusals_own_transform	0	match-literature	high	-	-	-	-	-	LOCKED TEST: certify(xlq own transform) must CERTIFY where transform applied
 itw-q-m2v	pooled_q_offbyone	>=0.178	beat-baseline	low	-	-	-	-	-	LOCKED TEST: value-collision rate on business sheets (fixture 0.178); tests §5.8 transfer direction
-itw-dbt-coverage	model_parse_coverage	<0.30	regress	low	-	-	-	-	-	LOCKED TEST: GitLab data-team dbt project, mini-dbt subset coverage (honest scope finding)
-itw-dbt-verdicts	faithful_certified_botched_refused	both-correct	match-literature	high	-	-	-	-	-	LOCKED TEST: rename certify/refuse on covered subgraph, graph-premise only (no warehouse O)
+itw-dbt-coverage	model_parse_coverage	<0.30	regress	low	0.4016	disconfirm	-	-	-	LOCKED TEST: GitLab data-team dbt project, mini-dbt subset coverage (honest scope finding) | ACTUAL: 102/254 parse-covered, 79 closed subgraph (0.311); Mattermost analytics (GitLab target went private; substitution disclosed)
+itw-dbt-verdicts	faithful_certified_botched_refused	both-correct	match-literature	high	both-correct	confirm	-	-	-	LOCKED TEST: rename certify/refuse on covered subgraph, graph-premise only (no warehouse O) | ACTUAL: faithful rename of stg_mm_telemetry_prod__license (4 dependents) CERTIFIED; dangling-ref botch REFUSED

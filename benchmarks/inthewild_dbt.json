@@ -1,0 +1,20 @@
+{
+  "benchmark": "LOCKED in-the-wild dbt leg (research-log/016)",
+  "project": "/home/soh/aix/data/inthewild/dbt/mattermost-data-warehouse-master/transform/mattermost-analytics",
+  "coverage": {
+    "total": 254,
+    "dynamic": 152,
+    "unresolved_ref": 0,
+    "covered_parse": 102,
+    "closed_subgraph": 79,
+    "parse_coverage": 0.4016,
+    "closed_coverage": 0.311
+  },
+  "certify_legs": {
+    "rename_target": "stg_mm_telemetry_prod__license",
+    "dependents_in_subgraph": 4,
+    "faithful_rename": "CERTIFIED",
+    "botched_rename_dangling_ref": "REFUSED",
+    "expected": "CERTIFIED / REFUSED"
+  }
+}
