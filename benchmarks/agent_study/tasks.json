@@ -1,0 +1,1689 @@
+[
+  {
+    "file": "calc_tests/LOOKUP_AND_REFERENCE/CHOOSE.xlsx",
+    "sheet": "CHOOSE",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 24,
+      "has_absolute_refs": false,
+      "has_ranges": true,
+      "truth_evaluable_cells": 20,
+      "truth_shift_cells": 18,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "G2",
+        "row": 2,
+        "col": 7,
+        "formula": "1/0",
+        "cached_value": "#DIV/0!"
+      },
+      {
+        "cell": "D4",
+        "row": 4,
+        "col": 4,
+        "formula": "CHOOSE(2, A4, A5, A6, A7)",
+        "cached_value": "2nd"
+      },
+      {
+        "cell": "D5",
+        "row": 5,
+        "col": 4,
+        "formula": "CHOOSE(4, B4, B5, B6, B7)",
+        "cached_value": "Bolts"
+      },
+      {
+        "cell": "D6",
+        "row": 6,
+        "col": 4,
+        "formula": "CHOOSE(3,\"Wide\",115,\"world\",8)",
+        "cached_value": "world"
+      },
+      {
+        "cell": "B10",
+        "row": 10,
+        "col": 2,
+        "formula": "SUM(A9:CHOOSE(2,A10,A11,A12))",
+        "cached_value": "68"
+      },
+      {
+        "cell": "B11",
+        "row": 11,
+        "col": 2,
+        "formula": "SUM(CHOOSE(2,A9:A10,A9:A11,A9:A12))",
+        "cached_value": "68"
+      },
+      {
+        "cell": "C11",
+        "row": 11,
+        "col": 3,
+        "formula": "SUM(CHOOSE(2,A10:A11,A10:A12,A10:A13))",
+        "cached_value": "80"
+      },
+      {
+        "cell": "B16",
+        "row": 16,
+        "col": 2,
+        "formula": "CHOOSE(-1, A4)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "B17",
+        "row": 17,
+        "col": 2,
+        "formula": "CHOOSE(0, A4)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "B18",
+        "row": 18,
+        "col": 2,
+        "formula": "CHOOSE(1, A4)",
+        "cached_value": "1st"
+      },
+      {
+        "cell": "B19",
+        "row": 19,
+        "col": 2,
+        "formula": "CHOOSE(2, A4)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "B20",
+        "row": 20,
+        "col": 2,
+        "formula": "CHOOSE(\"test\", A4)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "B21",
+        "row": 21,
+        "col": 2,
+        "formula": "CHOOSE(FALSE, A4)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "B22",
+        "row": 22,
+        "col": 2,
+        "formula": "CHOOSE(TRUE, A4)",
+        "cached_value": "1st"
+      },
+      {
+        "cell": "B23",
+        "row": 23,
+        "col": 2,
+        "formula": "CHOOSE(A25:A27,A4,A5,A6)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "B24",
+        "row": 24,
+        "col": 2,
+        "formula": "CHOOSE(G2, A4)",
+        "cached_value": "#DIV/0!"
+      },
+      {
+        "cell": "C27",
+        "row": 27,
+        "col": 3,
+        "formula": "CHOOSE(A27, A4, A5, A6)",
+        "cached_value": "1st"
+      },
+      {
+        "cell": "C28",
+        "row": 28,
+        "col": 3,
+        "formula": "CHOOSE(A28, A4, A5, A6)",
+        "cached_value": "2nd"
+      },
+      {
+        "cell": "C29",
+        "row": 29,
+        "col": 3,
+        "formula": "CHOOSE(A29, A4, A5, A6)",
+        "cached_value": "3rd"
+      },
+      {
+        "cell": "B32",
+        "row": 32,
+        "col": 2,
+        "formula": "CHOOSE(1.1,A4,A5)",
+        "cached_value": "1st"
+      },
+      {
+        "cell": "B33",
+        "row": 33,
+        "col": 2,
+        "formula": "CHOOSE(1.9,A4,A5)",
+        "cached_value": "1st"
+      },
+      {
+        "cell": "B36",
+        "row": 36,
+        "col": 2,
+        "formula": "CHOOSE(1, 0, G2)",
+        "cached_value": "0"
+      },
+      {
+        "cell": "B37",
+        "row": 37,
+        "col": 2,
+        "formula": "CHOOSE(2, 0, G2)",
+        "cached_value": "#DIV/0!"
+      },
+      {
+        "cell": "B40",
+        "row": 40,
+        "col": 2,
+        "formula": "CHOOSE(2, B40, \"Not a cycle\")",
+        "cached_value": "Not a cycle"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/LOOKUP_AND_REFERENCE/DROP_TAKE.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 14,
+      "has_absolute_refs": true,
+      "has_ranges": true,
+      "truth_evaluable_cells": 3,
+      "truth_shift_cells": 3,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "B2",
+        "row": 2,
+        "col": 2,
+        "formula": "_xlfn.DROP(A2:A8,2)",
+        "cached_value": "Wednesday"
+      },
+      {
+        "cell": "C2",
+        "row": 2,
+        "col": 3,
+        "formula": "_xlfn.DROP(A2:A8,-7)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "D2",
+        "row": 2,
+        "col": 4,
+        "formula": "_xlfn.DROP(A2:A8,3.4)",
+        "cached_value": "Thursday"
+      },
+      {
+        "cell": "E2",
+        "row": 2,
+        "col": 5,
+        "formula": "_xlfn.DROP(A2:A8,1200)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "F2",
+        "row": 2,
+        "col": 6,
+        "formula": "_xlfn.DROP(A2:A8,7)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "G2",
+        "row": 2,
+        "col": 7,
+        "formula": "_xlfn.DROP(A2:A8,6.2)",
+        "cached_value": "Sunday"
+      },
+      {
+        "cell": "I2",
+        "row": 2,
+        "col": 9,
+        "formula": "_xlfn.DROP(A2:A8,1,1)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "K2",
+        "row": 2,
+        "col": 11,
+        "formula": "_xlfn.TAKE($A$2:$A$8, 2)",
+        "cached_value": "Monday"
+      },
+      {
+        "cell": "L2",
+        "row": 2,
+        "col": 12,
+        "formula": "_xlfn.TAKE($A$2:$A$8, 0)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "M2",
+        "row": 2,
+        "col": 13,
+        "formula": "_xlfn.TAKE($A$2:$A$8, 1)",
+        "cached_value": "Monday"
+      },
+      {
+        "cell": "O2",
+        "row": 2,
+        "col": 15,
+        "formula": "_xlfn.DROP(A2:A8,-2)",
+        "cached_value": "Monday"
+      },
+      {
+        "cell": "P2",
+        "row": 2,
+        "col": 16,
+        "formula": "_xlfn.TAKE(A2:A8,-3)",
+        "cached_value": "Friday"
+      },
+      {
+        "cell": "M13",
+        "row": 13,
+        "col": 13,
+        "formula": "_xlfn.TAKE(A13:I16,3,2)",
+        "cached_value": "January"
+      },
+      {
+        "cell": "M19",
+        "row": 19,
+        "col": 13,
+        "formula": "_xlfn.DROP(A13:I16, 3,6)",
+        "cached_value": "July"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/LOOKUP_AND_REFERENCE/TRANSPOSE.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 5,
+      "has_absolute_refs": false,
+      "has_ranges": true,
+      "truth_evaluable_cells": 3,
+      "truth_shift_cells": 1,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "C1",
+        "row": 1,
+        "col": 3,
+        "formula": "TRANSPOSE(A1:A4)",
+        "cached_value": "a"
+      },
+      {
+        "cell": "C4",
+        "row": 4,
+        "col": 3,
+        "formula": "TRANSPOSE({1,2,3,4})",
+        "cached_value": "1"
+      },
+      {
+        "cell": "M4",
+        "row": 4,
+        "col": 13,
+        "formula": "TRANSPOSE(I1:L1)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "E5",
+        "row": 5,
+        "col": 5,
+        "formula": "TRANSPOSE({1,2,3;4,5,6})",
+        "cached_value": "1"
+      },
+      {
+        "cell": "H5",
+        "row": 5,
+        "col": 8,
+        "formula": "TRANSPOSE(_xlfn.ANCHORARRAY(E5))",
+        "cached_value": "1"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/MATH_AND_TRIGONOMETRY/MULTINOMIAL.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 13,
+      "has_absolute_refs": false,
+      "has_ranges": true,
+      "truth_evaluable_cells": 8,
+      "truth_shift_cells": 1,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "A1",
+        "row": 1,
+        "col": 1,
+        "formula": "MULTINOMIAL(1,2,3)",
+        "cached_value": "59.999999999999929"
+      },
+      {
+        "cell": "B3",
+        "row": 3,
+        "col": 2,
+        "formula": "MULTINOMIAL(A3:A5,3)",
+        "cached_value": "12599.999999999995"
+      },
+      {
+        "cell": "A8",
+        "row": 8,
+        "col": 1,
+        "formula": "MULTINOMIAL(0,2,3)",
+        "cached_value": "9.9999999999999982"
+      },
+      {
+        "cell": "A10",
+        "row": 10,
+        "col": 1,
+        "formula": "MULTINOMIAL(-1,2,3)",
+        "cached_value": "#NUM!"
+      },
+      {
+        "cell": "B12",
+        "row": 12,
+        "col": 2,
+        "formula": "MULTINOMIAL(A12:A14)",
+        "cached_value": "#NUM!"
+      },
+      {
+        "cell": "D12",
+        "row": 12,
+        "col": 4,
+        "formula": "MULTINOMIAL({2,5,7})",
+        "cached_value": "72071.999999999927"
+      },
+      {
+        "cell": "D14",
+        "row": 14,
+        "col": 4,
+        "formula": "MULTINOMIAL({1,0,3})",
+        "cached_value": "4"
+      },
+      {
+        "cell": "B16",
+        "row": 16,
+        "col": 2,
+        "formula": "MULTINOMIAL(A16:A18)",
+        "cached_value": "5.9999999999999902"
+      },
+      {
+        "cell": "F20",
+        "row": 20,
+        "col": 6,
+        "formula": "MULTINOMIAL(F19,2)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "H20",
+        "row": 20,
+        "col": 8,
+        "formula": "MULTINOMIAL({TRUE,1,2})",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "B22",
+        "row": 22,
+        "col": 2,
+        "formula": "MULTINOMIAL(A22:A25)",
+        "cached_value": "419.9999999999996"
+      },
+      {
+        "cell": "H22",
+        "row": 22,
+        "col": 8,
+        "formula": "MULTINOMIAL(TRUE,1,2)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "B27",
+        "row": 27,
+        "col": 2,
+        "formula": "MULTINOMIAL(A27:A28)",
+        "cached_value": "#VALUE!"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/MATH_AND_TRIGONOMETRY/MUNIT_MDETERM_MINVERSE.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 16,
+      "has_absolute_refs": false,
+      "has_ranges": true,
+      "truth_evaluable_cells": 13,
+      "truth_shift_cells": 4,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "A2",
+        "row": 2,
+        "col": 1,
+        "formula": "_xlfn.MUNIT(2)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "A6",
+        "row": 6,
+        "col": 1,
+        "formula": "_xlfn.MUNIT(5)*3",
+        "cached_value": "3"
+      },
+      {
+        "cell": "I12",
+        "row": 12,
+        "col": 9,
+        "formula": "MINVERSE(H12)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "A13",
+        "row": 13,
+        "col": 1,
+        "formula": "MDETERM(_xlfn.MUNIT(3)*4)",
+        "cached_value": "64"
+      },
+      {
+        "cell": "I13",
+        "row": 13,
+        "col": 9,
+        "formula": "MINVERSE(H13)",
+        "cached_value": "-1"
+      },
+      {
+        "cell": "I14",
+        "row": 14,
+        "col": 9,
+        "formula": "MINVERSE(H14)",
+        "cached_value": "#NUM!"
+      },
+      {
+        "cell": "F18",
+        "row": 18,
+        "col": 6,
+        "formula": "MDETERM(A16:C18)",
+        "cached_value": "-5.5"
+      },
+      {
+        "cell": "L20",
+        "row": 20,
+        "col": 12,
+        "formula": "MINVERSE(I20:J20)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "A21",
+        "row": 21,
+        "col": 1,
+        "formula": "A16:C18*3",
+        "cached_value": "3"
+      },
+      {
+        "cell": "A26",
+        "row": 26,
+        "col": 1,
+        "formula": "MINVERSE(_xlfn.ANCHORARRAY(A21))",
+        "cached_value": "-1.8787878787878789"
+      },
+      {
+        "cell": "G26",
+        "row": 26,
+        "col": 7,
+        "formula": "_xlfn.MUNIT(-1)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "G27",
+        "row": 27,
+        "col": 7,
+        "formula": "_xlfn.MUNIT(0.2)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "G29",
+        "row": 29,
+        "col": 7,
+        "formula": "_xlfn.MUNIT(1.7)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "J29",
+        "row": 29,
+        "col": 10,
+        "formula": "_xlfn.MUNIT(1/0)",
+        "cached_value": "#DIV/0!"
+      },
+      {
+        "cell": "J31",
+        "row": 31,
+        "col": 10,
+        "formula": "_xlfn.MUNIT(TRUE)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "J33",
+        "row": 33,
+        "col": 10,
+        "formula": "_xlfn.MUNIT(\"hola\")",
+        "cached_value": "#VALUE!"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/MATH_AND_TRIGONOMETRY/SEQUENCE.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 17,
+      "has_absolute_refs": false,
+      "has_ranges": false,
+      "truth_evaluable_cells": 17,
+      "truth_shift_cells": 2,
+      "truth_total": true
+    },
+    "cells": [
+      {
+        "cell": "A1",
+        "row": 1,
+        "col": 1,
+        "formula": "_xlfn.SEQUENCE(10)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "C1",
+        "row": 1,
+        "col": 3,
+        "formula": "_xlfn.SEQUENCE(2)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "H2",
+        "row": 2,
+        "col": 8,
+        "formula": "1/0",
+        "cached_value": "#DIV/0!"
+      },
+      {
+        "cell": "I2",
+        "row": 2,
+        "col": 9,
+        "formula": "_xlfn.SEQUENCE(H2)",
+        "cached_value": "#DIV/0!"
+      },
+      {
+        "cell": "H3",
+        "row": 3,
+        "col": 8,
+        "formula": "NA()",
+        "cached_value": "#N/A"
+      },
+      {
+        "cell": "I3",
+        "row": 3,
+        "col": 9,
+        "formula": "_xlfn.SEQUENCE(H3)",
+        "cached_value": "#N/A"
+      },
+      {
+        "cell": "C6",
+        "row": 6,
+        "col": 3,
+        "formula": "_xlfn.SEQUENCE(3,4)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "I7",
+        "row": 7,
+        "col": 9,
+        "formula": "_xlfn.SEQUENCE(5,1,10,2.2)",
+        "cached_value": "10"
+      },
+      {
+        "cell": "C11",
+        "row": 11,
+        "col": 3,
+        "formula": "_xlfn.SEQUENCE(2.3,4,7)",
+        "cached_value": "7"
+      },
+      {
+        "cell": "I14",
+        "row": 14,
+        "col": 9,
+        "formula": "_xlfn.SEQUENCE(1,5.3,12.7,0.1)",
+        "cached_value": "12.7"
+      },
+      {
+        "cell": "C16",
+        "row": 16,
+        "col": 3,
+        "formula": "_xlfn.SEQUENCE(0,0)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "E16",
+        "row": 16,
+        "col": 5,
+        "formula": "_xlfn.SEQUENCE(1)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "G16",
+        "row": 16,
+        "col": 7,
+        "formula": "_xlfn.SEQUENCE(\"5\")",
+        "cached_value": "1"
+      },
+      {
+        "cell": "C18",
+        "row": 18,
+        "col": 3,
+        "formula": "_xlfn.SEQUENCE(-1)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "E18",
+        "row": 18,
+        "col": 5,
+        "formula": "_xlfn.SEQUENCE(0.3)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "A23",
+        "row": 23,
+        "col": 1,
+        "formula": "_xlfn.SEQUENCE(3,,10)",
+        "cached_value": "10"
+      },
+      {
+        "cell": "C23",
+        "row": 23,
+        "col": 3,
+        "formula": "_xlfn.SEQUENCE(,12,,2.5)",
+        "cached_value": "1"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/CONFIDENCE.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 2,
+      "has_absolute_refs": false,
+      "has_ranges": false,
+      "truth_evaluable_cells": 2,
+      "truth_shift_cells": 2,
+      "truth_total": true
+    },
+    "cells": [
+      {
+        "cell": "D2",
+        "row": 2,
+        "col": 4,
+        "formula": "_xlfn.CONFIDENCE.NORM(A2,B2,C2)",
+        "cached_value": "0.36643453897960848"
+      },
+      {
+        "cell": "E2",
+        "row": 2,
+        "col": 5,
+        "formula": "_xlfn.CONFIDENCE.T(A2,B2,C2)",
+        "cached_value": "0.6938875986353249"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/EXPON_DIST.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 2,
+      "has_absolute_refs": false,
+      "has_ranges": false,
+      "truth_evaluable_cells": 2,
+      "truth_shift_cells": 2,
+      "truth_total": true
+    },
+    "cells": [
+      {
+        "cell": "E2",
+        "row": 2,
+        "col": 5,
+        "formula": "_xlfn.EXPON.DIST(A2,B2,C2)",
+        "cached_value": "0.8646647167633873"
+      },
+      {
+        "cell": "E3",
+        "row": 3,
+        "col": 5,
+        "formula": "_xlfn.EXPON.DIST(A3,B3,C3)",
+        "cached_value": "0.2706705664732254"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/F_DIST.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 8,
+      "has_absolute_refs": false,
+      "has_ranges": false,
+      "truth_evaluable_cells": 8,
+      "truth_shift_cells": 8,
+      "truth_total": true
+    },
+    "cells": [
+      {
+        "cell": "F2",
+        "row": 2,
+        "col": 6,
+        "formula": "_xlfn.F.DIST(A2,B2,C2,D2)",
+        "cached_value": "0.47332205233440328"
+      },
+      {
+        "cell": "H2",
+        "row": 2,
+        "col": 8,
+        "formula": "_xlfn.F.DIST.RT(A2,B2,C2)",
+        "cached_value": "0.52667794766559672"
+      },
+      {
+        "cell": "J2",
+        "row": 2,
+        "col": 10,
+        "formula": "_xlfn.F.INV(F2,B2,C2)",
+        "cached_value": "0.80000000000000016"
+      },
+      {
+        "cell": "L2",
+        "row": 2,
+        "col": 12,
+        "formula": "_xlfn.F.INV.RT(H2,B2,C2)",
+        "cached_value": "0.80000000000000016"
+      },
+      {
+        "cell": "F3",
+        "row": 3,
+        "col": 6,
+        "formula": "_xlfn.F.DIST(A3,B3,C3,D3)",
+        "cached_value": "0.40509259259259256"
+      },
+      {
+        "cell": "H3",
+        "row": 3,
+        "col": 8,
+        "formula": "_xlfn.F.DIST.RT(A3,B3,C3)",
+        "cached_value": "0.65972222222222232"
+      },
+      {
+        "cell": "J3",
+        "row": 3,
+        "col": 10,
+        "formula": "_xlfn.F.INV(F3,B3,C3)",
+        "cached_value": "0.87539794104542867"
+      },
+      {
+        "cell": "L3",
+        "row": 3,
+        "col": 12,
+        "formula": "_xlfn.F.INV.RT(H3,B3,C3)",
+        "cached_value": "0.69999999999999973"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/HYPERGEOM_DIST.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 2,
+      "has_absolute_refs": false,
+      "has_ranges": false,
+      "truth_evaluable_cells": 2,
+      "truth_shift_cells": 2,
+      "truth_total": true
+    },
+    "cells": [
+      {
+        "cell": "F2",
+        "row": 2,
+        "col": 6,
+        "formula": "_xlfn.HYPGEOM.DIST(A2,B2,C2,D2,E2)",
+        "cached_value": "0.53492822966507136"
+      },
+      {
+        "cell": "F3",
+        "row": 3,
+        "col": 6,
+        "formula": "_xlfn.HYPGEOM.DIST(A3,B3,C3,D3,E3)",
+        "cached_value": "0.31372549019607815"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/LOGNORM.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 3,
+      "has_absolute_refs": false,
+      "has_ranges": false,
+      "truth_evaluable_cells": 3,
+      "truth_shift_cells": 3,
+      "truth_total": true
+    },
+    "cells": [
+      {
+        "cell": "F2",
+        "row": 2,
+        "col": 6,
+        "formula": "_xlfn.LOGNORM.DIST(A2,B2,C2,D2)",
+        "cached_value": "0.41130609624829534"
+      },
+      {
+        "cell": "H2",
+        "row": 2,
+        "col": 8,
+        "formula": "_xlfn.LOGNORM.INV(F2,B2,C2)",
+        "cached_value": "1.1999999999999997"
+      },
+      {
+        "cell": "F3",
+        "row": 3,
+        "col": 6,
+        "formula": "_xlfn.LOGNORM.DIST(A3,B3,C3,D3)",
+        "cached_value": "4.1095493423652296E-3"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/MIN_MAX.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 14,
+      "has_absolute_refs": false,
+      "has_ranges": true,
+      "truth_evaluable_cells": 9,
+      "truth_shift_cells": 7,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "B2",
+        "row": 2,
+        "col": 2,
+        "formula": "MIN(A2,A3,A4,A5,A6,A7,A8)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "C2",
+        "row": 2,
+        "col": 3,
+        "formula": "MAX(A2,A3,A4,A5,A6,A7,A8)",
+        "cached_value": "3"
+      },
+      {
+        "cell": "D2",
+        "row": 2,
+        "col": 4,
+        "formula": "MIN(A2:A8)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "E2",
+        "row": 2,
+        "col": 5,
+        "formula": "MAX(A2:A8)",
+        "cached_value": "3"
+      },
+      {
+        "cell": "I2",
+        "row": 2,
+        "col": 9,
+        "formula": "MIN(H2:H4)",
+        "cached_value": "#N/A"
+      },
+      {
+        "cell": "J2",
+        "row": 2,
+        "col": 10,
+        "formula": "MAX(H2:H4)",
+        "cached_value": "#N/A"
+      },
+      {
+        "cell": "L2",
+        "row": 2,
+        "col": 12,
+        "formula": "1/0",
+        "cached_value": "#DIV/0!"
+      },
+      {
+        "cell": "M2",
+        "row": 2,
+        "col": 13,
+        "formula": "MIN(L2,L3)",
+        "cached_value": "#DIV/0!"
+      },
+      {
+        "cell": "N2",
+        "row": 2,
+        "col": 14,
+        "formula": "MAX(L2,L3)",
+        "cached_value": "#DIV/0!"
+      },
+      {
+        "cell": "I3",
+        "row": 3,
+        "col": 9,
+        "formula": "MIN(H3,H4)",
+        "cached_value": "#N/A"
+      },
+      {
+        "cell": "J3",
+        "row": 3,
+        "col": 10,
+        "formula": "MAX(H3,H4)",
+        "cached_value": "#N/A"
+      },
+      {
+        "cell": "H4",
+        "row": 4,
+        "col": 8,
+        "formula": "NA()",
+        "cached_value": "#N/A"
+      },
+      {
+        "cell": "B11",
+        "row": 11,
+        "col": 2,
+        "formula": "MIN(A11,A12,A13)",
+        "cached_value": "0"
+      },
+      {
+        "cell": "C11",
+        "row": 11,
+        "col": 3,
+        "formula": "MAX(A11:A13)",
+        "cached_value": "0"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/NORM_DIST.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 8,
+      "has_absolute_refs": false,
+      "has_ranges": false,
+      "truth_evaluable_cells": 8,
+      "truth_shift_cells": 8,
+      "truth_total": true
+    },
+    "cells": [
+      {
+        "cell": "F2",
+        "row": 2,
+        "col": 6,
+        "formula": "_xlfn.NORM.DIST(A2,B2,C2,D2)",
+        "cached_value": "2.2750131948179219E-2"
+      },
+      {
+        "cell": "H2",
+        "row": 2,
+        "col": 8,
+        "formula": "_xlfn.NORM.INV(F2,B2,C2)",
+        "cached_value": "0.8"
+      },
+      {
+        "cell": "J2",
+        "row": 2,
+        "col": 10,
+        "formula": "_xlfn.NORM.S.DIST(A2,D2)",
+        "cached_value": "0.78814460141660336"
+      },
+      {
+        "cell": "K2",
+        "row": 2,
+        "col": 11,
+        "formula": "_xlfn.NORM.S.INV(J2)",
+        "cached_value": "0.80000000000000016"
+      },
+      {
+        "cell": "F3",
+        "row": 3,
+        "col": 6,
+        "formula": "_xlfn.NORM.DIST(A3,B3,C3,D3)",
+        "cached_value": "0.26995483256594049"
+      },
+      {
+        "cell": "H3",
+        "row": 3,
+        "col": 8,
+        "formula": "_xlfn.NORM.INV(F3,B3,C3)",
+        "cached_value": "1.0774100798932329"
+      },
+      {
+        "cell": "J3",
+        "row": 3,
+        "col": 10,
+        "formula": "_xlfn.NORM.S.DIST(A3,D3)",
+        "cached_value": "0.28969155276148273"
+      },
+      {
+        "cell": "K3",
+        "row": 3,
+        "col": 11,
+        "formula": "_xlfn.NORM.S.INV(J3)",
+        "cached_value": "-0.55428603578528568"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/POISSON.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 2,
+      "has_absolute_refs": false,
+      "has_ranges": false,
+      "truth_evaluable_cells": 2,
+      "truth_shift_cells": 2,
+      "truth_total": true
+    },
+    "cells": [
+      {
+        "cell": "F2",
+        "row": 2,
+        "col": 6,
+        "formula": "_xlfn.POISSON.DIST(A2,B2,C2)",
+        "cached_value": "0.1353352832366127"
+      },
+      {
+        "cell": "F3",
+        "row": 3,
+        "col": 6,
+        "formula": "_xlfn.POISSON.DIST(A3,B3,C3)",
+        "cached_value": "4.9787068367863944E-2"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/STDEV.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 4,
+      "has_absolute_refs": false,
+      "has_ranges": true,
+      "truth_evaluable_cells": 1,
+      "truth_shift_cells": 1,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "E2",
+        "row": 2,
+        "col": 5,
+        "formula": "_xlfn.STDEV.P(A2,B2,C2,D2)",
+        "cached_value": "0.22912878474779197"
+      },
+      {
+        "cell": "E3",
+        "row": 3,
+        "col": 5,
+        "formula": "_xlfn.STDEV.S(A2:C2,D2)",
+        "cached_value": "0.26457513110645903"
+      },
+      {
+        "cell": "C5",
+        "row": 5,
+        "col": 3,
+        "formula": "STDEVA(A5:A11)",
+        "cached_value": "4.9699094559156709"
+      },
+      {
+        "cell": "C6",
+        "row": 6,
+        "col": 3,
+        "formula": "STDEVPA(A5:A11)",
+        "cached_value": "4.4452221541785741"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/VARIANCE.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 6,
+      "has_absolute_refs": false,
+      "has_ranges": true,
+      "truth_evaluable_cells": 2,
+      "truth_shift_cells": 1,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "F2",
+        "row": 2,
+        "col": 6,
+        "formula": "_xlfn.VAR.P(A1:A3,A4,A5)",
+        "cached_value": "2.8888888888888888"
+      },
+      {
+        "cell": "H2",
+        "row": 2,
+        "col": 8,
+        "formula": "VARA(A1:A7)",
+        "cached_value": "3.7"
+      },
+      {
+        "cell": "F3",
+        "row": 3,
+        "col": 6,
+        "formula": "_xlfn.VAR.P({1,2,3})",
+        "cached_value": "0.66666666666666663"
+      },
+      {
+        "cell": "H3",
+        "row": 3,
+        "col": 8,
+        "formula": "VARPA(A1:A7)",
+        "cached_value": "2.96"
+      },
+      {
+        "cell": "F4",
+        "row": 4,
+        "col": 6,
+        "formula": "_xlfn.VAR.S(A1:A5)",
+        "cached_value": "4.3333333333333339"
+      },
+      {
+        "cell": "F5",
+        "row": 5,
+        "col": 6,
+        "formula": "_xlfn.VAR.S(1, {1,2,3},A5)",
+        "cached_value": "2.8"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/WEIBULL_DIST.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 2,
+      "has_absolute_refs": false,
+      "has_ranges": false,
+      "truth_evaluable_cells": 2,
+      "truth_shift_cells": 2,
+      "truth_total": true
+    },
+    "cells": [
+      {
+        "cell": "E2",
+        "row": 2,
+        "col": 5,
+        "formula": "_xlfn.WEIBULL.DIST(A2,B2,C2,D2)",
+        "cached_value": "8.5052771269968991E-2"
+      },
+      {
+        "cell": "E3",
+        "row": 3,
+        "col": 5,
+        "formula": "_xlfn.WEIBULL.DIST(A3,B3,C3,D3)",
+        "cached_value": "0.10628097101144768"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/STATISTICAL/Z_TEST.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 4,
+      "has_absolute_refs": true,
+      "has_ranges": true,
+      "truth_evaluable_cells": 3,
+      "truth_shift_cells": 3,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "E2",
+        "row": 2,
+        "col": 5,
+        "formula": "_xlfn.Z.TEST(A1:A10,C2,D2)",
+        "cached_value": "0.66153888048931053"
+      },
+      {
+        "cell": "E3",
+        "row": 3,
+        "col": 5,
+        "formula": "_xlfn.Z.TEST($A$1:$A$10,C3,D3)",
+        "cached_value": "0.28547033590144399"
+      },
+      {
+        "cell": "E4",
+        "row": 4,
+        "col": 5,
+        "formula": "_xlfn.Z.TEST($A$1:$A$10,C4)",
+        "cached_value": "0.97854319966969472"
+      },
+      {
+        "cell": "E5",
+        "row": 5,
+        "col": 5,
+        "formula": "_xlfn.Z.TEST($A$1:$A$10,C5)",
+        "cached_value": "0.69073325509345673"
+      }
+    ]
+  },
+  {
+    "file": "calc_tests/TEXT/TEXTSPLIT.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 18,
+      "has_absolute_refs": false,
+      "has_ranges": true,
+      "truth_evaluable_cells": 17,
+      "truth_shift_cells": 16,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "B1",
+        "row": 1,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A1,\",\")",
+        "cached_value": "Orange"
+      },
+      {
+        "cell": "B2",
+        "row": 2,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A2, \"\")",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "B3",
+        "row": 3,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A3,\" \")",
+        "cached_value": "1"
+      },
+      {
+        "cell": "B4",
+        "row": 4,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A4,\",\",\";\")",
+        "cached_value": "1"
+      },
+      {
+        "cell": "B7",
+        "row": 7,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A7,\",\",,TRUE)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "B8",
+        "row": 8,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A8,\",\",,FALSE)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "B9",
+        "row": 9,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A9,\",\")",
+        "cached_value": "1"
+      },
+      {
+        "cell": "B10",
+        "row": 10,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A10,{\",\",\".\",\"-\"})",
+        "cached_value": "1"
+      },
+      {
+        "cell": "E11",
+        "row": 11,
+        "col": 5,
+        "formula": "_xlfn.TEXTSPLIT(A11,B11:D11)",
+        "cached_value": "1"
+      },
+      {
+        "cell": "B12",
+        "row": 12,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A12,,{\",\",\".\"})",
+        "cached_value": "1"
+      },
+      {
+        "cell": "B16",
+        "row": 16,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A16,\",\",\";\")",
+        "cached_value": "1"
+      },
+      {
+        "cell": "B20",
+        "row": 20,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A20,\",\",\";\",TRUE,0,\"-\")",
+        "cached_value": "1"
+      },
+      {
+        "cell": "B26",
+        "row": 26,
+        "col": 2,
+        "formula": "_xlfn.TEXTSPLIT(A26,)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "D26",
+        "row": 26,
+        "col": 4,
+        "formula": "_xlfn.TEXTSPLIT(A26,C26)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "F26",
+        "row": 26,
+        "col": 6,
+        "formula": "_xlfn.TEXTSPLIT(A26,,C26)",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "H26",
+        "row": 26,
+        "col": 8,
+        "formula": "_xlfn.TEXTSPLIT(A26,\"\")",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "J26",
+        "row": 26,
+        "col": 10,
+        "formula": "_xlfn.TEXTSPLIT(A26,,\"\")",
+        "cached_value": "#VALUE!"
+      },
+      {
+        "cell": "L26",
+        "row": 26,
+        "col": 12,
+        "formula": "_xlfn.TEXTSPLIT(A26,,)",
+        "cached_value": "#VALUE!"
+      }
+    ]
+  },
+  {
+    "file": "custom_theme_colors.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 16,
+      "has_absolute_refs": false,
+      "has_ranges": true,
+      "truth_evaluable_cells": 6,
+      "truth_shift_cells": 6,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "F5",
+        "row": 5,
+        "col": 6,
+        "formula": "SUM(B5:E5)",
+        "cached_value": "58000"
+      },
+      {
+        "cell": "F9",
+        "row": 9,
+        "col": 6,
+        "formula": "SUM(B9:E9)",
+        "cached_value": "6000"
+      },
+      {
+        "cell": "F10",
+        "row": 10,
+        "col": 6,
+        "formula": "SUM(B10:E10)",
+        "cached_value": "5000"
+      },
+      {
+        "cell": "F11",
+        "row": 11,
+        "col": 6,
+        "formula": "SUM(B11:E11)",
+        "cached_value": "1400"
+      },
+      {
+        "cell": "F12",
+        "row": 12,
+        "col": 6,
+        "formula": "SUM(B12:E12)",
+        "cached_value": "6500"
+      },
+      {
+        "cell": "F13",
+        "row": 13,
+        "col": 6,
+        "formula": "SUM(B13:E13)",
+        "cached_value": "19000"
+      },
+      {
+        "cell": "B15",
+        "row": 15,
+        "col": 2,
+        "formula": "B9+B10+B11+B12+B13",
+        "cached_value": "6350"
+      },
+      {
+        "cell": "C15",
+        "row": 15,
+        "col": 3,
+        "formula": "SUM(C9:C13)",
+        "cached_value": "8050"
+      },
+      {
+        "cell": "D15",
+        "row": 15,
+        "col": 4,
+        "formula": "SUM(D9:D13)",
+        "cached_value": "10250"
+      },
+      {
+        "cell": "E15",
+        "row": 15,
+        "col": 5,
+        "formula": "SUM(E9:E13)",
+        "cached_value": "13250"
+      },
+      {
+        "cell": "F15",
+        "row": 15,
+        "col": 6,
+        "formula": "SUM(F9:F13)",
+        "cached_value": "37900"
+      },
+      {
+        "cell": "B17",
+        "row": 17,
+        "col": 2,
+        "formula": "B5-B15",
+        "cached_value": "3650"
+      },
+      {
+        "cell": "C17",
+        "row": 17,
+        "col": 3,
+        "formula": "C5-C15",
+        "cached_value": "4950"
+      },
+      {
+        "cell": "D17",
+        "row": 17,
+        "col": 4,
+        "formula": "D5-D15",
+        "cached_value": "5750"
+      },
+      {
+        "cell": "E17",
+        "row": 17,
+        "col": 5,
+        "formula": "E5-E15",
+        "cached_value": "5750"
+      },
+      {
+        "cell": "F17",
+        "row": 17,
+        "col": 6,
+        "formula": "F5-F15",
+        "cached_value": "20100"
+      }
+    ]
+  },
+  {
+    "file": "libreoffice_888_example.xlsx",
+    "sheet": "Sheet1",
+    "k": 2,
+    "difficulty": {
+      "n_formulas": 16,
+      "has_absolute_refs": false,
+      "has_ranges": true,
+      "truth_evaluable_cells": 6,
+      "truth_shift_cells": 6,
+      "truth_total": false
+    },
+    "cells": [
+      {
+        "cell": "F5",
+        "row": 5,
+        "col": 6,
+        "formula": "SUM(B5:E5)",
+        "cached_value": "58000"
+      },
+      {
+        "cell": "F9",
+        "row": 9,
+        "col": 6,
+        "formula": "SUM(B9:E9)",
+        "cached_value": "6000"
+      },
+      {
+        "cell": "F10",
+        "row": 10,
+        "col": 6,
+        "formula": "SUM(B10:E10)",
+        "cached_value": "5000"
+      },
+      {
+        "cell": "F11",
+        "row": 11,
+        "col": 6,
+        "formula": "SUM(B11:E11)",
+        "cached_value": "1400"
+      },
+      {
+        "cell": "F12",
+        "row": 12,
+        "col": 6,
+        "formula": "SUM(B12:E12)",
+        "cached_value": "6500"
+      },
+      {
+        "cell": "F13",
+        "row": 13,
+        "col": 6,
+        "formula": "SUM(B13:E13)",
+        "cached_value": "19000"
+      },
+      {
+        "cell": "B15",
+        "row": 15,
+        "col": 2,
+        "formula": "B9+B10+B11+B12+B13",
+        "cached_value": "6350"
+      },
+      {
+        "cell": "C15",
+        "row": 15,
+        "col": 3,
+        "formula": "SUM(C9:C13)",
+        "cached_value": "8050"
+      },
+      {
+        "cell": "D15",
+        "row": 15,
+        "col": 4,
+        "formula": "SUM(D9:D13)",
+        "cached_value": "10250"
+      },
+      {
+        "cell": "E15",
+        "row": 15,
+        "col": 5,
+        "formula": "SUM(E9:E13)",
+        "cached_value": "13250"
+      },
+      {
+        "cell": "F15",
+        "row": 15,
+        "col": 6,
+        "formula": "SUM(F9:F13)",
+        "cached_value": "37900"
+      },
+      {
+        "cell": "B17",
+        "row": 17,
+        "col": 2,
+        "formula": "B5-B15",
+        "cached_value": "3650"
+      },
+      {
+        "cell": "C17",
+        "row": 17,
+        "col": 3,
+        "formula": "C5-C15",
+        "cached_value": "4950"
+      },
+      {
+        "cell": "D17",
+        "row": 17,
+        "col": 4,
+        "formula": "D5-D15",
+        "cached_value": "5750"
+      },
+      {
+        "cell": "E17",
+        "row": 17,
+        "col": 5,
+        "formula": "E5-E15",
+        "cached_value": "5750"
+      },
+      {
+        "cell": "F17",
+        "row": 17,
+        "col": 6,
+        "formula": "F5-F15",
+        "cached_value": "20100"
+      }
+    ]
+  }
+]
