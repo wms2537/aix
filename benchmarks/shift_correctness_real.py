@@ -16,7 +16,14 @@ from collections import Counter
 XLQ = "/home/soh/aix/xlq/target/release/xlq"
 WORK = "/tmp/claude-1000/-home-soh-aix/a1b7f99e-cc58-4254-b95a-10d56f89029d/scratchpad/scr"
 CORPUS = sorted(glob.glob("/home/soh/aix/vendor/upstream/xlsx/tests/**/*.xlsx", recursive=True))
-FTAG = re.compile(rb'<c r="([A-Z]+)(\d+)"(?:(?!</c>).)*?<f[^>]*>([^<]*)</f>', re.S)
+# Cell-element association: match a <c> tag and capture its OWN body only.
+# The earlier tempered pattern ((?!</c>).)*? failed on SELF-CLOSING empty cells
+# (`<c r="G3" s="6"/>` — LibreOffice-converted files emit thousands), crossing them
+# and mis-attributing a later cell's <f> to an earlier empty address. Found by the
+# in-the-wild locked run's error analysis (research-log/017); fixture-corpus results
+# unaffected (0 mismatches under both patterns, re-verified).
+FTAG = re.compile(rb'<c r="([A-Z]+)(\d+)"[^>]*(?:/>|>((?:(?!</c>|<c[ >/]).)*)</c>)', re.S)
+FBODY = re.compile(rb'<f[^>]*>([^<]*)</f>')
 CELLTOK = re.compile(r"(\$?)([A-Za-z]{1,3})(\$?)(\d+)")
 RANGETOK = re.compile(r"\$?[A-Z]{1,3}\$?\d+:\$?[A-Z]{1,3}\$?\d+")
 VOL = re.compile(r"\b(OFFSET|INDIRECT|NOW|TODAY|RAND|RANDBETWEEN|CELL|INFO|ROW|COLUMN|ROWS|COLUMNS)\b", re.I)
@@ -126,7 +133,13 @@ def formulas_of(path):
     data = z.read(part)
     out = {}
     for m in FTAG.finditer(data):
-        f = m.group(3).decode("utf-8", "replace")
+        body = m.group(3)
+        if body is None:                      # self-closing empty cell
+            continue
+        fm = FBODY.search(body)               # the <f> INSIDE this cell only
+        if not fm:
+            continue
+        f = fm.group(1).decode("utf-8", "replace")
         if VOL.search(f):
             continue
         out[(m.group(1).decode(), int(m.group(2)))] = f
