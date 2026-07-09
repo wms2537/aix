@@ -6,3 +6,12 @@ oracle-v1	both_value_agreement	high-but-imperfect (no number recorded)	unclear	l
 catalog-100	locally_evaluable+policy	506+16	beat-baseline	medium	505+17	partial	-	-	keep	spec predicted 506/16; measured 505/17 — spec Tier II table off-by-one, documented
 oracle-v2	both_value_agreement	~97% (post lo_unsupported reclass)	match-baseline	medium	97.1% (1273/1311)	confirm	-	-	keep	predicted reclassification would isolate LO-missing fns; FILTERXML type finding caused -0.1pp
 oracle-triage	disagreement_fault_matrix	no prediction (analysis)	unclear	-	24 IC / 41 LO / 7 both / 13 spec / 0 undec	null	-	-	keep	Excel-arbitrated triage of 85 disagreements; harness indicts own engine 24x (anti-stacking)
+itw-shift-euses	xlq_shift_mismatches	0	match-literature	high	-	-	-	-	-	LOCKED TEST: EUSES 4-op deterministic shift correctness, xlq vs independent shifter
+itw-shift-enron	xlq_shift_mismatches	0	match-literature	high	-	-	-	-	-	LOCKED TEST: Enron 4-op deterministic shift correctness
+itw-residual-rate	workbook_refusal_rate	0.20-0.50	regress	low	-	-	-	-	-	LOCKED TEST: fail-closed refusal rate on real corpora (fixtures ~13-42% dep. op); the honest COST number
+itw-prevalence	would_corrupt_prevalence	0.80-0.95	match-literature	medium	-	-	-	-	-	LOCKED TEST: share of eligible files with >=1 shift-requiring ref (fixture analog 85.5%)
+itw-guard-falsecert	false_certifications	0	match-literature	high	-	-	-	-	-	LOCKED TEST: certify(openpyxl output) on would-corrupt files — the central soundness claim on untouched data
+itw-guard-ownrefuse	false_refusals_own_transform	0	match-literature	high	-	-	-	-	-	LOCKED TEST: certify(xlq own transform) must CERTIFY where transform applied
+itw-q-m2v	pooled_q_offbyone	>=0.178	beat-baseline	low	-	-	-	-	-	LOCKED TEST: value-collision rate on business sheets (fixture 0.178); tests §5.8 transfer direction
+itw-dbt-coverage	model_parse_coverage	<0.30	regress	low	-	-	-	-	-	LOCKED TEST: GitLab data-team dbt project, mini-dbt subset coverage (honest scope finding)
+itw-dbt-verdicts	faithful_certified_botched_refused	both-correct	match-literature	high	-	-	-	-	-	LOCKED TEST: rename certify/refuse on covered subgraph, graph-premise only (no warehouse O)
