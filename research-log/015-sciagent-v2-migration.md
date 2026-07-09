@@ -79,3 +79,21 @@ paper already states the scope honestly).
 2. T002 user checkpoint: path + Enron/EUSES data-governance consent (+ post-hoc
    PROBLEM.md approval).
 3. On approval: T003/T004 locked test run, exactly once, logged as irreversible.
+
+## Freshness check result (T001, appended)
+
+No direct competitor found (web search; arXiv MCP token expired). Nearest neighbors:
+Spreadsheet-RL (2605.22642) names the same hazard class but verifies ENGINE-IN-THE-
+LOOP (recalculate_and_read); MBABench (2605.22664) and BlueFin (2605.30907) are
+rubric/LLM-judge benchmarks ("inherently ambiguous, difficult to verify" — their own
+words); VeriGuard (2510.05156) and Proof-Carrying Agent Actions (2606.04104) share the
+gate-before-execute shape but prove policy compliance, not edit semantics over a
+document format; TV literature has no office-document application. The 2026 benchmark
+wave documents our failure mode and verifies only empirically — motivation
+strengthened, novelty claim intact.
+
+## Checkpoint outcome (T002, appended)
+
+User (verbatim, AskUserQuestion 2026-07-09): path = "Path C: locked in-the-wild test
+(Recommended)"; data consent = "EUSES + Enron (Recommended)". PROBLEM.md stands as
+reconstructed (no objection raised).

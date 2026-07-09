@@ -15,35 +15,101 @@
     "novelty_claim": "Machine-checked bracket of the engine-free certifiable boundary (executable proven-sound decision procedure for the relabeling class + impossibility theorem for unwitnessed semantics), realized as a certify-or-refuse guard with measured saves on live agents"
   },
   "budgets": {
-    "research_iterations": { "limit": 5, "spent": 3 },
-    "hypothesis_review_rounds": { "limit": 2, "spent": 1 },
-    "paper_review_rounds": { "limit": 2, "spent": 2 }
+    "research_iterations": {
+      "limit": 5,
+      "spent": 3
+    },
+    "hypothesis_review_rounds": {
+      "limit": 2,
+      "spent": 1
+    },
+    "paper_review_rounds": {
+      "limit": 2,
+      "spent": 2
+    }
   },
   "tasks": [
-    { "id": "T001", "phase": "5", "desc": "Phase 5 freshness check — competing work on engine-free edit certification", "status": "in_progress", "evidence": null, "parent": null },
-    { "id": "T002", "phase": "5", "desc": "Phase 5 checkpoint — present path decision (in-the-wild test run vs conclude-as-is) with Enron/EUSES data-governance consent", "status": "open", "evidence": null, "parent": null },
-    { "id": "T003", "phase": "5", "desc": "IF PATH APPROVED: locked in-the-wild xlsx test — EUSES/Enron corpus through deterministic shift-correctness + guard pipeline, run once", "status": "open", "evidence": null, "parent": null },
-    { "id": "T004", "phase": "5", "desc": "IF PATH APPROVED: real public dbt project through adapter_dbt certify pipeline (parse-coverage reported honestly; refuse-not-guess)", "status": "open", "evidence": null, "parent": null }
+    {
+      "id": "T001",
+      "phase": "5",
+      "desc": "Phase 5 freshness check \u2014 competing work on engine-free edit certification",
+      "status": "done",
+      "evidence": "freshness searcher returned: 'no direct competitor found' \u2014 nearest: Spreadsheet-RL 2605.22642 (engine-in-the-loop verify), MBABench 2605.22664, BlueFin 2605.30907 (rubric/LLM-judge eval), VeriGuard 2510.05156, PCA-actions 2606.04104 (policy proofs, not edit semantics); logged in research-log/015 \u00a7Freshness",
+      "parent": null
+    },
+    {
+      "id": "T002",
+      "phase": "5",
+      "desc": "Phase 5 checkpoint \u2014 present path decision (in-the-wild test run vs conclude-as-is) with Enron/EUSES data-governance consent",
+      "status": "done",
+      "evidence": "user quotes 2026-07-09: path='Path C: locked in-the-wild test (Recommended)'; data consent='EUSES + Enron (Recommended)'",
+      "parent": null
+    },
+    {
+      "id": "T003",
+      "phase": "5",
+      "desc": "IF PATH APPROVED: locked in-the-wild xlsx test \u2014 EUSES/Enron corpus through deterministic shift-correctness + guard pipeline, run once",
+      "status": "open",
+      "evidence": null,
+      "parent": null
+    },
+    {
+      "id": "T004",
+      "phase": "5",
+      "desc": "IF PATH APPROVED: real public dbt project through adapter_dbt certify pipeline (parse-coverage reported honestly; refuse-not-guess)",
+      "status": "open",
+      "evidence": null,
+      "parent": null
+    }
   ],
   "parked_candidates": [
-    { "idea": "reused-witnessed-skeleton middle ground (copy-paste edits): decidability of value-forcing from observed data", "source": "paper §3 'The boundary, stated' — open" },
-    { "idea": "verified byte->token parse (Kani/Creusot or Lean extraction) to close the last trusted-base gap", "source": "final panel, non-gating recommendation" },
-    { "idea": "per-file adaptive k for the probabilistic tier (quote k from the target file's own collision rate)", "source": "COINCIDENCE_BOUND.md §8.1" }
+    {
+      "idea": "reused-witnessed-skeleton middle ground (copy-paste edits): decidability of value-forcing from observed data",
+      "source": "paper \u00a73 'The boundary, stated' \u2014 open"
+    },
+    {
+      "idea": "verified byte->token parse (Kani/Creusot or Lean extraction) to close the last trusted-base gap",
+      "source": "final panel, non-gating recommendation"
+    },
+    {
+      "idea": "per-file adaptive k for the probabilistic tier (quote k from the target file's own collision rate)",
+      "source": "COINCIDENCE_BOUND.md \u00a78.1"
+    }
   ],
   "tried_and_failed": [
-    { "approach": "live-agent 3-way as a guard-SOUNDNESS experiment (agent-correct label = certify verdict on file grafted onto xlq output)", "failure_class": "implementation_defeated", "why": "circular by design; salvaged as differential testing of the trusted tokenizer (found real bugs)", "log": "research-log/014-adversarial-review-and-fixes.md" },
-    { "approach": "LibreOffice cached-value divergence as a corruption-attribution oracle on no-reference formulas (ACCRINT class)", "failure_class": "refuted", "why": "engine-vs-cache disagreement mislabels 2/172 files as corruption; corrected headline 86.6%->85.5%; attribute only via reference-bearing cells", "log": "benchmarks/EDIT_PATH_AB.md §Correction" }
+    {
+      "approach": "live-agent 3-way as a guard-SOUNDNESS experiment (agent-correct label = certify verdict on file grafted onto xlq output)",
+      "failure_class": "implementation_defeated",
+      "why": "circular by design; salvaged as differential testing of the trusted tokenizer (found real bugs)",
+      "log": "research-log/014-adversarial-review-and-fixes.md"
+    },
+    {
+      "approach": "LibreOffice cached-value divergence as a corruption-attribution oracle on no-reference formulas (ACCRINT class)",
+      "failure_class": "refuted",
+      "why": "engine-vs-cache disagreement mislabels 2/172 files as corruption; corrected headline 86.6%->85.5%; attribute only via reference-bearing cells",
+      "log": "benchmarks/EDIT_PATH_AB.md \u00a7Correction"
+    }
   ],
   "learnings": [
     "Claim-inflation at boundaries is this project's dominant failure class: audit quantifiers (exactly/all/entire/characterize) against what is proven, and put corpus qualifiers on every empirical rate; counts+CI, not rates, at small n",
-    "Normalization/tokenizer proxy bugs recur in EVERY new domain adapter (BIN2DEC/LOG10/out-of-grid in xlsx; double-quoted identifiers in SQL) — adversarially probe conflation with executable counterexamples before trusting any adapter",
+    "Normalization/tokenizer proxy bugs recur in EVERY new domain adapter (BIN2DEC/LOG10/out-of-grid in xlsx; double-quoted identifiers in SQL) \u2014 adversarially probe conflation with executable counterexamples before trusting any adapter",
     "Subagent 'done + verified' claims require independent re-verification: re-run their checks, compute the expected answer yourself, and attack what they did not think to claim",
-    "Value-comparison oracles carry label noise (engine recomputes some functions differently from the Excel cache) — a file with no reference-bearing formulas cannot be corrupted by a failed shift",
+    "Value-comparison oracles carry label noise (engine recomputes some functions differently from the Excel cache) \u2014 a file with no reference-bearing formulas cannot be corrupted by a failed shift",
     "Working-tree drift: paper numbers must match git-show-HEAD artifacts; check benchmarks/*.json against HEAD before citing"
   ],
-  "best_state": { "run_id": "paper-v3", "metric": "B+ / major-revision-then-accept (FSE/ASE/ISSTA class), four gating holes fixed", "commit": "18a2209" },
+  "best_state": {
+    "run_id": "paper-v3",
+    "metric": "B+ / major-revision-then-accept (FSE/ASE/ISSTA class), four gating holes fixed",
+    "commit": "18a2209"
+  },
   "gates": {
-    "0": { "problem_md": "reconstructed 2026-07-09 from paper §1 + idea DNA; PROBLEM.md created at migration — user has not yet re-approved post-hoc; flagged at T002 checkpoint" },
-    "5": { "freshness_check": null, "path_decision_user_quote": null, "budget_check": "research_iterations 3/5 spent; paper_review_rounds 2/2 EXHAUSTED (further reviews need user grant); recorded at migration" }
+    "0": {
+      "problem_md": "reconstructed 2026-07-09 from paper \u00a71 + idea DNA; PROBLEM.md created at migration \u2014 user has not yet re-approved post-hoc; flagged at T002 checkpoint"
+    },
+    "5": {
+      "freshness_check": "done 2026-07-09 \u2014 no direct competitor (research-log/015 \u00a7Freshness); T001 evidence",
+      "path_decision_user_quote": "Path C: locked in-the-wild test (Recommended) + EUSES + Enron (Recommended) (AskUserQuestion 2026-07-09)",
+      "budget_check": "research_iterations 3/5 spent; paper_review_rounds 2/2 EXHAUSTED (further reviews need user grant); recorded at migration"
+    }
   }
 }
