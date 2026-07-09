@@ -438,6 +438,37 @@ Honest scope: model-level granularity (the cone is whole models, not columns); a
 mini-dbt subset (single-argument `ref`/`source`; no macros); and fail-closed
 normalization — a comment-only reformat is refused, never wrongly certified.
 
+### 5.7 The interventional study: live agents, guarded vs unguarded, with cost
+
+Finally, the experiment every earlier version of this work lacked: **live agents'
+own errors**, caught by the direct-premise checker, with completion cost measured.
+Design, with the independence structure stated: 21 real-workbook tasks (196 formula
+cells; task prep excludes constructs the guard cannot see, so measured cost
+*understates* real-world refusal cost — stated, not hidden); the agent's artifact is
+built via `openpyxl` plus surgical formula splicing with the reference tool nowhere
+in it; ground truth is the two-engine-validated reference shifter (cells outside its
+grammar are excluded and counted, never guessed); the guard is the direct-premise
+checker of §4.i; and two live agent conditions (a careful and a hasty prompt, same
+fast model) make the error distribution the agent's own rather than injected. The
+harness was first validated on synthetic perfect/sloppy agents (perfect: zero
+corruption in both arms; sloppy: all seven injected corruptions blocked).
+
+Results: the careful agent erred on 2/21 tasks, the hasty agent on 4/21. Unguarded,
+all six erroneous artifacts ship as silent corruption. Guarded, **zero ship — all six
+are refused (save rate 1.0), with zero false certifications and zero unambiguous
+completion cost** (the guarded arm's two refusals of "correct" hasty work are on
+truth-partial tasks whose unverifiable cells may themselves be wrong — possible
+hidden saves, split-reported). Two findings deserve emphasis. First, the live error
+distribution *naturally* contained the adversarial classes our earlier synthetic
+corruptors were criticized for omitting: partial shifts (`F.INV(F2,B3,C3)` — two
+references shifted, one missed), a protocol misread (formulas returned under
+already-shifted addresses), and dropped cells. Second, one careful-agent error was a
+**semantics-changing edit with correctly shifted references** — `TEXTSPLIT(A26,,"")`
+rewritten as `TEXTSPLIT(A27,"")`, silently turning a row-delimiter argument into a
+column-delimiter — and the graph check caught it because the function *skeleton*
+changed even though every reference moved correctly: precisely the class a
+value-spot-check or a reference-only linter would miss.
+
 ## 6. On finding our own defects
 
 Successive adversarial reviews of these artifacts each landed a real hole: the
