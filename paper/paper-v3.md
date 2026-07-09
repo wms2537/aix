@@ -2,38 +2,38 @@
 
 ## Abstract
 
-An LLM agent that edits a spreadsheet, a database schema, or a notebook produces a
-file that *opens fine* but may be silently wrong: a structural edit that fails to
-propagate references corrupts computed values with no visible symptom, and neither
-the agent nor a human reviewer can see it without the defining engine. We make the
-correctness of such an edit **checkable** rather than trusted. Our contribution is a
-formally verified soundness theorem, machine-checked in Lean 4 with no `sorry` and
-only the axioms `propext` and `Quot.sound`: evaluation of a computation is invariant
-under a function-and-dependency-preserving isomorphism, so a structural (coordinate-
-relabeling) edit whose reference-dependency graph is isomorphic to the original's
-reproduces every computed value — *under any semantics, without running the engine*.
-A companion locality theorem bounds what a value edit can affect to its downstream
-cone, and a third machine-checked theorem shows the tool's reference-shift
-*constructively produces* that isomorphism on a token-level formula model (single-cell
-and range-endpoint references) — narrowing the trusted base rather than eliminating it.
-On this spine we build a **certify-or-refuse router**: an untrusted agent's
-structural edit is accepted only when it equals the tool's own proven coordinate-
-shift transform, and otherwise explicitly refused — never silently wrong. We report a
-production certifier (`xlq certify`), the trusted reference-shift tokenizer it rests
-on (hardened to an exact grid-validity predicate and corroborated by value-preservation
-against an independent engine over 264 formulas), and — for the non-cell references a
-cell diff cannot see — a compare-and-fail-close net (defined-name and
-merge/hyperlink/autoFilter targets compared against the transform; data-validation,
-conditional-formatting, charts, pivots, external links refused) that we are careful to
-label an *enumerated denylist*, not a proven-complete allowlist, having ourselves shipped
-and then closed one silent false certification exactly where the enumeration was
-incomplete. We are deliberate about what is *proof* and what is *corroboration*: the
-theorem is the result; the empirical harness — an engine-free foreign-edit certifier
-that refuses 147/147 corrupted edits, an independent-oracle A/B in which the naive edit
-path silently corrupts 86.6% of real workbooks while the certified path corrupts none,
-and a diverse-corruptor confusion matrix in which every injected corruption is refused —
-corroborates it, and we report each with its confound (including a false certification
-our own review found and we then closed), not as an independent soundness argument.
+An LLM agent that edits a spreadsheet, a database schema, or a dbt project produces
+an artifact that *opens fine* but may be silently wrong: a structural edit that fails
+to propagate references corrupts computed values with no visible symptom, and neither
+the agent nor a human reviewer can see it without the defining engine. We ask which
+such edits can be certified **engine-free** — offline, against the artifact's own
+structure, trusting neither the editor nor a recomputation — and we answer with a
+machine-checked **characterization of the boundary** (Lean 4, no `sorry`, axioms
+`propext` and `Quot.sound` only). On the certifiable side: the premise of our
+invariance theorem — the edit's reference-dependency graph is a function-preserving
+relabeling of the original's — is *decidable from syntax*, and we ship an executable
+decision procedure `check` with a machine-checked soundness theorem: if `check`
+accepts, every computed value transports across the edit under **every possible
+engine** (the engine is universally quantified, never run), carrying the artifact's
+embedded cached values as a self-oracle. On the uncertifiable side: an impossibility
+theorem — an edit introducing function semantics unwitnessed in the original admits
+two engines that are pointwise indistinguishable through the original artifact yet
+disagree on the edited value, so *no* engine-free checker can certify it. Certify-or-
+refuse is therefore not a design choice but the only sound shape, and our checker's
+accept class is exactly the certifiable class. A companion locality theorem factors
+mixed edits into a certified structural scaffold plus a bounded value-fill audit cone.
+The theory is load-bearing in the running system: the deployed checker agrees with the
+Lean decision procedure on a randomized differential battery, a production certifier
+(`xlq certify`) covers five structural operations on real spreadsheets, and the same
+format-parametric core certifies dbt model refactors engine-free — catching dangling
+references and silent logic changes that re-materialization confirms, while certifying
+faithful renames with no SQL executed. We are deliberate about what is *proof* and
+what is *corroboration*: the characterization is the result; the empirical harness
+(147/147 corrupted foreign edits refused; a naive edit path silently corrupts 86.6% of
+real workbooks while the certified path corrupts none; every injected corruption in a
+diverse-corruptor battery refused) corroborates it, and we report each measurement
+with its confound — including two false certifications our own adversarial reviews
+found in earlier versions of the system, which we closed and report as fixed defects.
 
 ## 1. Introduction
 
@@ -60,18 +60,28 @@ capable agent should be *required* to pass, not a crutch for a weak one.
 
 Our claims, in order of strength:
 
-1. **(Proof.)** A machine-checked theorem (Lean 4, no `sorry`) that value-faithfulness
-   of a structural edit reduces to graph isomorphism of its reference-dependency
-   structure — engine-free and semantics-agnostic — plus a locality theorem bounding
-   value-edit effects to a downstream cone (§3).
-2. **(Mechanism.)** A certify-or-refuse router and a production certifier that decide
-   accept/refuse for an untrusted foreign edit by comparing it to the tool's own
-   proven transform, with a hardened trusted tokenizer and a fail-closed boundary for
-   the one syntactically-undecidable case (§4).
-3. **(Corroboration, reported with confounds.)** An engine-free foreign-edit
-   certifier, an independent-oracle A/B, and an independent-oracle confusion matrix —
-   each of which *supports* the theorem on real workbooks and each of which we report
-   with its limitation, not as independent proof (§5).
+1. **(Characterization, both sides proven.)** Engine-free certification of an agent
+   edit is possible *exactly* when the edit is a function-preserving relabeling of the
+   reference-dependency graph: the certifiable side is witnessed by an executable
+   decision procedure `check` for that premise with a machine-checked soundness
+   theorem quantifying over **all** engines; the uncertifiable side by an
+   impossibility theorem — fresh function semantics admit indistinguishable engines
+   that disagree, so no engine-free checker can certify them and *certify-or-refuse
+   is the only sound shape* (§3, Lean 4, no `sorry`).
+2. **(Composition.)** A locality theorem factors a mixed edit into a certified
+   structural scaffold plus value fills whose effect is provably contained in their
+   downstream cone — collapsing the audit surface from the whole artifact to a
+   bounded set (§3, measured in §5).
+3. **(Mechanism, theory-linked.)** A certify-or-refuse router whose deployed checker
+   implements `check` and agrees with the Lean decision procedure on a randomized
+   differential battery; a production certifier (`xlq certify`, five structural ops)
+   in translation-validation mode; a hardened, engine-corroborated trusted parse; and
+   fail-closed boundaries for everything outside the verified surface (§4).
+4. **(Generality + corroboration, reported with confounds.)** The same
+   format-parametric core certifies dbt model refactors engine-free (§5.6); an
+   engine-free foreign-edit battery, an independent-oracle A/B, and a
+   diverse-corruptor confusion matrix support the theory on real artifacts, each
+   reported with its limitation, not as independent proof (§5).
 
 A recurring, honest theme: three rounds of adversarial review of our own artifacts
 found real defects — silent-corruption bugs in the trusted tokenizer, a circular
@@ -158,6 +168,48 @@ sheet-qualified/3D/table/external references. This is a real narrowing of the tr
 base — not its elimination. Fidelity of value edits remains out of the exact tier by
 construction.
 
+**Theorem 4 (the premise is decidable, and the decider is proven sound —
+`formal/Checker.lean`).** Theorems 1–3 would still be decorative if the running system
+never checked their hypothesis. We therefore state the hypothesis of Theorem 1 as an
+**executable decision procedure** over syntax alone: `check S₀ S₁ σ` verifies that
+every checked node's opaque function *skeleton* is preserved (`S₁.skel (σ n) = S₀.skel
+n`), that its dependency list is the `σ`-image (`S₁.deps (σ n) = map σ (S₀.deps n)`),
+and that the checked domain is closed under dependencies. The soundness theorem,
+`check_sound`, then proves: if `check` returns `true`, every checked node's value
+transports across the edit **for every interpretation `I` of the skeletons** — the
+engine is universally quantified and never run — and `check_transports_oracle`
+carries the artifact's embedded cached values to the edited positions. The procedure
+*executes* (`#eval` in the development runs it: a faithful relabeling returns `true`;
+an argument-order botch and an operator botch return `false`). The consequence for the
+system is architectural: a certifier implementing `check` accepts **any producer's
+faithful edit** — regardless of byte-level differences, cache handling, or which tool
+made it — and its soundness is this theorem, not equality to a reference transform.
+
+**Theorem 5 (impossibility — the other side of the boundary,
+`formal/Impossibility.lean`).** An edit that introduces a function skeleton *not
+witnessed anywhere in the original artifact* cannot be value-certified by any
+engine-free checker. The proof is indistinguishability: overriding an engine at an
+unwitnessed skeleton changes no evaluation of the original artifact
+(`eval_override_fresh` — the two worlds agree at every node and every fuel, hence
+realize every cached observation identically), yet the edited node's value can be
+made to differ from *any* value a checker might commit to
+(`fresh_skeleton_uncertifiable`), and two such worlds disagree with each other
+(`two_worlds_disagree`). An engine-free checker's verdict is a function of inputs
+that are identical across these worlds, so it cannot be simultaneously sound and
+complete: sound checkers **must refuse**. Certify-or-refuse is thereby proven to be
+the only sound shape for engine-free certification — a characterization, not a
+design preference.
+
+**The boundary, stated.** Together, Theorems 4 and 5 bracket engine-free
+certification: edits whose reference graph is a skeleton-preserving relabeling are
+certifiable, with an executable proven-sound decider (Theorem 4); edits introducing
+unwitnessed semantics are uncertifiable by any engine-free checker (Theorem 5). The
+honest middle ground — edits that *reuse* witnessed skeletons at new positions, such
+as copy-pasting an existing formula shape onto new inputs — is not settled by either
+theorem and is stated as open: its values are forced by the original's syntax only
+when the reused skeleton's dependencies carry observed values, a case our current
+checker routes to refusal.
+
 ## 4. The certify-or-refuse router and its trusted base
 
 **The router.** Given an original artifact and an untrusted foreign edit plus a
@@ -168,18 +220,27 @@ original's; otherwise it REFUSES. Two properties make this sound as a check of
 → refuse), and a wrong `σ` yields a mismatch → refuse. The router is fail-closed: any
 condition it cannot certify becomes a refusal.
 
-**The production certifier.** `xlq certify <orig> <edited> --op … --at …` realizes the
-router with the tool's *complete* formula parser: it applies the tool's own proven
-structural transform to the original and diffs the result against the foreign edit,
-certifying iff the only differences are stripped/rewritten caches and number formats
-(which foreign tools routinely touch), and refusing on any formula, value, added, or
-removed-cell difference. It is engine-free (it compares stored formulas and raw data,
-never recomputed values) and multi-sheet-safe (it diffs the union of sheets).
-Certification therefore means "this foreign edit equals the tool's proven transform";
-its marginal value over simply *doing* the edit is trust-topology — the untrusted
-producer's artifact is what ships, gated fail-closed, with the tool off the write path
-— not any verifier-cheaper-than-prover asymmetry (there is none; the certifier
-recomputes the transform).
+**Two certifier modes, honestly labeled.** The system ships two implementations of
+the router, and we are precise about which carries which guarantee. *(i)
+Direct-premise mode* implements Theorem 4's `check` literally: extract both artifacts
+into `(skeleton, deps, oracle)` triples and decide the premise — skeletons preserved,
+dependency lists the `σ`-image, containment (no unaccounted nodes), oracle values
+preserved outside any declared fill cone. Its accept class is exactly the certifiable
+class of §3 — any tool's faithful edit, regardless of bytes — and its soundness is
+`check_sound`. The deployed implementation agrees with the Lean decision procedure
+(run via `#eval`) on a randomized differential battery of faithful edits and four
+botch classes — skeleton change, dependency reorder, retarget, dropped dependency —
+at 30/30 (`formal/differential_check.py`); we state plainly that this differential
+link is evidence of implementation fidelity, not a proof of it. *(ii)
+Translation-validation mode* is the production Rust path (`xlq certify`): apply the
+tool's own proven structural transform to the original and diff the foreign edit
+against it, certifying iff the only differences are stripped caches and number
+formats. It is stricter than mode (i) (byte-for-formula identity to the canonical
+transform), engine-free, and multi-sheet-safe; its marginal value over *doing* the
+edit is trust-topology — the untrusted producer's artifact ships, gated fail-closed,
+with the tool off the write path — not a verifier-cheaper-than-prover asymmetry
+(there is none in this mode; it recomputes the transform). Mode (i) is where the
+theory is load-bearing; mode (ii) is the hardened production gate.
 
 **The trusted base: the reference-shift tokenizer.** Every certificate is only as
 sound as the predicate deciding *which tokens in a formula are cell references*. We
@@ -345,6 +406,38 @@ class), each now fixed and covered by §4's cross-check. A validation method tha
 real bugs in its own trusted base is exactly what a certifier's TCB needs; the honest
 framing is that the method proved its worth, not that it produced a soundness number.
 
+### 5.5 Composition on mixed edits, measured
+
+By Theorem 2 a mixed task factors into a certified structural scaffold plus value
+fills contained in their downstream cone. We measure this on realistic mixed edits
+(`composition_coverage.py`): every scaffold is certified, and the audit surface
+collapses to the fill cone — 100/84/68/52% of the artifact certified untouched as the
+number of fills grows (mean 76%) — so on a realistic edit-distribution study the
+certifiable *component* rises from 27% of tasks fully certified to **87% with a
+certified scaffold**.
+
+### 5.6 A second real domain: dbt model refactors, certified engine-free
+
+The theory is format-parametric — nothing in §3 mentions spreadsheets — and we cash
+that on a practitioner-relevant second domain: **dbt projects**, where models
+reference each other via `{{ ref(…) }}`, the everyday edit is a rename/refactor, and
+the warehouse's materialized tables from the pre-edit state are the self-oracle. The
+adapter extracts the same `(skeleton, deps, oracle)` triple the checker consumes:
+skeletons are SQL with references abstracted to ordered slots (case and whitespace
+folded *outside* string literals — `'ABC'` is never conflated with `'abc'`; any
+unmodeled Jinja marks the node dynamic and out of the exact tier, refused rather than
+guessed); the edited artifact is built with **no SQL executed**. Four scenarios on a
+ten-node staging→marts project: a faithful rename with all references updated is
+**CERTIFIED** (100% of the artifact untouched, no engine run); a rename leaving one
+downstream reference dangling is **REFUSED**; a rename with a silently changed
+aggregation (`SUM`→`AVG`) is **REFUSED**, and independent re-materialization confirms
+the values really differ; a rename plus a *declared* logic change is certified as a
+scaffold with the audit surface exactly the declared model plus its downstream cone
+(collapse 0.8), and re-materialization confirms outside-cone values are preserved.
+Honest scope: model-level granularity (the cone is whole models, not columns); a
+mini-dbt subset (single-argument `ref`/`source`; no macros); and fail-closed
+normalization — a comment-only reformat is refused, never wrongly certified.
+
 ## 6. On finding our own defects
 
 Successive adversarial reviews of these artifacts each landed a real hole: the
@@ -417,18 +510,34 @@ Spreadsheet analysis and smell detection, structural-edit tools that reshape fil
 without a fidelity property, and record/replay or unit-test approaches to spreadsheet
 correctness all differ from this work in the same way: they establish behavior on
 tested inputs, whereas we prove value-fidelity of the structural fragment for all
-inputs and all semantics, and gate untrusted edits on that proof. Verified compilation
-and translation validation are the closest methodological analogues — accept a
-producer's output only when it matches a proven-correct reference — which we adapt to
-the setting of opaque-semantics artifacts edited by untrusted agents.
+inputs and all semantics, and gate untrusted edits on that proof. **Translation
+validation** (Pnueli et al.) and verified compilation are the closest methodological
+analogues, and our production mode (§4.ii) is honestly an instance of TV's weakest
+form — accept iff the output equals a proven reference transform. The delta of this
+work over TV is twofold. First, the *direct-premise mode* (§4.i) does what TV does
+not: it decides the invariance theorem's hypothesis directly on the untrusted
+artifact, so its accept class is the entire certifiable class (any producer's
+faithful edit, not only outputs identical to a canonical transform), and its
+soundness quantifies over **all** engines — TV assumes the semantics it validates
+against, whereas our setting's defining engine is opaque and absent. Second, TV has
+no analogue of our impossibility side: Theorem 5 shows the refusal half of
+certify-or-refuse is forced, characterizing the boundary rather than picking a point
+on it. Proof-carrying code shares the shape of "checkable evidence, small checker,"
+and our decision procedure plays the checker's role with the certificate being the
+edit descriptor `σ` itself.
 
 ## 9. Conclusion
 
 Verifiability, not capability, is the durable constraint on agent edits to
-opaque-semantics artifacts. We proved — machine-checked, engine-free, semantics-
-agnostic — that value-fidelity of a structural spreadsheet edit reduces to a graph-
-isomorphism check, built a certify-or-refuse router that gates untrusted edits on that
-proof with a fail-closed boundary for the one undecidable case, and corroborated it on
-real workbooks while stating each confound. The result ships as an honest,
-genuinely-verified boundary over an explicitly-scoped surface — the boundary a capable
-agent should be required to pass, not a patch for a weak one.
+opaque-semantics artifacts. We characterized — machine-checked on both sides — what
+can be certified about such edits without the engine: the relabeling class is
+certifiable, witnessed by an executable decision procedure proven sound under every
+possible engine; anything introducing unwitnessed semantics is not, so
+certify-or-refuse is the only sound shape. The theory is load-bearing in the running
+system — the deployed checker agrees with the Lean decider, the production gate covers
+five structural operations on real spreadsheets, and the same core certifies dbt
+refactors engine-free — and every measurement is reported with its confound. The
+result is an honest, genuinely-verified boundary over an explicitly-scoped surface:
+the boundary a capable agent should be *required* to pass, not a patch for a weak
+one — and one that does not decay as agents improve, because it is grounded in the
+artifact, not the model.
