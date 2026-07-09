@@ -1,6 +1,6 @@
 ---
 title: "Certify-or-Refuse: A Machine-Checked Soundness Boundary for Untrusted Agent Edits to Opaque-Semantics Artifacts"
-date: 2026-07-07
+date: 2026-07-09
 geometry: margin=1in
 fontsize: 11pt
 colorlinks: true
@@ -290,6 +290,21 @@ endpoint) are skipped, not guessed; every early "mismatch" was a checker bug (co
 deleted-band cell to the wrong output cell; the reference shifter not handling `F:F`,
 which xlq correctly shifts to `G:G`), and xlq had zero real errors.
 
+## 5.2b A fifth op — move-rows — shows σ is not special to insert/delete
+
+Theorem 1 holds for *any* function-and-dependency-preserving isomorphism `σ`, so the
+certifiable class is not limited to the monotonic insert/delete shift. We add **move-rows**
+(relocate a contiguous block of rows), whose `σ` is a *permutation* — proved a bijection
+in Z3 (injective + surjective on `[1, maxrow]`, both directions) — and whose physical
+edit reorders rows (a buffered, non-streaming rewrite). A range whose endpoints reorder
+under the permutation cannot be a shifted rectangle, so it fail-closes as a
+`move_straddles_range` residual. On the same real corpus, deterministic move-rows shift
+correctness is **100% on 1,538 real formula cells** (25/60 workbooks fail-closed as
+residual/straddle), and the certify-or-refuse contract holds: `certify(orig, correct
+move)` CERTIFIES while a botched move (one reference reverted) is REFUSED. This is a
+concrete demonstration that the exact tier extends to a genuinely non-monotonic
+structural edit by supplying the right `σ`, with no change to the theorem.
+
 ## 5.3 Independent-oracle confusion matrix for the production certifier
 
 We adjudicate `xlq certify`'s verdicts *independently of the tool* over **diverse**
@@ -361,8 +376,9 @@ corroboration, and the denylist anything more than a denylist.
 # 7. Scope and limitations
 
 The **verified surface** the certifier certifies (rather than refuses) is: row/column
-insert/delete, single-sheet, in-grid coordinates, cell formulas over single-cell and
-range-endpoint references, with no defined-name/cell collision. On top of the sheet-cell
+insert/delete *and row-block move* (§5.2b), single-sheet, in-grid coordinates, cell
+formulas over single-cell and range-endpoint references, with no defined-name/cell
+collision and (for move) no move-straddling range. On top of the sheet-cell
 diff, certify explicitly compares the reference-bearing constructs the transform shifts
 that a cell diff cannot see — defined-name targets and mergeCell/hyperlink/autoFilter
 `ref`s — refusing any that differ from the transform, and fail-closes on

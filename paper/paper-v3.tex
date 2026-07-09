@@ -61,7 +61,7 @@
 \title{Certify-or-Refuse: A Machine-Checked Soundness Boundary for
 Untrusted Agent Edits to Opaque-Semantics Artifacts}
 \author{}
-\date{2026-07-07}
+\date{2026-07-09}
 
 \begin{document}
 \maketitle
@@ -444,6 +444,26 @@ wrong output cell; the reference shifter not handling \texttt{F:F},
 which xlq correctly shifts to \texttt{G:G}), and xlq had zero real
 errors.
 
+\subsection{5.2b A fifth op --- move-rows --- shows σ is not special to
+insert/delete}\label{b-a-fifth-op-move-rows-shows-ux3c3-is-not-special-to-insertdelete}
+
+Theorem 1 holds for \emph{any} function-and-dependency-preserving
+isomorphism \texttt{σ}, so the certifiable class is not limited to the
+monotonic insert/delete shift. We add \textbf{move-rows} (relocate a
+contiguous block of rows), whose \texttt{σ} is a \emph{permutation} ---
+proved a bijection in Z3 (injective + surjective on
+\texttt{{[}1,\ maxrow{]}}, both directions) --- and whose physical edit
+reorders rows (a buffered, non-streaming rewrite). A range whose
+endpoints reorder under the permutation cannot be a shifted rectangle,
+so it fail-closes as a \texttt{move\_straddles\_range} residual. On the
+same real corpus, deterministic move-rows shift correctness is
+\textbf{100\% on 1,538 real formula cells} (25/60 workbooks fail-closed
+as residual/straddle), and the certify-or-refuse contract holds:
+\texttt{certify(orig,\ correct\ move)} CERTIFIES while a botched move
+(one reference reverted) is REFUSED. This is a concrete demonstration
+that the exact tier extends to a genuinely non-monotonic structural edit
+by supplying the right \texttt{σ}, with no change to the theorem.
+
 \subsection{5.3 Independent-oracle confusion matrix for the production
 certifier}\label{independent-oracle-confusion-matrix-for-the-production-certifier}
 
@@ -539,16 +559,17 @@ corroboration, and the denylist anything more than a denylist.
 \section{7. Scope and limitations}\label{scope-and-limitations}
 
 The \textbf{verified surface} the certifier certifies (rather than
-refuses) is: row/column insert/delete, single-sheet, in-grid
-coordinates, cell formulas over single-cell and range-endpoint
-references, with no defined-name/cell collision. On top of the
-sheet-cell diff, certify explicitly compares the reference-bearing
-constructs the transform shifts that a cell diff cannot see ---
-defined-name targets and mergeCell/hyperlink/autoFilter \texttt{ref}s
---- refusing any that differ from the transform, and fail-closes on
-data-validation, conditional-formatting, sparklines, charts, pivot
-tables, and external links. Two honesty caveats, both learned from this
-artifact's own failures. First, this compare-and-fail-close net is an
+refuses) is: row/column insert/delete \emph{and row-block move} (§5.2b),
+single-sheet, in-grid coordinates, cell formulas over single-cell and
+range-endpoint references, with no defined-name/cell collision and (for
+move) no move-straddling range. On top of the sheet-cell diff, certify
+explicitly compares the reference-bearing constructs the transform
+shifts that a cell diff cannot see --- defined-name targets and
+mergeCell/hyperlink/autoFilter \texttt{ref}s --- refusing any that
+differ from the transform, and fail-closes on data-validation,
+conditional-formatting, sparklines, charts, pivot tables, and external
+links. Two honesty caveats, both learned from this artifact's own
+failures. First, this compare-and-fail-close net is an
 \textbf{enumerated denylist}, not a machine-checked allowlist: its
 completeness over value-affecting non-cell references is \emph{asserted,
 not proven}, so an un-enumerated value-bearing construct would be
