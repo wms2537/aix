@@ -7,3 +7,5 @@ paper/.toc
 paper/.out
 paper/.log
 harness/work/
+__pycache__/
+*.pyc

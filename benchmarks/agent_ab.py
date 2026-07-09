@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
-"""INTERVENTIONAL A/B — the gating experiment: does routing an agent's structural
-edit through the certify-or-refuse guard eliminate SILENT corruption, judged by an
-INDEPENDENT engine (LibreOffice), never by the self-oracle?
+"""EDIT-PATH A/B (independent oracle) — NOT an agent study.
 
-Setup (real formula-bearing workbooks, task = insert a blank row at K for a new
-record — the invisible-damage class):
-  ARM A  UNGUARDED: the agent edits with openpyxl (the library agents reach for).
-         The file opens fine; whether values are right is invisible without an engine.
-  ARM B  GUARDED:   the same structural intent routed through xlq's certify-or-refuse
-         (σ-shift + residual gate). Certified -> commit; can't certify -> REFUSE.
+HONEST SCOPE (per adversarial review): this compares two PROGRAMMATIC edit paths,
+not a live LLM. "Unguarded" is openpyxl, whose insert_rows has a documented
+non-feature (it rewrites zero formula references); the 86.6% is therefore the
+corpus prevalence of below-insert references times that one known bug, NOT an
+agent-error rate. "Guarded" is xlq, which AUTHORS the edit and then self-certifies
+it — so this measures xlq's own shifter forward-correctness + a refusal policy,
+and the guarded 0%-silent-corruption is partly definitional (a fail-closed gate
+cannot silently corrupt by construction). The certifier as a checker of UNTRUSTED
+FOREIGN edits (the actual verifiability thesis) is tested separately in
+foreign_certify.py, not here.
 
-INDEPENDENT ORACLE: LibreOffice recomputes each edited file; a formula value at an
-UNTOUCHED cell that diverges from its original Excel cache = corruption. This
-labels faithful/corrupted by ENGINE divergence, not by anything xlq computed.
+Setup (real formula-bearing workbooks, task = insert a blank row at K):
+  ARM A  openpyxl insert_rows (the standard programmatic edit path).
+  ARM B  xlq certify-or-refuse (σ-shift + residual gate).
+INDEPENDENT ORACLE: LibreOffice recomputes each edited file; a formula value at its
+shifted position that diverges from the original Excel cache = corruption. Labels
+by ENGINE divergence, not by anything xlq computed.
 
-The metric that matters is SILENT corruption: a committed file that opens fine but
-is engine-wrong. The guard's claim is that it drives guarded silent corruption to
-ZERO — every commit is engine-faithful OR explicitly refused, never silently wrong."""
+Genuinely empirical content: 150/172 xlq edits ENGINE-CONFIRMED faithful, 0 false
+certifications, 22 principled refusals. Strawman-sensitive content: the 86.6%
+openpyxl figure (a competent ref-shifting engine also gets this op right; the
+guard's real differentiator is auditability + explicit refusal + engine-free
+certification, which THIS experiment does not isolate)."""
 import glob, json, os, re, shutil, subprocess, sys, zipfile
 from collections import Counter
 
@@ -122,19 +129,24 @@ if __name__ == "__main__":
             uac[r["unguarded"]] += 1; gbc[r["guarded"]] += 1
         n = len(allr)
         ug_c = uac["SILENT_CORRUPTION"]; g_s = gbc["certified_but_WRONG"]
-        s = {"experiment": "interventional A/B: agent structural edit, unguarded (openpyxl) "
-             "vs guarded (xlq certify-or-refuse); INDEPENDENT engine oracle (LibreOffice)",
+        s = {"experiment": "EDIT-PATH A/B (NOT an agent study): openpyxl vs xlq "
+             "certify-or-refuse on insert-row@2; INDEPENDENT engine oracle (LibreOffice)",
+             "scope_caveat": "openpyxl = the standard programmatic edit path, NOT a live "
+             "LLM; the openpyxl % is corpus below-insert-reference prevalence x one known "
+             "library bug; guarded 0% is partly definitional (fail-closed). Foreign-edit "
+             "certification (the verifiability thesis) is in foreign_certify.py.",
              "files_evaluated": n,
-             "UNGUARDED": {"faithful": uac["faithful"], "SILENT_CORRUPTION": ug_c,
-                           "silent_corruption_rate": round(ug_c / n, 3) if n else None},
-             "GUARDED": {"certified_faithful": gbc["certified_faithful"],
-                         "refused_no_silent_corruption": gbc["refused"],
-                         "certified_but_WRONG_silent_corruption": g_s,
-                         "silent_corruption_rate": round(g_s / n, 3) if n else None},
-             "headline": (f"unguarded agent silently corrupts {ug_c}/{n} files "
-                          f"({round(100*ug_c/n,1) if n else 0}%); guarded silently corrupts "
-                          f"{g_s}/{n} — every guarded commit is engine-faithful or explicitly "
-                          f"refused. Independent engine, real workbooks."),
+             "openpyxl_path": {"faithful": uac["faithful"], "SILENT_CORRUPTION": ug_c,
+                               "silent_corruption_rate": round(ug_c / n, 3) if n else None},
+             "xlq_certify_or_refuse": {"certified_faithful_engine_confirmed": gbc["certified_faithful"],
+                         "refused_principled": gbc["refused"],
+                         "certified_but_WRONG_false_certification": g_s,
+                         "false_certification_rate": round(g_s / n, 3) if n else None},
+             "empirical_result": (f"xlq's self-authored edit is engine-confirmed faithful on "
+                          f"{gbc['certified_faithful']}/{n} files, 0 false certifications, "
+                          f"{gbc['refused']} principled refusals; the openpyxl path silently "
+                          f"mis-shifts references in {ug_c}/{n} ({round(100*ug_c/n,1) if n else 0}%, "
+                          f"a known-library-bug x corpus property, not an agent-error rate)."),
              "per_file": allr}
         with open(OUT, "w") as f:
             json.dump(s, f, indent=2)

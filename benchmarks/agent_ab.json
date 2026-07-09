@@ -1,18 +1,19 @@
 {
-  "experiment": "interventional A/B: agent structural edit, unguarded (openpyxl) vs guarded (xlq certify-or-refuse); INDEPENDENT engine oracle (LibreOffice)",
+  "experiment": "EDIT-PATH A/B (NOT an agent study): openpyxl vs xlq certify-or-refuse on insert-row@2; INDEPENDENT engine oracle (LibreOffice)",
+  "scope_caveat": "openpyxl = the standard programmatic edit path, NOT a live LLM; the openpyxl % is corpus below-insert-reference prevalence x one known library bug; guarded 0% is partly definitional (fail-closed). Foreign-edit certification (the verifiability thesis) is in foreign_certify.py.",
   "files_evaluated": 172,
-  "UNGUARDED": {
+  "openpyxl_path": {
     "faithful": 23,
     "SILENT_CORRUPTION": 149,
     "silent_corruption_rate": 0.866
   },
-  "GUARDED": {
-    "certified_faithful": 150,
-    "refused_no_silent_corruption": 22,
-    "certified_but_WRONG_silent_corruption": 0,
-    "silent_corruption_rate": 0.0
+  "xlq_certify_or_refuse": {
+    "certified_faithful_engine_confirmed": 150,
+    "refused_principled": 22,
+    "certified_but_WRONG_false_certification": 0,
+    "false_certification_rate": 0.0
   },
-  "headline": "unguarded agent silently corrupts 149/172 files (86.6%); guarded silently corrupts 0/172 \u2014 every guarded commit is engine-faithful or explicitly refused. Independent engine, real workbooks.",
+  "empirical_result": "xlq's self-authored edit is engine-confirmed faithful on 150/172 files, 0 false certifications, 22 principled refusals; the openpyxl path silently mis-shifts references in 149/172 (86.6%, a known-library-bug x corpus property, not an agent-error rate).",
   "per_file": [
     {
       "file": "calc_test_no_export/tables.xlsx",
