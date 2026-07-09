@@ -49,6 +49,35 @@ Z3-proved arithmetic law. `#print axioms` reports only `[propext, Quot.sound]`, 
 which is validated for value-preservation against an independent engine
 (`benchmarks/tokenizer_conformance.py`, 264 formulas, 0 divergences).
 
+## Lean 4 — the sound-by-construction certifier (`Checker.lean`)
+
+The keystone that makes the theorem load-bearing instead of decorative. `check` is a
+**decidable, executable decision procedure for exactly Theorem 1's hypothesis**, stated
+over syntax alone (skeleton preserved, deps = σ-image, deps-closed domain), and
+`check_sound` proves: `check = true` ⟹ every checked node's value transports across
+the edit **under every possible engine** (the interpretation of skeletons is
+universally quantified — never run). `check_transports_oracle` carries the embedded
+ground truth to the edited positions. `#eval` demos run the procedure (faithful →
+`true`; argument-order and operator botches → `false`). Consequence: a certifier
+implementing `check` accepts *any* producer's faithful edit — regardless of bytes,
+caches, or tool — and its soundness is a theorem, not equality to a reference
+transform. `differential_check.py` ties the proof to the running system: the Lean
+`check` and `experiments/generality/router.certify_edit` agree on 30/30 randomized
+cases (faithful + four botch classes). No `sorry`; axioms `[propext, Quot.sound]`.
+
+## Lean 4 — the boundary theorem (`Impossibility.lean`)
+
+The other side of the characterization: **an edit introducing a function skeleton not
+witnessed in the original cannot be value-certified by any engine-free checker.**
+`eval_override_fresh` shows two engines differing only at an unwitnessed skeleton are
+pointwise indistinguishable through the original artifact (every node, every fuel);
+`fresh_skeleton_uncertifiable` then refutes every value a checker could commit to with
+a consistent engine, and `two_worlds_disagree` gives the direct two-world form. Since
+an engine-free checker's verdict is a function of inputs identical in both worlds,
+sound checkers must REFUSE fresh-skeleton edits — certify-or-refuse is the only sound
+shape, not a design choice. Together with `Checker.lean` this characterizes the
+boundary of engine-free certification. No `sorry`; axioms `[propext, Quot.sound]`.
+
 ## Z3 — the reference-shift algebra laws (`shift_laws.py`)
 
 The algebraic laws underpinning the shift map, proved for **all** positions,
