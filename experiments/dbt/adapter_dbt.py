@@ -47,7 +47,14 @@ COMBINED = re.compile(
     r"|\{\{\s*source\(\s*['\"](?P<ss>\w+)['\"]\s*,\s*['\"](?P<st>\w+)['\"]\s*\)\s*\}\}"
 )
 JINJA_LEFTOVER = re.compile(r"\{\{|\{%|\{#")   # anything we did NOT model
-_STR_LIT = re.compile(r"'(?:[^']|'')*'")        # single-quoted SQL string literal
+# PROTECTED segments: single-quoted string literals AND double-quoted identifiers.
+# Both are case-significant in SQL (Postgres-class semantics distinguish "Region"
+# from "region") — folding either could CERTIFY a case-changed edit that alters
+# semantics under some engine. Adversarial review found the earlier single-quote-only
+# protection did exactly that (a confirmed false certification); the certificate must
+# mean "same result under ANY deterministic SQL semantics", so both quote forms are
+# kept verbatim.
+_STR_LIT = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
 
 
 def source_node(schema: str, table: str) -> str:

@@ -11,7 +11,7 @@ faithfully, or left a dangling `ref()`, or silently changed logic on the way.
 | Artifact triple | dbt meaning |
 |---|---|
 | Node | model name (`models/<name>.sql`); sources are leaf nodes `source:<schema>.<table>` |
-| `fn(node)` | the model's SQL with every `{{ ref('X') }}` / `{{ source('a','b') }}` replaced by an ordered slot `#i` (same target, same slot), case-folded + whitespace-collapsed **outside** single-quoted string literals. Sources: `"DATA"`. |
+| `fn(node)` | the model's SQL with every `{{ ref('X') }}` / `{{ source('a','b') }}` replaced by an ordered slot `#i` (same target, same slot), case-folded + whitespace-collapsed **outside** protected segments (single-quoted string literals AND double-quoted identifiers — both case-significant in SQL; an earlier single-quote-only protection let a case-changed "Region"→"region" edit be CERTIFIED, found by adversarial review, closed in `test_quoted_ident.py`). Sources: `"DATA"`. |
 | `deps(node)` | ordered, deduplicated list of referenced nodes (first-occurrence order). The `ref()` graph is dbt's whole point — static, syntactic, extractable without execution. |
 | `O(node)` | the **materialized table contents** — `(column names, canonically sorted rows)`. This is the self-oracle. It is produced **once**, from the ORIGINAL project, and carried; the certify step never recomputes it. Source leaves get O straight from the declared seed data. |
 
