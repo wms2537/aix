@@ -44,6 +44,12 @@ pub struct Residual {
 
 /// Perform a structural edit and return (new_bytes, report).
 pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, StructuralReport)> {
+    // Move is defined only on the row axis (the buffered reorder is a row
+    // permutation). A column Move is not reachable from the CLI; reject it
+    // defensively rather than silently mis-transform.
+    if edit.op == Op::Move && edit.axis != Axis::Row {
+        return Err(anyhow!("move is only supported on the row axis"));
+    }
     let sheets = ooxml::all_sheets(input)?;
     let edited_part = sheets
         .iter()
@@ -140,6 +146,25 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
             .map_err(|e| anyhow!("start {name}: {e}"))?;
         writer.write_all(&bytes).map_err(|e| anyhow!("write {name}: {e}"))?;
     }
+    // Move straddle safety net: under Move a #REF! can ONLY arise from a range
+    // that reorders across the move boundary (σ is a total bijection on single
+    // cells, so no single cell errors). Any ref error therefore means a straddle
+    // the coordinate shift cannot express — refuse (fail-closed) even if it lived
+    // in a cross-sheet formula / chart / defined name / pivot the per-sheet scan
+    // above did not already flag.
+    if edit.op == Op::Move
+        && report.ref_errors > 0
+        && !report.residuals.iter().any(|r| r.reason == "move_straddles_range")
+    {
+        report.residuals.push(Residual {
+            part: "(workbook)".into(),
+            reason: "move_straddles_range".into(),
+            detail: "a range reference reorders under the move (σ(head) > σ(tail)) in a \
+                     cross-sheet / chart / defined-name / pivot reference — edit refused"
+                .into(),
+        });
+    }
+
     report.parts_touched.insert(0, edited_part);
     let cur = writer.finish().map_err(|e| anyhow!("finalize: {e}"))?;
     Ok((cur.into_inner(), report))
@@ -472,6 +497,12 @@ fn rewrite_edited_sheet(
     part_name: &str,
     report: &mut StructuralReport,
 ) -> Result<Vec<u8>> {
+    // Move REORDERS rows (σ is non-monotonic), so the STREAMING insert/delete
+    // renumber below cannot be used — it assumes rows stay in ascending order.
+    // The buffered path collects, relabels, and re-emits rows sorted by σ.
+    if edit.op == Op::Move {
+        return rewrite_edited_sheet_move(src, edit, part_name, report);
+    }
     let mut reader = Reader::from_reader(src);
     reader.config_mut().expand_empty_elements = false;
     let mut writer = Writer::new(Cursor::new(Vec::new()));
@@ -565,6 +596,204 @@ fn rewrite_edited_sheet(
         report.rows_inserted = edit.count;
     }
     Ok(out)
+}
+
+/// Buffered rewrite for `Op::Move`. Row σ REORDERS rows, so we cannot stream in
+/// document order like insert/delete. We: (1) copy every non-row byte verbatim,
+/// (2) for each `<row>` relabel its `r` and every child `<c>`'s `r` to σ(row) and
+/// shift every formula's references (via `shift_formula` → `shift_index` → σ),
+/// buffering the transformed row keyed by its NEW row number, and (3) at
+/// `</sheetData>` re-emit the buffered rows SORTED ascending by that new number.
+/// A range that reorders under σ (a straddle) surfaces as a new `#REF!` and is
+/// recorded as a `move_straddles_range` residual so the edit is refused.
+fn rewrite_edited_sheet_move(
+    src: &[u8],
+    edit: &StructuralEdit,
+    part_name: &str,
+    report: &mut StructuralReport,
+) -> Result<Vec<u8>> {
+    let mut reader = Reader::from_reader(src);
+    reader.config_mut().expand_empty_elements = false;
+    let mut main = Writer::new(Cursor::new(Vec::new()));
+    let sheet = edit.sheet.clone();
+    let mut buf = Vec::new();
+
+    // buffered rows: (new_row_number, serialized transformed row bytes)
+    let mut rows: Vec<(u32, Vec<u8>)> = Vec::new();
+    // Some(writer) while inside a <row>…</row>; events route here, not to `main`.
+    let mut row_buf: Option<(u32, Writer<Cursor<Vec<u8>>>)> = None;
+    let mut in_sheetdata = false;
+    let mut in_f = false;
+    let mut f_residual = false;
+    let mut straddle_flagged = false;
+
+    loop {
+        let ev = reader.read_event_into(&mut buf)?;
+        match ev {
+            Event::Eof => break,
+
+            // ---- <row> boundaries: buffer instead of streaming ----
+            Event::Start(e) if e.name().as_ref() == b"row" => {
+                let old_r =
+                    attr_u32(&e, b"r").ok_or_else(|| anyhow!("move: <row> without r attribute"))?;
+                let new_r = refshift::move_row_sigma(old_r, edit.at, edit.count, edit.dest);
+                let mut w = Writer::new(Cursor::new(Vec::new()));
+                w.write_event(Event::Start(shift_row_tag(&e, edit)))?;
+                row_buf = Some((new_r, w));
+            }
+            Event::Empty(e) if e.name().as_ref() == b"row" => {
+                let old_r =
+                    attr_u32(&e, b"r").ok_or_else(|| anyhow!("move: <row> without r attribute"))?;
+                let new_r = refshift::move_row_sigma(old_r, edit.at, edit.count, edit.dest);
+                let mut w = Writer::new(Cursor::new(Vec::new()));
+                w.write_event(Event::Empty(shift_row_tag(&e, edit)))?;
+                rows.push((new_r, w.into_inner().into_inner()));
+            }
+            Event::End(e) if e.name().as_ref() == b"row" => {
+                if let Some((key, mut w)) = row_buf.take() {
+                    w.write_event(Event::End(e.into_owned()))?;
+                    rows.push((key, w.into_inner().into_inner()));
+                } else {
+                    main.write_event(Event::End(e.into_owned()))?;
+                }
+            }
+
+            // ---- <sheetData> boundaries: flush sorted rows at the close ----
+            Event::Start(e) if e.name().as_ref() == b"sheetData" => {
+                in_sheetdata = true;
+                main.write_event(Event::Start(e.into_owned()))?;
+            }
+            Event::Empty(e) if e.name().as_ref() == b"sheetData" => {
+                main.write_event(Event::Empty(e.into_owned()))?;
+            }
+            Event::End(e) if e.name().as_ref() == b"sheetData" => {
+                in_sheetdata = false;
+                rows.sort_by_key(|(k, _)| *k);
+                for (_, bytes) in &rows {
+                    main.get_mut().write_all(bytes).map_err(|e| anyhow!("flush row: {e}"))?;
+                }
+                rows.clear();
+                main.write_event(Event::End(e.into_owned()))?;
+            }
+
+            // ---- formula-bearing element: TEXT carries A1 refs ----
+            Event::Start(e) if is_formula_tag(e.name().as_ref()) => {
+                in_f = true;
+                f_residual = detect_residual(&e).is_some();
+                if f_residual {
+                    report.residuals.push(Residual {
+                        part: part_name.into(),
+                        reason: detect_residual(&e).unwrap().into(),
+                        detail: "shared/array formula present; refused (sound over-approximation)"
+                            .into(),
+                    });
+                }
+                match row_buf.as_mut() {
+                    Some((_, w)) => w.write_event(Event::Start(e.into_owned()))?,
+                    None => main.write_event(Event::Start(e.into_owned()))?,
+                }
+            }
+            Event::Empty(e) if e.name().as_ref() == b"f" => {
+                if let Some(reason) = detect_residual(&e) {
+                    report.residuals.push(Residual {
+                        part: part_name.into(),
+                        reason: reason.into(),
+                        detail: "shared-formula dependent stub".into(),
+                    });
+                }
+                match row_buf.as_mut() {
+                    Some((_, w)) => w.write_event(Event::Empty(e.into_owned()))?,
+                    None => main.write_event(Event::Empty(e.into_owned()))?,
+                }
+            }
+            Event::End(e) if is_formula_tag(e.name().as_ref()) => {
+                in_f = false;
+                f_residual = false;
+                match row_buf.as_mut() {
+                    Some((_, w)) => w.write_event(Event::End(e.into_owned()))?,
+                    None => main.write_event(Event::End(e.into_owned()))?,
+                }
+            }
+            Event::Text(t) if in_f && !f_residual => {
+                let raw = t.unescape().unwrap_or_default().into_owned();
+                let before_ref = raw.matches("#REF!").count();
+                let (nf, n) = refshift::shift_formula(&raw, &sheet, edit);
+                let new_ref = nf.matches("#REF!").count().saturating_sub(before_ref);
+                report.refs_shifted += n;
+                report.ref_errors += new_ref as u32;
+                if new_ref > 0 && !straddle_flagged {
+                    straddle_flagged = true;
+                    report.residuals.push(Residual {
+                        part: part_name.into(),
+                        reason: "move_straddles_range".into(),
+                        detail: "a range reference reorders under the move \
+                                 (σ(head) > σ(tail)); it cannot be expressed as a shifted \
+                                 rectangle — edit refused (fail-closed)"
+                            .into(),
+                    });
+                }
+                let out_ev = if nf == raw {
+                    Event::Text(t.into_owned())
+                } else {
+                    Event::Text(BytesText::from_escaped(text_escape(&nf)))
+                };
+                match row_buf.as_mut() {
+                    Some((_, w)) => w.write_event(out_ev)?,
+                    None => main.write_event(out_ev)?,
+                }
+            }
+
+            // ---- any other start/empty element: attribute σ-shift ----
+            Event::Start(e) => {
+                let tag = transform_tag_move(&e, &sheet, edit, report);
+                match row_buf.as_mut() {
+                    Some((_, w)) => w.write_event(Event::Start(tag))?,
+                    None => main.write_event(Event::Start(tag))?,
+                }
+            }
+            Event::Empty(e) => {
+                let tag = transform_tag_move(&e, &sheet, edit, report);
+                match row_buf.as_mut() {
+                    Some((_, w)) => w.write_event(Event::Empty(tag))?,
+                    None => main.write_event(Event::Empty(tag))?,
+                }
+            }
+
+            // drop insignificant whitespace that sits between rows in sheetData
+            Event::Text(t) if in_sheetdata && row_buf.is_none() => {
+                let _ = t;
+            }
+
+            other => match row_buf.as_mut() {
+                Some((_, w)) => w.write_event(other.into_owned())?,
+                None => main.write_event(other.into_owned())?,
+            },
+        }
+        buf.clear();
+    }
+
+    Ok(main.into_inner().into_inner())
+}
+
+/// Non-row attribute transform for `Op::Move`. Cells and CONTENT-FOLLOWING
+/// references (mergeCell/hyperlink ref, conditional-formatting/data-validation
+/// sqref) relocate with their rows via σ. `dimension`/`autoFilter` describe an
+/// EXTENT (invariant under an intra-sheet permutation) and view state
+/// (selection/pane/brk) is non-semantic — both are left byte-identical, so the
+/// move never spuriously shrinks a used-range or #REF!s a page break.
+fn transform_tag_move(
+    e: &BytesStart,
+    sheet: &str,
+    edit: &StructuralEdit,
+    report: &mut StructuralReport,
+) -> BytesStart<'static> {
+    match e.name().as_ref() {
+        b"c" => shift_cell_tag(e, edit),
+        b"mergeCell" | b"hyperlink" | b"conditionalFormatting" | b"dataValidation" => {
+            shift_ref_attrs(e, sheet, edit, report)
+        }
+        _ => e.to_owned(),
+    }
 }
 
 /// Attribute-only transform for a non-row tag: cells and ref-bearing elements.
@@ -753,6 +982,7 @@ fn shift_line(pos: u32, edit: &StructuralEdit) -> Option<u32> {
                 None
             }
         }
+        Op::Move => Some(refshift::move_row_sigma(pos, edit.at, edit.count, edit.dest)),
     }
 }
 
@@ -867,7 +1097,10 @@ mod tests {
     use crate::refshift::{Axis, Op, StructuralEdit};
 
     fn edit(sheet: &str, axis: Axis, op: Op, at: u32, count: u32) -> StructuralEdit {
-        StructuralEdit { axis, at, count, op, sheet: sheet.into() }
+        StructuralEdit { axis, at, count, op, sheet: sheet.into(), dest: 0 }
+    }
+    fn move_edit(sheet: &str, at: u32, count: u32, dest: u32) -> StructuralEdit {
+        StructuralEdit { axis: Axis::Row, at, count, op: Op::Move, sheet: sheet.into(), dest }
     }
 
     #[test]
@@ -1117,5 +1350,77 @@ mod tests {
             "array must still be refused: {:?}",
             report.residuals
         );
+    }
+
+    /// Collect row `r` numbers in the ORDER they appear in the serialized sheet.
+    fn row_order(xml: &str) -> Vec<u32> {
+        let mut out = Vec::new();
+        let mut rest = xml;
+        while let Some(p) = rest.find("<row ") {
+            rest = &rest[p + 5..];
+            if let Some(rp) = rest.find("r=\"") {
+                let after = &rest[rp + 3..];
+                if let Some(end) = after.find('"') {
+                    if let Ok(n) = after[..end].parse::<u32>() {
+                        out.push(n);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn move_rows_reorders_relabels_and_shifts_formula() {
+        // rows 1..8; a value in A6 and a formula =A6*2 at C6. Move row 6 (a=6,n=1)
+        // to before row 3 (dest=3, move up). σ: 6→3, 3→4, 4→5, 5→6, others fixed.
+        let xml = br#"<worksheet><dimension ref="A1:C8"/><sheetData><row r="1"><c r="A1"><v>1</v></c></row><row r="2"><c r="A2"><v>2</v></c></row><row r="3"><c r="A3"><v>3</v></c></row><row r="4"><c r="A4"><v>4</v></c></row><row r="5"><c r="A5"><v>5</v></c></row><row r="6"><c r="A6"><v>6</v></c><c r="C6"><f>A6*2</f><v>12</v></c></row><row r="7"><c r="A7"><v>7</v></c></row><row r="8"><c r="A8"><v>8</v></c></row></sheetData></worksheet>"#;
+        let e = move_edit("Sheet1", 6, 1, 3);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml, &e, "xl/worksheets/sheet1.xml", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        // physical rows are re-emitted ASCENDING by new row number
+        assert_eq!(row_order(&s), vec![1, 2, 3, 4, 5, 6, 7, 8], "rows ascending: {s}");
+        // old row 6 (value 6, formula) landed at row 3, cells relabeled, ref followed
+        assert!(s.contains(r#"<row r="3"><c r="A3"><v>6</v></c><c r="C3"><f>A3*2</f>"#),
+            "moved row content + shifted ref: {s}");
+        // old row 3 (value 3) shifted down into row 4
+        assert!(s.contains(r#"<row r="4"><c r="A4"><v>3</v></c></row>"#), "gap row shifted: {s}");
+        // old row 5 (value 5) → row 6
+        assert!(s.contains(r#"<row r="6"><c r="A6"><v>5</v></c></row>"#), "gap row shifted: {s}");
+        // dimension (extent) is invariant under a permutation — left byte-identical
+        assert!(s.contains(r#"<dimension ref="A1:C8"/>"#), "dimension unchanged: {s}");
+        assert!(report.residuals.is_empty(), "no residuals: {:?}", report.residuals);
+        assert_eq!(report.ref_errors, 0, "no #REF! for a clean move");
+    }
+
+    #[test]
+    fn move_rows_straddling_range_forces_residual() {
+        // a range SUM(A4:A6) reorders under moving row 6 before row 3
+        // (σ(4)=5, σ(6)=3 → 5>3): must be refused as move_straddles_range.
+        let xml = br#"<worksheet><sheetData><row r="3"><c r="A3"><v>3</v></c></row><row r="6"><c r="A6"><f>SUM(A4:A6)</f></c></row></sheetData></worksheet>"#;
+        let e = move_edit("Sheet1", 6, 1, 3);
+        let mut report = StructuralReport::default();
+        let _ = rewrite_edited_sheet(xml, &e, "xl/worksheets/sheet1.xml", &mut report).unwrap();
+        assert!(
+            report.residuals.iter().any(|r| r.reason == "move_straddles_range"),
+            "straddle must be refused: {:?}",
+            report.residuals
+        );
+    }
+
+    #[test]
+    fn move_cols_rejected_defensively() {
+        // Move is row-only; a column Move must error rather than mis-transform.
+        let input = std::fs::read("/home/soh/aix/fixtures/structural/refs.xlsx").unwrap();
+        let e = StructuralEdit {
+            axis: Axis::Col,
+            at: 2,
+            count: 1,
+            op: Op::Move,
+            sheet: "Sheet1".into(),
+            dest: 5,
+        };
+        assert!(structural_edit(&input, &e).is_err(), "col move must be rejected");
     }
 }

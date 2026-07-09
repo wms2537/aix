@@ -39,6 +39,7 @@ pub fn run(
     op: &str,
     at: u32,
     count: u32,
+    dest: u32,
 ) -> Result<Value> {
     // Parse the op into the shift-algebra axis/operation. Reuses main.rs's
     // single mapping so `certify` and `restructure` can never diverge.
@@ -46,7 +47,7 @@ pub fn run(
         return Ok(json!({
             "status": "REFUSED",
             "reason": "bad_op",
-            "detail": "--op must be insert-rows | delete-rows | insert-cols | delete-cols",
+            "detail": "--op must be insert-rows | delete-rows | insert-cols | delete-cols | move-rows",
         }));
     };
     if at == 0 || count == 0 {
@@ -56,7 +57,18 @@ pub fn run(
             "detail": "--at is 1-based and --count must be >= 1",
         }));
     }
-    let op_label = format!("{op}@{at}x{count} on {sheet}");
+    if operation == crate::refshift::Op::Move && dest == 0 {
+        return Ok(json!({
+            "status": "REFUSED",
+            "reason": "bad_args",
+            "detail": "move-rows requires --dest >= 1 (the 1-based row the block was moved before)",
+        }));
+    }
+    let op_label = if operation == crate::refshift::Op::Move {
+        format!("{op}@{at}x{count}->{dest} on {sheet}")
+    } else {
+        format!("{op}@{at}x{count} on {sheet}")
+    };
 
     // (1) xlq's OWN faithful transform of the original.
     let original_bytes = std::fs::read(original)
@@ -67,6 +79,7 @@ pub fn run(
         count,
         op: operation,
         sheet: sheet.to_string(),
+        dest,
     };
     let (expected_bytes, report) = structural::structural_edit(&original_bytes, &edit)
         .with_context(|| format!("structural edit on {sheet}"))?;

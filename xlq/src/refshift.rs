@@ -13,6 +13,9 @@
 pub enum Op {
     Insert,
     Delete,
+    /// Relocate a contiguous block of `count` lines starting at `at` to *before*
+    /// the (original-coordinate) line `dest`. Only the Row axis is supported.
+    Move,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,14 +25,53 @@ pub enum Axis {
 }
 
 /// A structural edit: `op` `count` lines on `axis`, starting at 1-based `at`,
-/// on sheet `sheet`.
+/// on sheet `sheet`. `dest` is the 1-based ORIGINAL-coordinate destination for
+/// `Op::Move` (relocate the block to *before* line `dest`); it is unused (0) for
+/// insert/delete.
 #[derive(Clone, Debug)]
 pub struct StructuralEdit {
     pub axis: Axis,
-    pub at: u32,    // k, 1-based
-    pub count: u32, // n
+    pub at: u32,       // k, 1-based
+    pub count: u32,    // n
     pub op: Op,
     pub sheet: String, // the edited sheet
+    pub dest: u32,     // b, 1-based (Move only; 0 for insert/delete)
+}
+
+/// The Move permutation σ on a 1-based line `pos`: relocate the block
+/// `[a, a+n)` (a = `at`, n = `count`) to *before* line `b` = `dest` (b in
+/// ORIGINAL coordinates). σ is a bijection on `[1, maxrow]` and preserves order
+/// within the moved block (proven in `formal/shift_laws.py`).
+///
+/// * `a <= b <= a+n`  → identity (moving within/adjacent to itself — a no-op).
+/// * `b > a+n` (down) → block lands on `[b-n, b)`, the gap `[a+n, b)` shifts up.
+/// * `b < a`   (up)   → block lands on `[b, b+n)`, the gap `[b, a)` shifts down.
+///
+/// All arithmetic is u32-safe: `b >= 1` in the move-up case (the caller requires
+/// `dest >= 1`), and in the move-down case `b > a+n ⇒ b >= a+n+1 ⇒ b-n >= a+1 > 0`.
+pub fn move_row_sigma(pos: u32, a: u32, n: u32, b: u32) -> u32 {
+    if a <= b && b <= a + n {
+        // moving within / immediately adjacent to itself: no reordering
+        pos
+    } else if b > a + n {
+        // move DOWN
+        if pos >= a && pos < a + n {
+            b - n + (pos - a) // moved block → [b-n, b)
+        } else if pos >= a + n && pos < b {
+            pos - n // rows the block jumped over shift up by n
+        } else {
+            pos // outside [a, b): fixed
+        }
+    } else {
+        // b < a: move UP
+        if pos >= a && pos < a + n {
+            b + (pos - a) // moved block → [b, b+n)
+        } else if pos >= b && pos < a {
+            pos + n // rows the block jumped over shift down by n
+        } else {
+            pos // outside [b, a+n): fixed
+        }
+    }
 }
 
 /// Outcome of shifting one reference.
@@ -59,6 +101,8 @@ fn shift_index(pos: u32, edit: &StructuralEdit) -> Option<u32> {
                 None // inside deleted band
             }
         }
+        // Move is a total bijection: a single cell always has an image, never #REF!.
+        Op::Move => Some(move_row_sigma(pos, k, n, edit.dest)),
     }
 }
 
@@ -91,6 +135,22 @@ fn shift_span(head: u32, tail: u32, edit: &StructuralEdit) -> Option<(u32, u32)>
                 Some((head, k - 1)) // tail in band → clamp tail to k-1
             } else {
                 None // k <= head <= tail < k+n: entirely consumed → #REF!
+            }
+        }
+        Op::Move => {
+            // Both endpoints map under σ. σ is monotone WITHIN each contiguous
+            // region but reorders regions, so a range whose endpoints land out of
+            // order (h' > t') STRADDLES the move boundary and cannot be a shifted
+            // rectangle. We return None (→ #REF!) for that case; the command layer
+            // detects it as a `move_straddles_range` residual and refuses BEFORE
+            // committing, so a straddle is never silently emitted. Non-straddle
+            // ranges (h' <= t') are the shifted rectangle [h', t'].
+            let h = move_row_sigma(head, k, n, edit.dest);
+            let t = move_row_sigma(tail, k, n, edit.dest);
+            if h <= t {
+                Some((h, t))
+            } else {
+                None
             }
         }
     }
@@ -730,10 +790,13 @@ mod tests {
     use super::*;
 
     fn row_edit(op: Op, at: u32, count: u32) -> StructuralEdit {
-        StructuralEdit { axis: Axis::Row, at, count, op, sheet: "Sheet1".into() }
+        StructuralEdit { axis: Axis::Row, at, count, op, sheet: "Sheet1".into(), dest: 0 }
     }
     fn col_edit(op: Op, at: u32, count: u32) -> StructuralEdit {
-        StructuralEdit { axis: Axis::Col, at, count, op, sheet: "Sheet1".into() }
+        StructuralEdit { axis: Axis::Col, at, count, op, sheet: "Sheet1".into(), dest: 0 }
+    }
+    fn move_edit(at: u32, count: u32, dest: u32) -> StructuralEdit {
+        StructuralEdit { axis: Axis::Row, at, count, op: Op::Move, sheet: "Sheet1".into(), dest }
     }
     fn s(x: &str) -> Shift {
         Shift::Shifted(x.into())
@@ -1049,6 +1112,133 @@ mod tests {
         assert_eq!(residual_reason("t=\"array\" ref=\"C2:C10\""), Some("array_formula_present"));
         assert_eq!(residual_reason("t=\"shared\" ref=\"B2:B100\" si=\"0\""), Some("shared_formula_present"));
         assert_eq!(residual_reason(""), None);
+    }
+
+    // ---- MOVE: the σ permutation (both directions), computed by hand ----
+    #[test]
+    fn move_sigma_down_matches_hand() {
+        // block rows [5,7) → before row 9 (b=9>a+n=7). gap rows 7,8 shift up.
+        // σ: 5→7, 6→8, 7→5, 8→6, {<5,>=9}→fixed.
+        assert_eq!(move_row_sigma(5, 5, 2, 9), 7);
+        assert_eq!(move_row_sigma(6, 5, 2, 9), 8);
+        assert_eq!(move_row_sigma(7, 5, 2, 9), 5);
+        assert_eq!(move_row_sigma(8, 5, 2, 9), 6);
+        assert_eq!(move_row_sigma(4, 5, 2, 9), 4);
+        assert_eq!(move_row_sigma(9, 5, 2, 9), 9);
+        assert_eq!(move_row_sigma(10, 5, 2, 9), 10);
+    }
+    #[test]
+    fn move_sigma_up_matches_hand() {
+        // block row 6 → before row 3 (b=3<a=6). gap rows 3,4,5 shift down.
+        // σ: 6→3, 3→4, 4→5, 5→6, {<3,>=7}→fixed.
+        assert_eq!(move_row_sigma(6, 6, 1, 3), 3);
+        assert_eq!(move_row_sigma(3, 6, 1, 3), 4);
+        assert_eq!(move_row_sigma(4, 6, 1, 3), 5);
+        assert_eq!(move_row_sigma(5, 6, 1, 3), 6);
+        assert_eq!(move_row_sigma(2, 6, 1, 3), 2);
+        assert_eq!(move_row_sigma(7, 6, 1, 3), 7);
+    }
+    #[test]
+    fn move_sigma_identity_when_adjacent() {
+        // a <= b <= a+n is a no-op: dest == a and dest == a+n both identity.
+        for pos in 1..=12u32 {
+            assert_eq!(move_row_sigma(pos, 5, 2, 5), pos, "dest==a identity");
+            assert_eq!(move_row_sigma(pos, 5, 2, 7), pos, "dest==a+n identity");
+            assert_eq!(move_row_sigma(pos, 5, 2, 6), pos, "dest inside block identity");
+        }
+    }
+    #[test]
+    fn move_sigma_is_a_bijection_on_1_to_maxrow() {
+        // exhaustively: for many (a,n,b), σ restricted to [1,maxrow] is a
+        // permutation (every image distinct and in-range) whenever the block and
+        // destination stay in grid.
+        let maxrow = 20u32;
+        for a in 1..=maxrow {
+            for n in 1..=(maxrow + 1 - a) {
+                for b in 1..=(maxrow + 1) {
+                    // dest must keep image in grid: skip out-of-grid destinations
+                    // (moving a block so its landing exceeds maxrow).
+                    if b > a + n && b > maxrow + 1 {
+                        continue;
+                    }
+                    let mut seen = std::collections::BTreeSet::new();
+                    for pos in 1..=maxrow {
+                        let img = move_row_sigma(pos, a, n, b);
+                        assert!((1..=maxrow).contains(&img),
+                            "σ out of grid: a={a} n={n} b={b} pos={pos} -> {img}");
+                        assert!(seen.insert(img),
+                            "σ not injective: a={a} n={n} b={b} collision at {img}");
+                    }
+                    // injective + closed range on a finite set ⇒ bijection
+                    assert_eq!(seen.len(), maxrow as usize);
+                }
+            }
+        }
+    }
+    #[test]
+    fn move_sigma_preserves_block_order() {
+        // order within the moved block is preserved (strictly increasing).
+        for &(a, n, b) in &[(5u32, 3u32, 12u32), (8, 4, 2), (6, 1, 3), (2, 5, 15)] {
+            for p in a..(a + n - 1) {
+                assert!(move_row_sigma(p, a, n, b) < move_row_sigma(p + 1, a, n, b),
+                    "block order broken a={a} n={n} b={b} at p={p}");
+            }
+        }
+    }
+
+    // ---- MOVE: single-cell refs follow σ; ranges straddling → #REF! ----
+    #[test]
+    fn move_single_cell_refs_follow_sigma_down() {
+        // A5 → A7 (block moved down); A10 fixed (>= dest=9).
+        assert_eq!(shift_body("A5", &move_edit(5, 2, 9)), s("A7"));
+        assert_eq!(shift_body("A10", &move_edit(5, 2, 9)), Shift::Unchanged);
+        // A7 (a jumped-over gap row) shifts up to A5.
+        assert_eq!(shift_body("A7", &move_edit(5, 2, 9)), s("A5"));
+        // absolute flag transparent to the move
+        assert_eq!(shift_body("$A$5", &move_edit(5, 2, 9)), s("$A$7"));
+    }
+    #[test]
+    fn move_single_cell_refs_follow_sigma_up() {
+        // A6 → A3 (block moved up); A3 → A4, A5 → A6 (gap rows shift down).
+        assert_eq!(shift_body("A6", &move_edit(6, 1, 3)), s("A3"));
+        assert_eq!(shift_body("A3", &move_edit(6, 1, 3)), s("A4"));
+        assert_eq!(shift_body("A5", &move_edit(6, 1, 3)), s("A6"));
+        assert_eq!(shift_body("A2", &move_edit(6, 1, 3)), Shift::Unchanged);
+    }
+    #[test]
+    fn move_range_within_block_or_gap_shifts_as_rectangle() {
+        // whole block [5,6] → [7,8]; monotone within block, not a straddle.
+        assert_eq!(shift_body("A5:A6", &move_edit(5, 2, 9)), s("A7:A8"));
+        // whole gap [3,5] → [4,6] under move-up (monotone within gap).
+        assert_eq!(shift_body("A3:A5", &move_edit(6, 1, 3)), s("A4:A6"));
+    }
+    #[test]
+    fn move_range_straddling_boundary_is_ref() {
+        // A4:A6 with row 6 moved before row 3: σ(4)=5, σ(6)=3 → 5>3 → straddle.
+        assert_eq!(shift_body("A4:A6", &move_edit(6, 1, 3)), Shift::Ref);
+        // A6:A8 with rows 5,6 moved down before 9: σ(6)=8, σ(8)=6 → straddle.
+        assert_eq!(shift_body("A6:A8", &move_edit(5, 2, 9)), Shift::Ref);
+    }
+    #[test]
+    fn move_identity_leaves_refs_unchanged() {
+        assert_eq!(shift_body("A5", &move_edit(5, 2, 5)), Shift::Unchanged); // b==a
+        assert_eq!(shift_body("A6", &move_edit(5, 2, 7)), Shift::Unchanged); // b==a+n
+    }
+    #[test]
+    fn move_formula_shifts_single_cells_and_detects_straddle() {
+        // the task's worked example: A5→A7, A10 fixed.
+        assert_eq!(sf("A5+A10", "Sheet1", &move_edit(5, 2, 9)), "A7+A10");
+        // move-up example: A6→A3, A3→A4.
+        assert_eq!(sf("A6+A3", "Sheet1", &move_edit(6, 1, 3)), "A3+A4");
+        // a straddling range introduces a NEW #REF! (the residual-gate signal).
+        assert!(sf("SUM(A4:A6)", "Sheet1", &move_edit(6, 1, 3)).contains("#REF!"));
+        // a clean move introduces none.
+        assert!(!sf("A5+A10", "Sheet1", &move_edit(5, 2, 9)).contains("#REF!"));
+        // string literals and function names are still untouched.
+        assert_eq!(
+            sf(r#"IF(A6>0,"A6",A3)"#, "Sheet1", &move_edit(6, 1, 3)),
+            r#"IF(A3>0,"A6",A4)"#
+        );
     }
 }
 

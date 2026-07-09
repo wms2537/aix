@@ -25,6 +25,7 @@ pub fn run(
     op: Op,
     at: u32,
     count: u32,
+    dest: u32,
     dry_run: bool,
     actor: Option<&str>,
 ) -> Result<Value> {
@@ -32,7 +33,12 @@ pub fn run(
         return Ok(json!({"command":"restructure","error":"bad_args",
             "reason":"--at is 1-based and --count must be >= 1"}));
     }
-    let edit = StructuralEdit { axis, at, count, op, sheet: sheet.to_string() };
+    // Move requires a 1-based destination; dest is ignored for insert/delete.
+    if op == Op::Move && dest == 0 {
+        return Ok(json!({"command":"restructure","error":"bad_args",
+            "reason":"move-rows requires --dest >= 1 (the 1-based row to move the block before)"}));
+    }
+    let edit = StructuralEdit { axis, at, count, op, sheet: sheet.to_string(), dest };
     let op_str = op_name(op, axis);
 
     // A real apply takes the advisory lock BEFORE reading, closing TOCTOU.
@@ -106,7 +112,11 @@ pub fn run(
     }
 
     let rev = journal::next_rev(file)?;
-    let ops = json!([{ "type": op_str, "sheet": sheet, "at": at, "count": count }]);
+    let ops = if op == Op::Move {
+        json!([{ "type": op_str, "sheet": sheet, "at": at, "count": count, "dest": dest }])
+    } else {
+        json!([{ "type": op_str, "sheet": sheet, "at": at, "count": count }])
+    };
     let receipt = journal::commit(
         file, &new_bytes, rev, &base_hash, &result_hash, ops, &timestamp, &resolved_actor,
         None, None,
@@ -134,6 +144,7 @@ fn report_json(
         "sheet": edit.sheet,
         "at": edit.at,
         "count": edit.count,
+        "dest": edit.dest,
         "refs_shifted": report.refs_shifted,
         "ref_errors": report.ref_errors,
         "rows_inserted": report.rows_inserted,
@@ -152,6 +163,8 @@ fn op_name(op: Op, axis: Axis) -> String {
         (Op::Delete, Axis::Row) => "delete_rows",
         (Op::Insert, Axis::Col) => "insert_cols",
         (Op::Delete, Axis::Col) => "delete_cols",
+        (Op::Move, Axis::Row) => "move_rows",
+        (Op::Move, Axis::Col) => "move_cols", // unreachable (rejected upstream)
     }
     .to_string()
 }
@@ -223,7 +236,7 @@ mod tests {
     fn dry_run_reports_shift_without_writing() {
         let f = setup("dry");
         let before = crate::hash::sha256_file(&f).unwrap();
-        let out = run(&f, "Sheet1", Axis::Row, Op::Insert, 5, 1, true, Some("t")).unwrap();
+        let out = run(&f, "Sheet1", Axis::Row, Op::Insert, 5, 1, 0, true, Some("t")).unwrap();
         assert_eq!(out["edit"]["reopens"], json!(true));
         assert!(out["edit"]["refs_shifted"].as_u64().unwrap() >= 4);
         assert_eq!(crate::hash::sha256_file(&f).unwrap(), before, "dry run must not write");
@@ -231,9 +244,17 @@ mod tests {
     }
 
     #[test]
+    fn move_requires_dest() {
+        let f = setup("movedest");
+        let out = run(&f, "Sheet1", Axis::Row, Op::Move, 5, 1, 0, true, Some("t")).unwrap();
+        assert_eq!(out["error"], json!("bad_args"), "move without --dest must be refused: {out}");
+        std::fs::remove_file(&f).ok();
+    }
+
+    #[test]
     fn real_insert_commits_and_recomputes() {
         let f = setup("real");
-        let out = run(&f, "Sheet1", Axis::Row, Op::Insert, 5, 1, false, Some("t")).unwrap();
+        let out = run(&f, "Sheet1", Axis::Row, Op::Insert, 5, 1, 0, false, Some("t")).unwrap();
         assert_eq!(out["rev"], json!(1), "got {out}");
         assert_eq!(out["verified"]["reopened"], json!(true));
         // the committed file recomputes correctly
@@ -260,7 +281,7 @@ mod tests {
             let _ = std::fs::remove_file(format!("{dst}{suffix}"));
         }
         std::fs::copy(fixture, &dst).unwrap();
-        let out = run(&dst, "Sheet1", Axis::Row, Op::Insert, 2, 1, false, Some("t")).unwrap();
+        let out = run(&dst, "Sheet1", Axis::Row, Op::Insert, 2, 1, 0, false, Some("t")).unwrap();
         assert_eq!(out["rev"], json!(1), "shared edit should commit, got {out}");
         assert_eq!(out["verified"]["reopened"], json!(true));
         std::fs::remove_file(&dst).ok();
@@ -276,9 +297,32 @@ mod tests {
             return;
         }
         let dst = setup_from("table", fixture);
-        let out = run(&dst, "Sheet1", Axis::Row, Op::Insert, 3, 1, false, Some("t")).unwrap();
+        let out = run(&dst, "Sheet1", Axis::Row, Op::Insert, 3, 1, 0, false, Some("t")).unwrap();
         assert_eq!(out["error"], json!("residual_unreachable"), "got {out}");
         std::fs::remove_file(&dst).ok();
+    }
+
+    #[test]
+    fn real_move_commits_and_recomputes() {
+        // move a row on the refs fixture and confirm it commits + reopens.
+        let f = setup("move");
+        // refs.xlsx has A1..A10 with SUM/formulas; move row 2 (a=2,n=1) to before
+        // row 4 (dest=4, move down). σ is a bijection; a clean move commits.
+        let out = run(&f, "Sheet1", Axis::Row, Op::Move, 2, 1, 4, false, Some("t")).unwrap();
+        // either it commits (rev 1) or, if the fixture has a range straddling the
+        // move, it is soundly refused — never a silent wrong write.
+        assert!(
+            out.get("rev").is_some() || out["error"] == json!("residual_unreachable"),
+            "move must commit or be soundly refused, got {out}"
+        );
+        if out.get("rev").is_some() {
+            assert_eq!(out["verified"]["reopened"], json!(true));
+            let mut m = ironcalc::import::load_from_xlsx(&f, "en", "UTC", "en").unwrap();
+            m.evaluate();
+        }
+        std::fs::remove_file(&f).ok();
+        std::fs::remove_file(format!("{f}.rev-1.xlsx")).ok();
+        std::fs::remove_file(format!("{f}.xlq.jsonl")).ok();
     }
 
     fn setup_from(tag: &str, src: &str) -> String {

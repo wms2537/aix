@@ -76,15 +76,18 @@ enum Command {
         /// Sheet to edit
         #[arg(long)]
         sheet: String,
-        /// Operation: insert-rows | delete-rows | insert-cols | delete-cols
+        /// Operation: insert-rows | delete-rows | insert-cols | delete-cols | move-rows
         #[arg(long)]
         op: String,
-        /// 1-based row/column index to insert before / start deleting at
+        /// 1-based row/column index to insert before / start deleting at / start moving from
         #[arg(long)]
         at: u32,
         /// Number of rows/columns
         #[arg(long, default_value_t = 1)]
         count: u32,
+        /// move-rows only: 1-based ORIGINAL-coordinate row to move the block before (required)
+        #[arg(long, default_value_t = 0)]
+        dest: u32,
         /// Predict the shift without writing
         #[arg(long)]
         dry_run: bool,
@@ -105,7 +108,7 @@ enum Command {
         /// Sheet the structural edit was applied to
         #[arg(long)]
         sheet: String,
-        /// Operation: insert-rows | delete-rows | insert-cols | delete-cols
+        /// Operation: insert-rows | delete-rows | insert-cols | delete-cols | move-rows
         #[arg(long)]
         op: String,
         /// 1-based row/column index the op was applied at
@@ -114,6 +117,9 @@ enum Command {
         /// Number of rows/columns
         #[arg(long, default_value_t = 1)]
         count: u32,
+        /// move-rows only: 1-based ORIGINAL-coordinate row the block was moved before
+        #[arg(long, default_value_t = 0)]
+        dest: u32,
     },
 }
 
@@ -124,6 +130,7 @@ fn parse_structural_op(op: &str) -> Option<(refshift::Axis, refshift::Op)> {
         "delete-rows" => Some((Axis::Row, Op::Delete)),
         "insert-cols" => Some((Axis::Col, Op::Insert)),
         "delete-cols" => Some((Axis::Col, Op::Delete)),
+        "move-rows" => Some((Axis::Row, Op::Move)),
         _ => None,
     }
 }
@@ -146,6 +153,7 @@ fn main() {
             op,
             at,
             count,
+            dest,
             dry_run,
             actor,
         } => match parse_structural_op(&op) {
@@ -156,13 +164,14 @@ fn main() {
                 operation,
                 at,
                 count,
+                dest,
                 dry_run,
                 actor.as_deref(),
             ),
             None => Ok(serde_json::json!({
                 "command": "restructure",
                 "error": "bad_op",
-                "reason": "--op must be insert-rows | delete-rows | insert-cols | delete-cols",
+                "reason": "--op must be insert-rows | delete-rows | insert-cols | delete-cols | move-rows",
             })),
         },
         Command::Certify {
@@ -172,7 +181,8 @@ fn main() {
             op,
             at,
             count,
-        } => certify::run(&original, &edited, &sheet, &op, at, count),
+            dest,
+        } => certify::run(&original, &edited, &sheet, &op, at, count, dest),
     };
     match result {
         Ok(value) => {
