@@ -7,9 +7,9 @@ an artifact that *opens fine* but may be silently wrong: a structural edit that 
 to propagate references corrupts computed values with no visible symptom, and neither
 the agent nor a human reviewer can see it without the defining engine. We ask which
 such edits can be certified **engine-free** — offline, against the artifact's own
-structure, trusting neither the editor nor a recomputation — and we answer with a
-machine-checked **characterization of the boundary** (Lean 4, no `sorry`, axioms
-`propext` and `Quot.sound` only). On the certifiable side: the premise of our
+structure, trusting neither the editor nor a recomputation — and we answer by
+machine-checking **both sides of the boundary** (Lean 4, no `sorry`, axioms
+`propext` and `Quot.sound` only), with the remaining middle ground stated open. On the certifiable side: the premise of our
 invariance theorem — the edit's reference-dependency graph is a function-preserving
 relabeling of the original's — is *decidable from syntax*, and we ship an executable
 decision procedure `check` with a machine-checked soundness theorem: if `check`
@@ -60,14 +60,15 @@ capable agent should be *required* to pass, not a crutch for a weak one.
 
 Our claims, in order of strength:
 
-1. **(Characterization, both sides proven.)** Engine-free certification of an agent
-   edit is possible *exactly* when the edit is a function-preserving relabeling of the
-   reference-dependency graph: the certifiable side is witnessed by an executable
-   decision procedure `check` for that premise with a machine-checked soundness
-   theorem quantifying over **all** engines; the uncertifiable side by an
-   impossibility theorem — fresh function semantics admit indistinguishable engines
-   that disagree, so no engine-free checker can certify them and *certify-or-refuse
-   is the only sound shape* (§3, Lean 4, no `sorry`).
+1. **(The boundary, both sides machine-checked.)** We *bracket* engine-free
+   certification of agent edits: function-preserving relabelings of the
+   reference-dependency graph are certifiable — witnessed by an executable decision
+   procedure `check` for that premise with a machine-checked soundness theorem
+   quantifying over **all** engines — while edits introducing function semantics
+   unwitnessed in the original are uncertifiable by *any* engine-free checker
+   (impossibility: indistinguishable engines disagree), so *certify-or-refuse is the
+   only sound shape* (§3, Lean 4, no `sorry`). The middle ground (edits reusing
+   witnessed semantics at new positions) is stated open.
 2. **(Composition.)** A locality theorem factors a mixed edit into a certified
    structural scaffold plus value fills whose effect is provably contained in their
    downstream cone — collapsing the audit surface from the whole artifact to a
