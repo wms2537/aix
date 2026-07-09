@@ -9,5 +9,7 @@ paper/.log
 harness/work/
 __pycache__/
 *.pyc
-data/
+data/*
+!data/inthewild/
+data/inthewild/*
 !data/inthewild/PROVENANCE.md
