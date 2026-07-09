@@ -60,9 +60,12 @@ import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
 
-CORPUS = sorted(glob.glob(
-    "/home/soh/aix/vendor/upstream/xlsx/tests/**/*.xlsx", recursive=True))
-OUT = "/home/soh/aix/benchmarks/coincidence_q.json"
+# Corpus-path parameterization (pre-registered as a measurement-harness change,
+# research-log/016): argv[1] = corpus dir, argv[2] = output json. Defaults unchanged.
+import sys as _sys
+_CDIR = _sys.argv[1] if len(_sys.argv) > 1 else "/home/soh/aix/vendor/upstream/xlsx/tests"
+CORPUS = sorted(glob.glob(_CDIR + "/**/*.xlsx", recursive=True))
+OUT = _sys.argv[2] if len(_sys.argv) > 2 else "/home/soh/aix/benchmarks/coincidence_q.json"
 
 EMPTY = None                      # sentinel for an in-span cell with no value
 NUM_TOL = 1e-9                    # matches the checker (forward_correctness.py)
