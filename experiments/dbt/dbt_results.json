@@ -1,0 +1,72 @@
+{
+  "project": {
+    "models": 7,
+    "sources": 3,
+    "total_nodes": 10,
+    "engine_free_certify_path": true,
+    "oracle": "single materialization of the ORIGINAL project (duckdb)"
+  },
+  "a_faithful_rename": {
+    "status": "CERTIFIED",
+    "reason": "structural scaffold certified bit-exact on 10 nodes; the only values to re-check are the 0 in the fill cone \u2014 100% of the artifact is certified untouched",
+    "total_nodes": 10,
+    "scaffold_certified": 10,
+    "declared_fills": 0,
+    "audit_surface": [],
+    "undeclared_changes": [],
+    "collapse_ratio": 1.0,
+    "expected": "CERTIFIED",
+    "pass": true
+  },
+  "b_rename_dangling_ref": {
+    "status": "REFUSED",
+    "reason": "1 node(s) changed outside the declared edit \u2014 unaccounted (botch or undeclared edit); e.g. ['int_orders_enriched']",
+    "total_nodes": 10,
+    "scaffold_certified": 9,
+    "declared_fills": 0,
+    "audit_surface": [],
+    "undeclared_changes": [
+      "int_orders_enriched"
+    ],
+    "collapse_ratio": 0.0,
+    "expected": "REFUSED",
+    "pass": true
+  },
+  "c_rename_silent_logic_change": {
+    "status": "REFUSED",
+    "reason": "1 node(s) changed outside the declared edit \u2014 unaccounted (botch or undeclared edit); e.g. ['fct_revenue']",
+    "total_nodes": 10,
+    "scaffold_certified": 9,
+    "declared_fills": 0,
+    "audit_surface": [],
+    "undeclared_changes": [
+      "fct_revenue"
+    ],
+    "collapse_ratio": 0.0,
+    "expected": "REFUSED",
+    "ground_truth_values_differ": true,
+    "pass": true
+  },
+  "d_rename_plus_declared_fill": {
+    "status": "CERTIFIED",
+    "reason": "structural scaffold certified bit-exact on 9 nodes; the only values to re-check are the 2 in the fill cone \u2014 80% of the artifact is certified untouched",
+    "total_nodes": 10,
+    "scaffold_certified": 9,
+    "declared_fills": 1,
+    "audit_surface": [
+      "fct_revenue",
+      "rpt_kpis"
+    ],
+    "undeclared_changes": [],
+    "collapse_ratio": 0.8,
+    "expected": "CERTIFIED",
+    "expected_audit_surface": [
+      "fct_revenue",
+      "rpt_kpis"
+    ],
+    "ground_truth_outside_cone_preserved": true,
+    "ground_truth_fill_value_changed": true,
+    "pass": true
+  },
+  "all_pass": true
+}
