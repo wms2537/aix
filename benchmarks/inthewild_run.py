@@ -15,8 +15,16 @@ Eligibility (pre-registered): first sheet has >= 2 formula cells; zip+openpyxl
 parse OK. Cap 500 eligible files in sorted-filename order. No other filtering.
 Usage: inthewild_run.py <corpus_dir> <out_json> [cap]
 """
-import glob, json, os, shutil, subprocess, sys
+import glob, json, os, shutil, signal, subprocess, sys
 from collections import Counter
+
+
+class FileTimeout(Exception):
+    pass
+
+
+def _alarm(sig, frame):
+    raise FileTimeout()
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from shift_correctness_real import (XLQ, ref_shift, formulas_of, zip_sheet_name,
@@ -62,7 +70,8 @@ def would_corrupt(forms):
 
 def certify(orig, edited, sheet, op="insert-rows", at=2):
     r = subprocess.run([XLQ, "certify", orig, edited, "--sheet", sheet, "--op", op,
-                        "--at", str(at), "--count", "1"], capture_output=True, text=True)
+                        "--at", str(at), "--count", "1"], capture_output=True, text=True,
+                       timeout=240)
     try:
         return json.loads(r.stdout).get("status", "ERROR")
     except Exception:
@@ -91,57 +100,70 @@ if __name__ == "__main__":
     guard = Counter()
     mismatch_log, falsecert_log = [], []
 
+    signal.signal(signal.SIGALRM, _alarm)
     for i, (p, sheet, forms) in enumerate(files):
         work = os.path.join(WORK, str(i)); os.makedirs(work, exist_ok=True)
-        wc = would_corrupt(forms)
-        guard["would_corrupt" if wc else "no_shift_needed"] += 1
-
-        # Leg 1 — 4-op shift correctness (identical method to the committed dev-tier run)
-        for op, axis, at in OPS:
-            xf = xlq_edit(p, sheet, op, at, work)
-            if xf is None:
-                tally[op]["refused"] += 1
-                continue
-            tally[op]["applied"] += 1
-            xout = formulas_of(xf)
-            for (col, row), f in forms.items():
-                exp = ref_shift(f, axis, op, at, 1)
-                if exp is None:
-                    tally[op]["skipped_out_of_grammar"] += 1
-                    continue
-                np_ = new_pos(col, row, axis, op, at, 1)
-                if np_ is None:
-                    continue
-                got = xout.get(np_)
-                if got is None:
-                    continue
-                if norm(got) != norm(exp):
-                    tally[op]["xlq_MISMATCH"] += 1
-                    if len(mismatch_log) < 10:
-                        mismatch_log.append({"file": os.path.basename(p), "op": op,
-                                             "cell": f"{col}{row}", "orig": f,
-                                             "expected": exp, "xlq": got})
-                else:
-                    tally[op]["xlq_match"] += 1
-                tally[op]["opx_unshifted" if norm(f) != norm(exp) else "opx_ok"] += 1
-
-        # Leg 3a — certify xlq's own transform (insert-rows@2 leg)
-        xf2 = xlq_edit(p, sheet, "insert-rows", 2, work)
-        if xf2 is not None:
-            v = certify(p, xf2, sheet)
-            guard[f"own_{v}"] += 1
-        # Leg 3b — certify openpyxl's edit
+        # Per-file watchdog (disclosed harness hardening, research-log/017): one
+        # pathological workbook hung the Enron leg for 2h; a timed-out file is
+        # SKIPPED and COUNTED, never guessed about.
+        signal.alarm(300)
         try:
-            of = opx_edit(p, work)
-            v = certify(p, of, sheet)
-            guard[f"opx_{v}"] += 1
-            if wc and v == "CERTIFIED":
-                guard["FALSE_CERT_on_would_corrupt"] += 1
-                if len(falsecert_log) < 10:
-                    falsecert_log.append(os.path.basename(p))
-        except Exception:
-            guard["opx_edit_failed"] += 1
-        shutil.rmtree(work, ignore_errors=True)
+            wc = would_corrupt(forms)
+            guard["would_corrupt" if wc else "no_shift_needed"] += 1
+
+            # Leg 1 — 4-op shift correctness (identical method to the committed dev-tier run)
+            for op, axis, at in OPS:
+                xf = xlq_edit(p, sheet, op, at, work)
+                if xf is None:
+                    tally[op]["refused"] += 1
+                    continue
+                tally[op]["applied"] += 1
+                xout = formulas_of(xf)
+                for (col, row), f in forms.items():
+                    exp = ref_shift(f, axis, op, at, 1)
+                    if exp is None:
+                        tally[op]["skipped_out_of_grammar"] += 1
+                        continue
+                    np_ = new_pos(col, row, axis, op, at, 1)
+                    if np_ is None:
+                        continue
+                    got = xout.get(np_)
+                    if got is None:
+                        continue
+                    if norm(got) != norm(exp):
+                        tally[op]["xlq_MISMATCH"] += 1
+                        if len(mismatch_log) < 10:
+                            mismatch_log.append({"file": os.path.basename(p), "op": op,
+                                                 "cell": f"{col}{row}", "orig": f,
+                                                 "expected": exp, "xlq": got})
+                    else:
+                        tally[op]["xlq_match"] += 1
+                    tally[op]["opx_unshifted" if norm(f) != norm(exp) else "opx_ok"] += 1
+
+            # Leg 3a — certify xlq's own transform (insert-rows@2 leg)
+            xf2 = xlq_edit(p, sheet, "insert-rows", 2, work)
+            if xf2 is not None:
+                v = certify(p, xf2, sheet)
+                guard[f"own_{v}"] += 1
+            # Leg 3b — certify openpyxl's edit
+            try:
+                of = opx_edit(p, work)
+                v = certify(p, of, sheet)
+                guard[f"opx_{v}"] += 1
+                if wc and v == "CERTIFIED":
+                    guard["FALSE_CERT_on_would_corrupt"] += 1
+                    if len(falsecert_log) < 10:
+                        falsecert_log.append(os.path.basename(p))
+            except FileTimeout:
+                raise
+            except Exception:
+                guard["opx_edit_failed"] += 1
+        except FileTimeout:
+            guard["file_timeout"] += 1
+            print(f"  TIMEOUT (skipped, counted): {os.path.basename(p)}", flush=True)
+        finally:
+            signal.alarm(0)
+            shutil.rmtree(work, ignore_errors=True)
         if (i + 1) % 50 == 0:
             print(f"  ...{i+1}/{len(files)}", flush=True)
 
