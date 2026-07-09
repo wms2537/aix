@@ -322,9 +322,15 @@ soundness — a high certify rate on faithful edits — requires the complete pa
 
 On 172 real workbooks, insert-row@2, with LibreOffice (independent of both `openpyxl`
 and the tool's engine) recomputing each edit against Excel's cache: the naive
-`openpyxl` edit path **silently corrupts 86.6%** of workbooks (149/172), while the
-tool's structural edit is engine-confirmed faithful on 150/172 and explicitly refuses
-the remaining 22 — **0 silent corruptions** (`agent_ab`). We extend this across **all
+`openpyxl` edit path silently corrupts 149/172 workbooks *as originally measured* —
+of which **147/172 = 85.5% is confirmed-genuine reference corruption** after our own
+coincidence-bound study (§5.8) surfaced two label mislabels (files whose formulas
+carry *zero references of any kind*, where the flagged divergence is LibreOffice
+recomputing `ACCRINT` differently from Excel's cache, not corruption; three further
+files carry only non-A1 reference classes where corruption is plausible but not
+attributable by this oracle). The tool's structural edit is engine-confirmed faithful
+on 150/172 and explicitly refuses the remaining 22 — **0 silent corruptions**
+(`agent_ab`). We extend this across **all
 four structural ops and both independent engines** on generated distinct-value
 workbooks (`agent_ab_v2.py`): the naive path silently corrupts insert-rows 100% /
 delete-rows 98.8% / insert-cols 94.3% / delete-cols 80.2% (**93.8% overall**), the tool
@@ -444,6 +450,61 @@ Honest scope: model-level granularity (the cone is whole models, not columns); a
 mini-dbt subset (single-argument `ref`/`source`; no macros); and fail-closed
 normalization — a comment-only reformat is refused, never wrongly certified.
 
+## 5.7 The interventional study: live agents, guarded vs unguarded, with cost
+
+Finally, the experiment every earlier version of this work lacked: **live agents'
+own errors**, caught by the direct-premise checker, with completion cost measured.
+Design, with the independence structure stated: 21 real-workbook tasks (196 formula
+cells; task prep excludes constructs the guard cannot see, so measured cost
+*understates* real-world refusal cost — stated, not hidden); the agent's artifact is
+built via `openpyxl` plus surgical formula splicing with the reference tool nowhere
+in it; ground truth is the two-engine-validated reference shifter (cells outside its
+grammar are excluded and counted, never guessed); the guard is the direct-premise
+checker of §4.i; and two live agent conditions (a careful and a hasty prompt, same
+fast model) make the error distribution the agent's own rather than injected. The
+harness was first validated on synthetic perfect/sloppy agents (perfect: zero
+corruption in both arms; sloppy: all seven injected corruptions blocked).
+
+Results: the careful agent erred on 2/21 tasks, the hasty agent on 4/21. Unguarded,
+all six erroneous artifacts ship as silent corruption. Guarded, **zero ship — all six
+are refused (save rate 1.0), with zero false certifications and zero unambiguous
+completion cost** (the guarded arm's two refusals of "correct" hasty work are on
+truth-partial tasks whose unverifiable cells may themselves be wrong — possible
+hidden saves, split-reported). Two findings deserve emphasis. First, the live error
+distribution *naturally* contained the adversarial classes our earlier synthetic
+corruptors were criticized for omitting: partial shifts (`F.INV(F2,B3,C3)` — two
+references shifted, one missed), a protocol misread (formulas returned under
+already-shifted addresses), and dropped cells. Second, one careful-agent error was a
+**semantics-changing edit with correctly shifted references** — `TEXTSPLIT(A26,,"")`
+rewritten as `TEXTSPLIT(A27,"")`, silently turning a row-delimiter argument into a
+column-delimiter — and the graph check caught it because the function *skeleton*
+changed even though every reference moved correctly: precisely the class a
+value-spot-check or a reference-only linter would miss.
+
+## 5.8 The probabilistic tier, quantified: the coincidence bound
+
+Everything outside the certifiable class routes to probabilistic checking against the
+self-oracle — and until now "probabilistic" was unquantified. We derive the
+**coincidence bound**: the probability that a *wrong* edit passes a k-cell value
+check because the misread cells coincidentally carry colliding values. The naive
+independent bound `q^k` is badly optimistic: on the real corpus the honest,
+dependence-aware mixture bound (within-file value repetition dominates) is **30×**
+higher at k=5 and **~2×10⁴×** at k=10, and tracks a Monte-Carlo simulation on real
+formulas within ~25% at every k. Measured on 230 real first sheets under Excel read
+semantics, the off-by-one-row collision rate — exactly the naive edit path's error —
+is q̂ = 0.178 pooled (file median 0.125, p90 0.40; spreadsheets are full of repeated
+values). Detection therefore needs **k = 5 checked cells for 99% and k = 9 for
+99.9%** against *systemic* errors — double the naive prescription. Against
+*localized* errors the tier is coverage-bound, not collision-bound: a single
+mis-routed reference corrupts one cell plus its cone, so a k-of-N sampled check
+detects it with probability at most k/N regardless of q. And the hard limit,
+engine-verified: **of 161 workbooks where the naive path's error is genuinely
+present, 19 (11.8%; conservatively 12 = 7.5%) pass a full k = N value check** —
+LibreOffice recomputes identical values on a *wrong reference graph* (aggregates,
+`MIN`/`MAX`, `MODE`-class functions absorb the misread). This is the quantified case
+for the exact tier: value checking, even exhaustive, cannot close the gap that the
+graph check closes by construction.
+
 # 6. On finding our own defects
 
 Successive adversarial reviews of these artifacts each landed a real hole: the
@@ -460,6 +521,10 @@ the same pattern — a foreign edit that reverts a `mergeCell`/`hyperlink`/`auto
 reference, which the transform shifts but the cell diff never compared, was certified —
 so we extended the net to those semantic structural references and reframed the boundary
 as an explicitly *enumerated denylist* whose completeness we do not claim to have proven.
+Most recently, the coincidence-bound study (§5.8) surfaced label noise in our own
+headline A/B: two "corrupted" files carry zero references of any kind, so their flagged
+divergence is engine disagreement, not corruption — we corrected the headline from
+86.6% to 85.5% confirmed-genuine and record the mislabel here.
 We report each as a fixed defect. This is part of the contribution: a certify-or-refuse
 claim is only credible if its authors have tried hardest to break it — the record of
 what broke, and what the fix was, is the evidence that the remaining boundary is real,
