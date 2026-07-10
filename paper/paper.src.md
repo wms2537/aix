@@ -35,10 +35,10 @@ three real defects — one by a locked test, two by the adversarial reviews and 
 verified-reference differential built for this paper — every one in the layer the
 theory declares trusted-not-proven, and every one since fixed; two earlier false
 certifications, found and closed by our own reviews, are likewise on the record
-(§6). A 121-claim harness re-verifies
-the paper's headline numbers against their committed artifacts and gates every
-build; the manuscript's numeric content is generated from those artifacts, not
-hand-written.
+(§6). An independent claims harness
+re-verifies the paper's headline numbers against their committed artifacts and
+gates every build; the manuscript's numeric content is generated from those
+artifacts, not hand-written.
 
 ## 1. Introduction
 
