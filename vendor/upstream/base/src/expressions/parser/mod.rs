@@ -276,7 +276,18 @@ pub struct Parser<'a> {
     /// function/name completion even when the surrounding parse succeeds (`SU`,
     /// `A1+F`) or fails for an unrelated reason (`IF(VLOOK`). See that method.
     trailing_name: Option<(String, usize)>,
+    /// Recursion depth of the descent (every nesting construct re-enters via
+    /// `parse_expr`). Bounded by `MAX_PARSE_DEPTH` so a pathologically nested
+    /// formula (e.g. `=((((…))))`) returns a parse error instead of overflowing
+    /// the stack and aborting the process — a malformed .xlsx is untrusted input.
+    depth: usize,
 }
+
+/// Maximum descent depth. Real spreadsheet formulas nest far below this (Excel's
+/// own function-nesting limit is 64); the process stack overflows around ~2200,
+/// so this leaves an order of magnitude of headroom while staying well clear of
+/// the abort. Local hardening on the vendored engine (see crate provenance).
+const MAX_PARSE_DEPTH: usize = 256;
 
 pub fn new_parser_english<'a>(
     worksheets: Vec<String>,
@@ -312,6 +323,7 @@ impl<'a> Parser<'a> {
             language,
             expecting_here: vec![ExpectedTokens::Other],
             trailing_name: None,
+            depth: 0,
         }
     }
     pub fn set_lexer_mode(&mut self, mode: lexer::LexerMode) {
@@ -343,6 +355,7 @@ impl<'a> Parser<'a> {
         // At the top level a formula may start with an expression or a range.
         self.expecting_here = vec![ExpectedTokens::Range, ExpectedTokens::Other];
         self.trailing_name = None;
+        self.depth = 0;
         self.parse_expr()
     }
 
@@ -441,6 +454,25 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> Node {
+        // Depth guard: every nested construct (parens, function args, array
+        // literals) re-enters here. Past the bound, refuse with a parse error
+        // rather than recurse into a stack overflow / process abort.
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            self.depth -= 1;
+            return Node::ParseErrorKind {
+                formula: self.lexer.get_formula(),
+                message: "Formula nesting too deep".to_string(),
+                position: self.lexer.get_position() as usize,
+                expecting: vec![ExpectedTokens::Other],
+            };
+        }
+        let out = self.parse_expr_inner();
+        self.depth -= 1;
+        out
+    }
+
+    fn parse_expr_inner(&mut self) -> Node {
         let mut t = self.parse_concat();
         if let Node::ParseErrorKind { .. } = t {
             return t;
