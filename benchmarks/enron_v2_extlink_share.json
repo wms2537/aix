@@ -4,5 +4,625 @@
   "share": 0.7767,
   "with_charts": 31,
   "with_pivots": 13,
-  "extlink_sole": 66
+  "extlink_sole": 66,
+  "per_file": [
+    {
+      "file": "native_000%2F3.1134179.MLSU3LWLEFU5JXCUKKZVV2M1UMCSKVWGA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.1167583.ACFI3NKNPMA0WSE44U2UDZYOE4QMYMJJB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.1174143.AFZ51FXYUGX5JTMEY2NZ3XEPSPZ3ZHRZA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.1175220.OTMSZXA3D5SGXY0SF5SMJN5J2J0GQWKLA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.1176996.JQIPIO4U0YCIU1DZMQVBNFZIVANCW1OWA.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.1177129.DYF44VJVQ4XIRTN2TP3DK3DYJV0XXERVB.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.1177135.JE4ZFMPRVXYQI41QRA2MB2EOK1UV0V02B.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.1190446.NQK5GIEASJU2D3TRIWOUBZDNKPU5FESNA.7.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.1207977.LRBSCVAODFQ5UPBEZPKHD4WKGJ3NAEINA.7.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.1226661.GDXQU1SSOOQNHIC35132S0MBATUHFSJ0A.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.125468.MD0P2LCPU0PD4PACPWSSEVJXAADGNF3CA.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.145306.KTPIU5ELMTXBC1DGFGE0AXQD5YXOY2WQB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.147432.DDWRHGRINCEYLQIN4VAG55AYYDVVZR3LB.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.153761.KZIOV24CXFBBUQES4D1TKFFAOETMUMHUA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.190226.DWVWXQR4SEWPOUVZTBLEET34PRJJCYJ0A.1.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.190490.OKKMA3DDNYZIAFETOWNQB3VZQMWJKFLCA.1.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.191859.AKVN5NHJCTJ5QCXEPFPFU2QKQABUYISMA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.192534.LHR2154LPXRZW1HO3M53BM1WZVTH4SWFB.2.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.193479.MNTTICWEW2O5HC3DWMCPJYVVBVDM14JAB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.195484.CCWSE2XJPRHIYVR14VEMVTZSIHCJCQX1A.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.195966.K2TP5MS0JLNLOOWVR4AONRFIGTBEBC3PB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.196096.P3RM0XVZSFAIREZ3SWWBW4P4155CMHMHB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.215283.N0HLWUFK43BGN4A4VOA4JCDJ3QOPVLBZA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.215518.CNDW3U4EZKGMUAQULTDOJJ2URSPIM1PCB.2.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.217401.D52NXLJ1NSTILLVFI5UKRTMLCE4HFDH1A.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.217692.FO2VT13KUKNCMS433XTIJE1QMSYOEAC0B.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.253493.KDJ5U1LFLANM25ORPZKXIYSZ3CEPTCOBB.1.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.253763.ABKQYEOBDSF0XCI0FCWH200T3QQHORHHB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.253764.K1LVPEOVSC2IMHSHTHPB4QVXG1ODYLBHA.1.xlsx",
+      "extlink": false,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.253834.LTTVJGEAJKPMCYGMB3B0D14VFZ5NY5FQA.9.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.255663.OS3BU2S3YZ2GIFU0UXDEDZB4MA04MBF4A.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.258201.K4HLCA1I1RWKFAMGJRCGN0HPWQ3IKPILA.3.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.258203.KVDETCOH2MEA3XATJYS1DU0LLUZMJADVB.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.258206.I0W1U0BC1PD4PQCMKG04TGNYOCC2ZFYVB.3.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.258300.NJSKI4EPD2KFX4OHP1F4GG0ZGMZ0ZABWB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.258507.KN1TSNVRMIW1QE5EGAZLNBZJX22QZ5JSB.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.258642.CFDXNZFIBW531OAMOOZJHL4Q1NHWWXLDB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.258738.J2Z5H5SKO0XTJ53PE4TJUTIY25BXWNDYB.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.258823.P1JDZJVKUI2D0BCNKCK2ER0NKZK2A1QYA.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.258907.GNUEDWYDHSCPVFCRDCIHJGCFWDRDZQCGB.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.259053.IIYN25SUU34AZUSXP1QOGIGUB0T3MVELA.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.259435.DMAHPDK3XG3DRUCOS4M4MYXV5ION1SBOB.3.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.259443.A5FXQMH1YMTXSB2FCDKSHZJP1S1VCWKRB.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.260444.AYXA3GT3VV1MEWVLI0MGDIAB4RKS3EHUA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.261961.OEC2GGXGRVKT2HMOJKL5PLQ10VVOY03FB.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.273845.CUZJU02DN2OVW0SENDN1LQHPXCVZKSXFA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.274505.BUIRFUTKB1X4S0HQTRGLYULO0KCF3ELWA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.274505.BUIRFUTKB1X4S0HQTRGLYULO0KCF3ELWA.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.286024.KSRQQV15SLPGY3YOPIEOBDMLZXHQNAJHA.1.xlsx",
+      "extlink": false,
+      "chart": false,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.286615.JD4COLJHRBXZ1HJG3OIYHC33XMZRI0VSB.1.xlsx",
+      "extlink": false,
+      "chart": false,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.289744.DSGBUY4YNTQEBDFAZLGVSNL4DVH5YDCEB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.303398.POUML0WW5OOPVENIF4YISQVF4Z0L5ENKB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.303398.POUML0WW5OOPVENIF4YISQVF4Z0L5ENKB.3.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.303398.POUML0WW5OOPVENIF4YISQVF4Z0L5ENKB.5.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.303604.OFVHPDQML30NQDLZQJ4VI45RHTZNJICOA.1.xlsx",
+      "extlink": false,
+      "chart": false,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.307312.HTU3BOOQDLIWTAXJU3QG15LD03LMMRKWA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.319766.JOEVXTU5FRIMDZVJ1PBBZ1JT1LS5E0VEB.3.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.32560.NBOEJNNDFYJ2SCHUX3TYUUN4UIERKBKIB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.32906.PQEEOL4Q4JJ2AEC5I11DGYZBY040HJKXB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.344.AO5XQ0DRMV1YF1EGFS0XY2RH2FFTNI0XB.3.xlsx",
+      "extlink": false,
+      "chart": false,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.34720.CVIHRB2H1DCD4KGWTMYJOHI0PTWLWBTUA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.34752.LFZLMY5QPDLEGSEODXV3X2F5GYIHRBSQB.3.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.409991.NBUKGJC1UKCEODHAZXNXLYM1L0IGHCESA.1.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.413107.FVPEDYVZQULHUIBDQ43BY1OFJFB5ILZFA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.413981.LGQPBCTL3BHE1YXVDNBT4ECRTPBD20LUB.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.414009.KCNCM3A0KANOOVYPH2H024R4DQ5GA3O1A.3.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.418106.JH0BLMHOCCMVTSGVGNGUKLRPW0C4LDYNA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.418121.CLQ5NQHLQR2YLVOHKIVJABEH10L5R2GMB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.418351.PFOLNJWDYTH4BDTM5ZGDZAL43E0AZB2GB.2.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.418356.CTZJILWKOVC004DYI1SXA5QJKSBB2DFRB.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.418369.C04ABQAJZ5ZJMABWJSUJGIH22QT2Q1EVB.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.419534.E5R4NZ3I1JLOLFFSJYVQ4YBG04MJOH3VB.2.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.422041.JVMYU04DC0SWVIJUINQPBM0FTYUHE3GRA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.422252.GBMV1T4VQXTMT2AJL24XEMLBZXABUMH1B.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.422705.AMF3DNZ4IP3TLKWASDXRBCKASXN2MIYTB.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.424441.BKSMMBPJGOWXUIMHSKD4BMKHSJSEC3BRA.3.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.424457.FUMTTZ5PH3YYU0PSHH5IIVMC4H2E1AVTB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.424605.LNEJ4RCHMZIDIPUTM125GLJU0VC1AOI4A.2.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.425428.DQBGDQGRMS2URWFHQLTNX0ZKTO3QHF0SA.2.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.428491.JY2PEADJLXVG424C54IQYU0MEQ4UYXLKB.3.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.437964.KGCHESP2HNQZTHTJW5U5YRWHASXLXXFQA.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.438060.GILPIEWOECTEGBZ0PBAI4ZOK3GW2MTA3B.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.439566.G4EF3TQJJU13ZVNXOUVLEWOXOO2E2EQAB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.440157.F15L3OLC44LZPKZ2UG14ZB5KYCILFSNOB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.451321.CHBKXJJU11DDEWXFWQH1NQ4I4AQ4G3DEB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.470389.FUIJUUAKBTLCOZQCINFO4J2GEU2TMY01A.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.470712.AIU1IHHWTHAVNKGIEXZKEAUCUMKNCLIUA.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.473646.LIJVOHDVEHUHUYYQEY5PK0BHS2ODTBUBB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.475489.CAHMEBD1ZWZIRYXTKUL1VGGOBTIRIIC1B.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.476872.O2Q2OBZNQREK4AKPXOJYKS1YN0PHOQJZA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.479109.OKO2T0MXZBSOE52N3E30AN43DVKJF2NKB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.484273.H2DKH3VSLPVMFGPKEAIITOYOLF0R2MVUB.2.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.484274.M5VZDXGRK02TEUY1EEIVLLAUAAFBXN2UB.2.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.490807.F0KHGHMGJNDCCWJ4HR2PGHNUCLIDLW4VA.3.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.508513.MDE13JVDFYIL44ZZGO2VLNFGZT1AGNTTA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.51207.K5B00MKLS3YVBFA1BYGIM5GAOYPXXM05A.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.51344.NXOTH0V3DVL2YR53IMFYD3QU2UY4WDRXA.1.xlsx",
+      "extlink": false,
+      "chart": true,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.543026.IEALPPYAHKZX2PQMRRZQAE4E2JN3WQRUA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.543448.FBFAUVPLSADEC1EY2JKHBTFXZCFCNRPLA.3.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.54710.AB3JQV32WYN4VEXC5BXFOPP20H10VPPPA.1.xlsx",
+      "extlink": true,
+      "chart": true,
+      "pivot": true
+    },
+    {
+      "file": "native_000%2F3.548107.JYYLDXVOLN2FYCUUM0T4TODQZZ31OOQQB.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.554335.CP303R4YR1FRY4VZXUDV1SZXYB4VKY2DA.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    },
+    {
+      "file": "native_000%2F3.555249.ITQMFKSIKWDVALZBHYJ125Y0DKTFUOX3A.1.xlsx",
+      "extlink": true,
+      "chart": false,
+      "pivot": false
+    }
+  ]
 }

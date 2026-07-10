@@ -1,0 +1,51 @@
+{
+  "note": "Findings of the PRE-FIX full-corpus tokenizer differential (its JSON was overwritten by the post-fix rerun; stats and the 3 findings preserved here verbatim from the run output, also quoted in commit 'fix: range-head defect...').",
+  "stats_prefix_run": {
+    "requests": 1810796,
+    "in_surface_agree": 901943,
+    "in_surface_DISAGREE": 3,
+    "guard_agree_refuse": 8392,
+    "guard_DISAGREE": 0,
+    "oos_ascii_qualified": 818640,
+    "excluded_delete_range": 79084,
+    "oos_wholecolrow": 2734
+  },
+  "findings": [
+    {
+      "class": "surface",
+      "formula": "SUM(A2:CHOOSE(3,A3,A4,A5))",
+      "edit": [
+        "row",
+        "insert",
+        "2",
+        "1"
+      ],
+      "lean": "SUM(A3:CHOOSE(3,A4,A5,A6))",
+      "rust": "SUM(A2:CHOOSE(3,A4,A5,A6))"
+    },
+    {
+      "class": "surface",
+      "formula": "SUM(A9:CHOOSE(2,A10,A11,A12))",
+      "edit": [
+        "row",
+        "insert",
+        "2",
+        "1"
+      ],
+      "lean": "SUM(A10:CHOOSE(2,A11,A12,A13))",
+      "rust": "SUM(A9:CHOOSE(2,A11,A12,A13))"
+    },
+    {
+      "class": "surface",
+      "formula": "SUM(B1:OFFSET(B1,3,0))",
+      "edit": [
+        "col",
+        "insert",
+        "2",
+        "1"
+      ],
+      "lean": "SUM(C1:OFFSET(C1,3,0))",
+      "rust": "SUM(B1:OFFSET(C1,3,0))"
+    }
+  ]
+}

@@ -4,7 +4,7 @@
     "D4": "CHOOSE(2, A5, A6, A7, A8)",
     "D5": "CHOOSE(4, B5, B6, B7, B8)",
     "D6": "CHOOSE(3,\"Wide\",115,\"world\",8)",
-    "B10": "SUM(A9:CHOOSE(2,A11,A12,A13))",
+    "B10": "SUM(A10:CHOOSE(2,A11,A12,A13))",
     "B11": "SUM(CHOOSE(2,A10:A11,A10:A12,A10:A13))",
     "C11": "SUM(CHOOSE(2,A11:A12,A11:A13,A11:A14))",
     "B16": "CHOOSE(-1, A5)",

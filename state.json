@@ -132,8 +132,8 @@
       "id": "T013",
       "phase": "6",
       "desc": "Granted clean adversarial panel over final integrated paper",
-      "status": "in_progress",
-      "evidence": null,
+      "status": "done",
+      "evidence": "clean panel: 4x SOUND_WITH_SCOPE, chair A conditional-accept -> A+ on fix completion; ALL gating fixes applied (provenance restated w/ 164/500 overlap + Enron promoted, EUSES cap disclosed, claim-3 surface accounting, 5->4 like-for-like smoke rerun, 3x stale 'stated open', dbt denominators, \u00a77 contradiction, arithmetic+units, theorem scoping clauses, 2nd deviation disclosed w/ 6-formula breakout, auditability commits, repro 118/0)",
       "parent": null
     }
   ],

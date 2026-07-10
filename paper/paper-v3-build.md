@@ -29,8 +29,8 @@ two engines that are pointwise indistinguishable through the original artifact y
 disagree on the edited value, so *no* engine-free checker can certify it. Certify-or-
 refuse is therefore not a design choice but the only sound shape, and our checker's
 accept class is exactly the *proven-certifiable* relabeling class — every accept is
-certifiable; whether the certifiable class extends further (edits reusing witnessed
-semantics) is stated open. A companion locality theorem factors
+certifiable; the certifiable class provably extends to witnessed copy edits
+(Theorem 6), with a fuel-graded residual between the two sides stated plainly. A companion locality theorem factors
 mixed edits into a certified structural scaffold plus a bounded value-fill audit cone.
 The theory is load-bearing in the running system: the deployed checker agrees with
 the Lean decision procedure on a randomized battery, the trusted byte→token layer
@@ -99,10 +99,17 @@ Our claims, in order of strength:
    in translation-validation mode; and — where all three real defects lived — a
    **verified reference tokenizer** for the trusted byte→token layer (losslessness,
    opacity, σ-image; Theorem 7) differentially enforced against the production
-   tokenizer at corpus scale (1.81M comparisons, zero disagreements on the model
-   surface), with fail-closed boundaries for everything outside it (§4).
+   tokenizer at corpus scale (1,810,796 comparisons: 50.3% on the model surface —
+   901,946 in-surface + 8,392 guard agreements, zero disagreements; the remainder
+   counted and classified: 45.2% ASCII-sheet-qualified formulas, which production
+   shifts as DISCLOSED-UNVERIFIED surface outside the model, plus whole-column/row
+   and delete-clamp classes), with fail-closed refusal for the classes the
+   production tokenizer cannot parse (§4).
 4. **(Generality + corroboration, reported with confounds.)** The same
-   format-parametric core certifies dbt model refactors engine-free (§5.6); an
+   format-parametric core certifies dbt model refactors engine-free on
+   adapter-covered subgraphs (§5.6) — coverage that reached 40% on one production
+   project and 0–14% on two macro-heavy ones, a non-transfer we report plainly
+   (§5.10); an
    engine-free foreign-edit battery, an independent-oracle A/B, and a
    diverse-corruptor confusion matrix support the theory on real artifacts, each
    reported with its limitation, not as independent proof (§5).
@@ -240,12 +247,18 @@ remaining class — edits that *reuse* witnessed skeletons at new positions
 **argument-value witnessing criterion with machine-checked theorems on both sides**.
 `copy_value_forced` (axiom-free): a copied node with the same skeleton and equal
 argument values as a witnessed application takes the same value under *every* engine;
-`copy_certifiable` gives the engine-free checkable premise — scaffold checked by
-Theorem 4's `check`, dependency **oracle values** pointwise equal to the witnessed
-application's — forcing the copied value to that application's cached output. And
+`copy_certifiable` gives the engine-free checkable premise — a scaffold-transport
+hypothesis whose shape is exactly `check_sound`'s conclusion (the composition is
+stated on paper; the two developments are self-contained files, so the glue is not
+itself a Lean object), plus dependency **oracle values** pointwise equal to the
+witnessed application's — forcing the copied value to that application's cached
+output under the standing cache-realization assumption. And
 `copy_unwitnessed_uncertifiable`: an argument tuple unwitnessed at every fuel up to
 the oracle fuel admits an engine override, pointwise indistinguishable through the
-original, that refutes any committed value — unwitnessed copies must be refused.
+original, that refutes any committed value — *given the copied node's own inputs are
+pinned* (they evaluate to the same tuple under the overridden engine, e.g. as
+transported oracle values; the `hargs` hypothesis) — so unwitnessed copies must be
+refused.
 Honest residual, stated: the criterion is fuel-graded (a tuple witnessed only below
 the oracle fuel falls between the two theorems).
 
@@ -256,17 +269,22 @@ the machine-checked core**, at the byte level: **T1 losslessness** (`render ∘
 tokenize = id` — the tokenizer never invents, drops, or rewrites a byte, making the
 double-encoding defect class impossible by construction), **T2 opacity** (the shift
 rewrites only reference segments — precisely the property the mojibake defect
-violated), and **T3 σ-image** (the reference list of the shifted segments is the
-σ-image of the input's — the invariance theorem's premise discharged from bytes).
+violated), and **T3 σ-image**, proved for **total** relabelings (the insert-class σ; the
+partial delete/`#REF!` path has no σ-image theorem and remains Z3-plus-differential
+territory): the reference list of the shifted segments is the σ-image of the
+input's — the invariance theorem's premise discharged from bytes at segment level.
 The model refuses all sheet-qualified formulas by construction, so the
 qualifier-defect class cannot mis-tokenize. The remaining trusted link — *the
 production Rust tokenizer implements this reference on the model surface* — is
-discharged empirically: a corpus-scale differential (452,384 unique real formulas ×
-four edits = **1,810,796 comparisons**) between the executable Lean reference and the
-production tokenizer agrees **901,946 / 901,946 in-surface and 8,392 / 8,392 on
-guard refusals — zero disagreements** — after itself finding a third real production
-defect (§6). Out-of-model surface (ASCII-qualified formulas, whole-column/row refs,
-the delete clamp on ranges) is counted and disclosed, not compared.
+discharged empirically: a corpus-scale differential (452,384 unique real corpus
+formulas + 315 synthetic battery formulas, × four edits = **1,810,796 comparisons**)
+between the executable Lean reference and the production tokenizer agrees
+**901,946 / 901,946 in-surface and 8,392 / 8,392 on guard refusals — zero
+disagreements**, after itself finding a third real production defect (§6). The
+compared surface is 50.3% of all comparisons; the remainder is counted and
+classified, not compared: 818,640 (45.2%) ASCII-sheet-qualified formulas — which
+production shifts, an *unverified-by-this-model* surface we disclose rather than
+claim — plus 79,084 delete-clamp range cases and 2,734 whole-column/row references.
 
 # 4. The certify-or-refuse router and its trusted base
 
@@ -660,45 +678,71 @@ theory declared unproven.*
 ## 5.10 Locked test v2: full corpora, five ops, the fixed system
 
 A second pre-registered, run-once test (10 predictions committed before acquisition)
-closed v1's scope limits: the **full EUSES corpus** (4,648 converted workbooks across
-all 11 categories), a **seeded-random Enron sample** (replacing v1's lexicographic
-prefix), all **five** structural ops, a cross-sheet-capable truth grammar, the
-measurement artifacts v1's post-hoc analysis attributed (both eliminated exactly as
-predicted — the error class went to zero), and the system under test at the
-thrice-fixed binary. One disclosed protocol deviation: the third fix (the range-head
-defect, found by the verified-reference differential on development-tier data) landed
-*after* the pre-registration commit but *before* the run and before any v2 data was
-contacted — the freeze-wording was violated by one dev-tier-verified fix, which
-cannot manufacture agreement against the independent truth grammar but is reported as
-the deviation it is. Scored: **5 confirm / 3 disconfirm / 2 partial.**
+widened v1's scope: EUSES converted in full (4,648 workbooks, 11 categories) with the
+shift/guard legs running on the pre-registered **first-500-eligible cap** — which in
+sorted order spans **four** categories (cs101 9, database 245, filby 38, financial
+208; only the value-collision leg used the full 4,432-file corpus) — plus a
+**seeded-random Enron sample** (replacing v1's lexicographic prefix), all **five**
+structural ops, a cross-sheet-capable truth grammar, the measurement artifacts v1's
+post-hoc analysis attributed (both eliminated exactly as predicted — the error class
+went to zero), and the system under test at the thrice-fixed binary.
 
-- **Shift correctness: 1,006,997 real formula cells, five ops, zero mismatches**
-  (EUSES 316,746; Enron 690,251) — the widened grammar checked ~4× more cells per
-  corpus than v1, and the new fail-closed guard refused three real
-  non-ASCII-qualifier files in the wild.
-- **Zero false certifications on 852 fresh foreign edits** — the central claim's
-  third independent confirmation.
-- **The probabilistic tier collapses in the tail**: the random Enron sample contains
-  near-check-blind files; 99.9% detection requires **k = 237** checked cells
-  (EUSES-full: 18). Sampling-based value checking cannot certify real business data
-  at high confidence — the exact tier is a necessity, not an optimization.
+Two disclosed protocol deviations. *(i)* The third fix (the range-head defect) landed
+after the pre-registration commit but before the run; we originally described its
+discovery as development-tier only — **that was wrong**: the differential's formula
+corpus included the v1 locked corpora, and 164 of the 500 EUSES shift-leg files are
+byte-identical v1 copies. The **Enron leg shares no files with the fix's discovery
+corpus sample and is the uncontaminated headline** (690,251 cell-checks, zero
+mismatches); the fix also cannot manufacture agreement against the independent,
+engine-validated truth grammar — but the provenance is reported as it is. *(ii)* The
+pre-registration said function-endpoint ranges "stay out-of-grammar"; the shipped v2
+grammar admits them with semantics written to match production's fixed behavior — an
+unregistered, anti-conservative widening whose truth semantics are co-constructed
+with the code under test, breaking independence on exactly that class (6 of 452,384
+corpus formulas); the class's correctness rests on Excel semantics + the Lean
+reference, not on the independent shifter, and we disclose it as such. Scored: **5 confirm / 3 disconfirm / 2
+partial.**
+
+- **Shift correctness: 1,006,997 cell-checks across five ops, zero mismatches**
+  (EUSES 316,746; Enron 690,251; a cell checked under several ops counts once per
+  op — distinct physical cells ≤ ~227,879). Checked volume grew 4.0× on Enron
+  (identical files, so the growth is the widened grammar + fifth op) and 2.8× on
+  EUSES (confounded with 3.1× more files). The new fail-closed guard refused three
+  real non-ASCII-qualifier files in the wild.
+- **Zero false certifications on 852 further foreign edits** (496 EUSES + 356
+  Enron; ~164 EUSES files repeat v1's deterministic edit byte-identically, the
+  rest are fresh) — with v1, 1,370 foreign-edit calls have produced no false
+  certification (fail-closed errors and timeouts counted separately and disclosed
+  per leg).
+- **The probabilistic tier collapses in the tail**: the random Enron sample
+  contains near-check-blind files (2 of 761 drive the tail); 99.9% detection
+  requires **k = 237** checked cells there (EUSES corpus: 18). Together with the
+  dev-tier full-check blind-spot floor (§5.8), this grounds the claim that
+  sampling-based value checking cannot certify real business data at high
+  confidence — on these corpora the exact tier is a necessity, not an
+  optimization.
 - **The fail-closed cost is structural and levered**: 21.2% (EUSES-full) and 34.3%
   (Enron-random) — both *above* our artifact-corrected predictions (disconfirmed:
   the fuller samples simply carry more denylist parts), with **externalLinks the
-  sole cause of 64% of Enron's denylist refusals** — verifying that one part class
-  would roughly halve the cost. Prevalence on EUSES-full: 94.6%, *above* v1's
-  database-category 69.3% (our "lower" prediction disconfirmed — the full corpus is
+  sole cause of 64% of Enron's denylist refusals** (zip-grounded attribution,
+  generator committed) — verifying that one part class would roughly halve the
+  cost. Prevalence on the EUSES cap sample: 94.6%, *above* v1's database-category
+  69.3% (our "lower" prediction disconfirmed — the cap's database+financial mix is
   richer in formulas, not poorer).
-- **Two-model agent study** (21 tasks × fast/mid tiers): the mid-tier model made the
-  study's one error — three corruption modes in a single file (unshifted references,
-  dropped `$` absolutes, and an *invented* function argument) — refused by the
-  guard; zero false certifications; and **refusals of correct work fell from v1's 5
-  to 0**, a measured cost reduction caused directly by the range-head fix the
-  verified-tokenizer differential found. The pre-registered "mid-tier errs less"
-  prediction was disconfirmed (1 vs 0 — counts at trivial error rates).
-- **dbt does not transfer**: two further production projects (7,419- and 619-model)
-  yield 0.0% and 13.7% adapter coverage — every spellbook model opens with a
-  `{{ config() }}` macro the fail-closed adapter treats as dynamic. The Mattermost
+- **Two-model agent study** (21 tasks — the corpus's honest ceiling — × fast/mid
+  tiers): the mid-tier model made the study's one error — three corruption modes in
+  a single file (unshifted references, dropped `$` absolutes, and an *invented*
+  function argument) — refused by the guard; zero false certifications; refusals of
+  correct work were 0 in both live arms (v1 live: 0 careful, 2 hasty truth-partial).
+  A like-for-like measurement of the range-head fix's cost effect uses the
+  deterministic synthetic perfect-agent arm: its refusals fell **5 → 4** pre-fix to
+  post-fix — the fix eliminated exactly the one refusal class it addressed, no
+  more. The pre-registered "mid-tier errs less" prediction was disconfirmed (1 vs 0
+  — counts at trivial error rates).
+- **dbt does not transfer**: two further production projects yield 0.0% (the
+  2,484-model `daily_spellbook` subproject of the 7.5k-model spellbook repo — every
+  one of its models opens with a `{{ config() }}` macro the fail-closed adapter
+  treats as dynamic) and 13.7% (cal-itp, 619 models) adapter coverage. The Mattermost
   40% is not representative of macro-heavy production dbt; the format-parametric
   claim holds at the theory level, the current adapter subset does not, and we say
   so plainly (config-stripping, semantically inert for the dependency graph, is the
@@ -825,7 +869,8 @@ work over TV is twofold. First, the *direct-premise mode* (§4.i) does what TV d
 not: it decides the invariance theorem's hypothesis directly on the untrusted
 artifact, so its accept class is the entire *proven-certifiable* relabeling class
 (any producer's faithful relabeling, not only outputs identical to a canonical
-transform; whether certifiability extends past that class is stated open), and its
+transform; certifiability provably extends to witnessed copy edits — Theorem 6 —
+with a fuel-graded residual), and its
 soundness quantifies over **all** engines — TV assumes the semantics it validates
 against, whereas our setting's defining engine is opaque and absent. Second, TV has
 no analogue of our impossibility side: Theorem 5 shows the refusal half of
@@ -837,14 +882,16 @@ edit descriptor `σ` itself.
 # 9. Conclusion
 
 Verifiability, not capability, is the durable constraint on agent edits to
-opaque-semantics artifacts. We bracketed — machine-checked on both sides, middle ground stated open — what
+opaque-semantics artifacts. We bracketed — machine-checked on both sides, with the middle ground structured
+by argument-value witnessing (fuel-graded residual stated) — what
 can be certified about such edits without the engine: the relabeling class is
 certifiable, witnessed by an executable decision procedure proven sound under every
 possible engine; anything introducing unwitnessed semantics is not, so
 certify-or-refuse is the only sound shape. The theory is load-bearing in the running
 system — the deployed checker agrees with the Lean decider, the production gate covers
 five structural operations on real spreadsheets, and the same core certifies dbt
-refactors engine-free — and every measurement is reported with its confound. The
+refactors engine-free where its adapter reaches (a coverage boundary we measure and
+report) — and every measurement is reported with its confound. The
 result is an honest, genuinely-verified boundary over an explicitly-scoped surface:
 the boundary a capable agent should be *required* to pass, not a patch for a weak
 one — and one that does not decay as agents improve, because it is grounded in the

@@ -60,7 +60,8 @@ def pct1(x):
 # --------------------------------------------------------------------------
 # Each entry: (claim_id, paper_loc, claimed, artifact, fn)
 #   fn() -> (ok: bool, actual: str)
-CLAIMS = []
+CLAIMS = [
+]
 
 
 def claim(cid, loc, claimed, artifact):
@@ -735,6 +736,51 @@ def formal_results():
 # --------------------------------------------------------------------------
 # runner
 # --------------------------------------------------------------------------
+
+# ---- §5.10 locked test v2 + Theorem 7 (added after the clean panel round) ----
+EV2 = "benchmarks/inthewild_euses_v2.json"
+NV2 = "benchmarks/inthewild_enron_v2.json"
+QN2 = "benchmarks/coincidence_q_enron_v2.json"
+XLS = "benchmarks/enron_v2_extlink_share.json"
+TD = "formal/tokenizer_differential.json"
+DBS = "benchmarks/inthewild_dbt_spellbook.json"
+DBC = "benchmarks/inthewild_dbt_calitp.json"
+SPX = "benchmarks/agent_study/results_smoke_perfect_postfix.json"
+
+expect("v2-euses-cellchecks", "§5.10", "316,746 cell-checks", EV2,
+       lambda: sum(v["cells_checked"] for v in J(EV2)["leg1_shift_correctness"].values()), 316746)
+expect("v2-euses-mismatch", "§5.10", "0 mismatches", EV2,
+       lambda: sum(v["xlq_mismatch"] for v in J(EV2)["leg1_shift_correctness"].values()), 0)
+expect("v2-enron-cellchecks", "§5.10", "690,251 cell-checks", NV2,
+       lambda: sum(v["cells_checked"] for v in J(NV2)["leg1_shift_correctness"].values()), 690251)
+expect("v2-enron-mismatch", "§5.10", "0 mismatches", NV2,
+       lambda: sum(v["xlq_mismatch"] for v in J(NV2)["leg1_shift_correctness"].values()), 0)
+expect("v2-euses-cost-numerator", "§5.10 21.2%=106/500", "106 refused", EV2,
+       lambda: J(EV2)["leg3_guard"]["own_REFUSED"] + J(EV2)["leg3_guard"]["own_not_attempted_restructure_refused"], 106)
+expect("v2-enron-cost-numerator", "§5.10 34.3%=124/362", "124 refused", NV2,
+       lambda: J(NV2)["leg3_guard"]["own_REFUSED"] + J(NV2)["leg3_guard"]["own_not_attempted_restructure_refused"] + J(NV2)["leg3_guard"].get("file_timeout", 0), 124)
+expect("v2-falsecert-euses", "§5.10", "0 false certs", EV2,
+       lambda: J(EV2)["leg3_guard"].get("FALSE_CERT_on_would_corrupt", 0), 0)
+expect("v2-falsecert-enron", "§5.10", "0 false certs", NV2,
+       lambda: J(NV2)["leg3_guard"].get("FALSE_CERT_on_would_corrupt", 0), 0)
+expect("v2-k999-enron", "§5.10", "k999 = 237", QN2,
+       lambda: J(QN2)["models"]["M2v_offbyone_row"]["excel_semantics"]["detection"]["mixture_dependent"]["k_for_99.9pct"], 237)
+expect("v2-extlink-sole", "§5.10 64% sole-cause", "66/103", XLS,
+       lambda: (J(XLS)["extlink_sole"], J(XLS)["refused"]), (66, 103))
+expect("thm7-diff-agree", "§3 Thm 7", "901,946 in-surface agree", TD,
+       lambda: J(TD)["stats"]["in_surface_agree"], 901946)
+expect("thm7-diff-disagree", "§3 Thm 7", "0 disagreements", TD,
+       lambda: J(TD)["stats"]["in_surface_DISAGREE"] + J(TD)["stats"]["guard_DISAGREE"], 0)
+expect("thm7-requests", "§3 Thm 7 (452,384+315)x4", "1,810,796", TD,
+       lambda: J(TD)["requests"], 1810796)
+expect("v2-dbt-spellbook-coverage", "§5.10", "0/2484 covered", DBS,
+       lambda: (J(DBS)["coverage"]["covered_parse"], J(DBS)["coverage"]["total"]), (0, 2484))
+expect("v2-dbt-calitp-coverage", "§5.10", "13.7%", DBC,
+       lambda: J(DBC)["coverage"]["parse_coverage"], 0.1373)
+expect("v2-smoke-postfix", "§5.10 smoke 5->4", "refused_correct = 4", SPX,
+       lambda: J(SPX)["GUARDED"]["refused_correct_COST"], 4)
+
+
 def main():
     rows = []
     for cid, loc, claimed, artifact, fn in CLAIMS:

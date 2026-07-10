@@ -159,7 +159,7 @@ theorem eval_overrideAt_unwitnessed {Node : Type}
     tuple `v` that is UNWITNESSED: no `g`-node of the original evaluates on `v`
     at any fuel below the oracle fuel `K`, and `b`'s own dependencies evaluate to
     `v` robustly (under any engine agreeing with `I0` on the tuples below `K` —
-    supplied here as the two hypotheses `hargs` and `hargs'`). Then for ANY value
+    supplied here as the hypothesis `hargs`). Then for ANY value
     a checker might commit to, there is an engine indistinguishable from `I0`
     through the original (every node, every fuel ≤ K — hence realizing every
     cached observation) whose value at `b` differs. Sound engine-free checkers

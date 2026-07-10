@@ -1,0 +1,8 @@
+{
+  "file": "formal/corpus_formulas.txt (untracked; sources gitignored)",
+  "sha256": "01364088ddfe7a4263c7610f508039e000f9513468c8131beba80635309d0243",
+  "unique_formulas": 452384,
+  "regenerate": "python3 formal/extract_corpus_formulas.py (requires data/inthewild converted corpora + vendored fixtures)",
+  "battery": "315 synthetic seed formulas generated in tokenizer_differential.py battery() (seed 20260710)",
+  "total_requests": "(452384 + 315) * 4 = 1810796"
+}
