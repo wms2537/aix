@@ -355,6 +355,7 @@ def sigmaOf (axis op : String) (at_ cnt : Nat) : Nat × Nat → Option (Nat × N
 def main : IO Unit := do
   let stdin ← IO.getStdin
   let stdout ← IO.getStdout
+  stdout.putStrLn "__BEGIN__"
   let mut line ← stdin.getLine
   while line ≠ "" do
     let l := (line.dropRightWhile (· == '\n')).dropRightWhile (· == '\r')

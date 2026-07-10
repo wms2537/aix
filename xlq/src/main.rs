@@ -121,6 +121,15 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         dest: u32,
     },
+    /// Test-only batch driver for the Lean↔Rust tokenizer differential
+    /// (hidden from help; not part of the public CLI surface). Reads TSV
+    /// lines from stdin — formula \t axis(row|col) \t op(insert|delete)
+    /// \t at \t count — and prints exactly one line per input line: the
+    /// shifted formula (tabs/newlines escaped as \t and \n), or the
+    /// literal token __REFUSE__ when the formula trips the fail-closed
+    /// unquoted-non-ASCII-qualifier guard.
+    #[command(name = "__shift-formula-batch", hide = true)]
+    ShiftFormulaBatch,
 }
 
 fn parse_structural_op(op: &str) -> Option<(refshift::Axis, refshift::Op)> {
@@ -132,6 +141,69 @@ fn parse_structural_op(op: &str) -> Option<(refshift::Axis, refshift::Op)> {
         "delete-cols" => Some((Axis::Col, Op::Delete)),
         "move-rows" => Some((Axis::Row, Op::Move)),
         _ => None,
+    }
+}
+
+/// Abort the batch loudly on a malformed input line: a differential harness
+/// must fail closed, never silently skew the line pairing.
+fn batch_die(lineno: usize, msg: &str) -> ! {
+    eprintln!("__shift-formula-batch: line {lineno}: {msg}");
+    std::process::exit(2);
+}
+
+/// Test-only stdin driver behind the hidden `__shift-formula-batch`
+/// subcommand: one TSV line in, exactly one line out. Bypasses the JSON
+/// report path — output is the raw shifted formula per line.
+fn shift_formula_batch() {
+    use refshift::{Axis, Op, StructuralEdit};
+    use std::io::BufRead;
+    let stdin = std::io::stdin();
+    for (idx, line) in stdin.lock().lines().enumerate() {
+        let lineno = idx + 1;
+        let line = line.unwrap_or_else(|e| batch_die(lineno, &format!("stdin read: {e}")));
+        if line.is_empty() {
+            continue;
+        }
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() != 5 {
+            batch_die(
+                lineno,
+                "expected 5 tab-separated fields: formula, axis, op, at, count",
+            );
+        }
+        let formula = fields[0];
+        let axis = match fields[1] {
+            "row" => Axis::Row,
+            "col" => Axis::Col,
+            _ => batch_die(lineno, "axis must be row|col"),
+        };
+        let op = match fields[2] {
+            "insert" => Op::Insert,
+            "delete" => Op::Delete,
+            _ => batch_die(lineno, "op must be insert|delete"),
+        };
+        let at: u32 = fields[3]
+            .parse()
+            .unwrap_or_else(|_| batch_die(lineno, "at must be a u32"));
+        let count: u32 = fields[4]
+            .parse()
+            .unwrap_or_else(|_| batch_die(lineno, "count must be a u32"));
+        // Mirror the edit layer's fail-closed guard: refuse formulas with
+        // unquoted non-ASCII sheet qualifiers instead of shifting them.
+        if refshift::has_unquoted_non_ascii_qualifier(formula) {
+            println!("__REFUSE__");
+            continue;
+        }
+        let edit = StructuralEdit {
+            axis,
+            at,
+            count,
+            op,
+            sheet: "S".into(),
+            dest: 0,
+        };
+        let (shifted, _) = refshift::shift_formula(formula, "S", &edit);
+        println!("{}", shifted.replace('\t', "\\t").replace('\n', "\\n"));
     }
 }
 
@@ -183,6 +255,10 @@ fn main() {
             count,
             dest,
         } => certify::run(&original, &edited, &sheet, &op, at, count, dest),
+        Command::ShiftFormulaBatch => {
+            shift_formula_batch();
+            return;
+        }
     };
     match result {
         Ok(value) => {
