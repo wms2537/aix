@@ -25,10 +25,11 @@
       "spent": 1
     },
     "paper_review_rounds": {
-      "limit": 4,
-      "spent": 4,
+      "limit": 5,
+      "spent": 5,
       "grant_note": "user granted 1 extra round 2026-07-10, quote: 'yes, do it' (in response to: 'if you want one more adversarial pass over \u00a75.9 before submission, that needs your explicit grant')",
-      "grant_note_2": "user granted round 4, quote 2026-07-10: 'then run another adversarial panel clean'; spent at dispatch"
+      "grant_note_2": "user granted round 4, quote 2026-07-10: 'then run another adversarial panel clean'; spent at dispatch",
+      "grant_note_3": "user granted round 5, quote 2026-07-10: 'then the fix list completed? if completed then go another round'; spent at dispatch"
     }
   },
   "tasks": [
@@ -134,6 +135,14 @@
       "desc": "Granted clean adversarial panel over final integrated paper",
       "status": "done",
       "evidence": "clean panel: 4x SOUND_WITH_SCOPE, chair A conditional-accept -> A+ on fix completion; ALL gating fixes applied (provenance restated w/ 164/500 overlap + Enron promoted, EUSES cap disclosed, claim-3 surface accounting, 5->4 like-for-like smoke rerun, 3x stale 'stated open', dbt denominators, \u00a77 contradiction, arithmetic+units, theorem scoping clauses, 2nd deviation disclosed w/ 6-formula breakout, auditability commits, repro 118/0)",
+      "parent": null
+    },
+    {
+      "id": "T014",
+      "phase": "6",
+      "desc": "Granted panel round 5 over the fix-completed paper",
+      "status": "in_progress",
+      "evidence": null,
       "parent": null
     }
   ],

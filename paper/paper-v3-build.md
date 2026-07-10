@@ -826,11 +826,14 @@ pure view-state the transform also shifts — the used-range `dimension`, `selec
 frozen `pane`, and page `brk`s — is deliberately *not* compared, because it is
 non-value-bearing and foreign tools legitimately vary it; a certified file may differ
 from the transform there without affecting any value. Value edits are out of the exact
-tier by construction. The **trusted base** (narrowed by Theorem 3 but not eliminated) is:
-the byte→token parse; the correctness of the shift map `σ` itself (the Z3-proved
-arithmetic, not re-proved in the graph layer); the asymmetric six-case delete clamp and
-its `#REF!` outcomes; the multi-cell interior of ranges (modeled by endpoints); the
-constructs absent from the token type; and the completeness of the non-cell denylist. The
+tier by construction. The **trusted base** (narrowed by Theorems 3 and 7, not eliminated) is:
+the *production* byte→token parse — now reduced to its conformance with the verified
+reference tokenizer on the model surface (empirical: the 1.81M-comparison
+differential) plus the ASCII-sheet-qualified surface the model does not cover; the
+correctness of the shift map `σ` itself (the Z3-proved arithmetic, not re-proved in
+the graph layer); the asymmetric six-case delete clamp and its `#REF!` outcomes; the
+multi-cell interior of ranges (modeled by endpoints); the constructs absent from the
+token type; and the completeness of the non-cell denylist. The
 corroboration is bounded accordingly:
 value-preservation is necessary-not-sufficient (though now confirmed across all four
 structural ops and by two independent engines that agree, ruling out a single-engine
@@ -843,9 +846,10 @@ mixed task factors into a *certified structural scaffold* plus a bounded value-f
 and we measure this (`composition_coverage.py`): on mixed edits the scaffold is always
 certified and the audit surface collapses to the value-fill cone (100/84/68/52% of the
 artifact certified untouched as fills grow, mean 76%), so the certifiable *component*
-rises from **27% fully certified to 87% with a certified scaffold**. A
-verified byte-level tokenizer, and a model faithful to the clamp/`#REF!` algebra, are
-the natural next steps.
+rises from **27% fully certified to 87% with a certified scaffold**. Theorem 7
+delivers the verified byte-level *reference* tokenizer; verifying the *production*
+implementation itself (extraction, or Rust verification tooling) and a model faithful
+to the clamp/`#REF!` algebra are the natural next steps.
 
 # 8. Related work
 
