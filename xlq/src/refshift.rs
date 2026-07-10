@@ -492,6 +492,71 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
     (out, shifted)
 }
 
+/// True if `f` contains an UNQUOTED sheet qualifier (`…!`) whose name token
+/// contains non-ASCII bytes. The unquoted-qualifier grammar below and the
+/// scanner's boundary predicate are ASCII-only, so a name like `集計01` is
+/// mis-tokenized (`集計01!CI3` parses as sheet `01` + body `CI3`) — the shift
+/// then silently leaves the reference stale or shifts a foreign one. Found by
+/// the granted post-locked-test review (research-log/017 §post-review); the
+/// edit layer FAIL-CLOSES on this detector rather than guessing. Quoted
+/// qualifiers (`'集計01'!A1`) are byte-transparent and handled correctly, so
+/// they do not trip the detector; string literals are skipped.
+pub fn has_unquoted_non_ascii_qualifier(f: &str) -> bool {
+    let b = f.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'"' => {
+                // string literal with "" escapes
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'"' {
+                        if i + 1 < b.len() && b[i + 1] == b'"' { i += 2; continue; }
+                        break;
+                    }
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'\'' => {
+                // quoted qualifier with '' escapes — safe, skip verbatim
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'\'' {
+                        if i + 1 < b.len() && b[i + 1] == b'\'' { i += 2; continue; }
+                        break;
+                    }
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'!' => {
+                // backwalk the unquoted qualifier token; delimiters are the
+                // ASCII operator/punctuation set (':' stays IN the token — 3D
+                // qualifiers like Sheet1:Sheet2! are one token)
+                let mut j = i;
+                while j > 0 {
+                    let p = b[j - 1];
+                    if p < 0x80
+                        && matches!(p, b'(' | b')' | b',' | b'+' | b'-' | b'*' | b'/' | b'^'
+                                       | b'&' | b'=' | b'<' | b'>' | b';' | b' ' | b'{' | b'}'
+                                       | b'%' | b'"' | b'\'')
+                    {
+                        break;
+                    }
+                    j -= 1;
+                }
+                if b[j..i].iter().any(|&c| c >= 0x80) {
+                    return true;
+                }
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    false
+}
+
 /// Parse the optional `[n]` external prefix and `'sheet'!`/`sheet!` qualifier
 /// at the start of `s`. Returns the index where the reference BODY begins, or
 /// None if `s` opens with a quoted token that is not a sheet qualifier.
@@ -831,6 +896,24 @@ mod tests {
     fn offset_preserves_non_ascii_literals() {
         let out = offset_formula(r#"IF(B2="","",$A$1&"○×表")"#, 1, 0);
         assert_eq!(out, r#"IF(B3="","",$A$1&"○×表")"#);
+    }
+
+    /// Regression for the post-review sibling defect: unquoted non-ASCII sheet
+    /// qualifiers are outside the ASCII tokenizer grammar — the edit layer must
+    /// detect and fail-close, never mis-shift.
+    #[test]
+    fn detects_unquoted_non_ascii_qualifier() {
+        assert!(has_unquoted_non_ascii_qualifier("集計01!CI3"));
+        assert!(has_unquoted_non_ascii_qualifier("SUM(集計01!CI3:CI9)+A1"));
+        assert!(has_unquoted_non_ascii_qualifier("データ!B2"));
+        // quoted qualifiers are handled correctly — must NOT trip
+        assert!(!has_unquoted_non_ascii_qualifier("'集計01'!CI3"));
+        assert!(!has_unquoted_non_ascii_qualifier("SUM('データ'!B2:B9)"));
+        // non-ASCII only inside string literals — must NOT trip
+        assert!(!has_unquoted_non_ascii_qualifier(r#"IF(A1=1,"集計!","x")&Sheet2!B1"#));
+        // plain ASCII cross-sheet and same-sheet — must NOT trip
+        assert!(!has_unquoted_non_ascii_qualifier("Sheet2!A1+SUM(B1:B9)"));
+        assert!(!has_unquoted_non_ascii_qualifier("SUM(A1:B2)"));
     }
     fn col_edit(op: Op, at: u32, count: u32) -> StructuralEdit {
         StructuralEdit { axis: Axis::Col, at, count, op, sheet: "Sheet1".into(), dest: 0 }

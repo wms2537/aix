@@ -106,26 +106,47 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
             if references_sheet(&bytes, &edit.sheet) {
                 let host = part_sheet.get(&name).cloned().unwrap_or_default();
                 let expanded = expand_shared_in_sheet(&bytes)?;
-                let (out, n, r) = shift_text_in_element(&expanded, b"f", edit, &host);
+                let (out, n, r, qrisk) = shift_text_in_element(&expanded, b"f", edit, &host);
                 bytes = out;
                 touched = n > 0 || r > 0;
                 report.refs_shifted += n;
                 report.ref_errors += r;
+                if qrisk {
+                    report.residuals.push(Residual {
+                        part: name.clone(),
+                        reason: "non_ascii_sheet_qualifier".into(),
+                        detail: "unquoted non-ASCII sheet qualifier in a cross-sheet formula                                  — edit refused (fail-closed)".into(),
+                    });
+                }
             } else {
                 touched = false;
             }
         } else if name == "xl/workbook.xml" {
-            let (out, n, r) = shift_text_in_element(&bytes, b"definedName", edit, "");
+            let (out, n, r, qrisk) = shift_text_in_element(&bytes, b"definedName", edit, "");
             bytes = out;
             touched = n > 0 || r > 0;
             report.refs_shifted += n;
             report.ref_errors += r;
+            if qrisk {
+                report.residuals.push(Residual {
+                    part: name.clone(),
+                    reason: "non_ascii_sheet_qualifier".into(),
+                    detail: "unquoted non-ASCII sheet qualifier in a defined name — edit                              refused (fail-closed)".into(),
+                });
+            }
         } else if name.starts_with("xl/charts/") && name.ends_with(".xml") {
-            let (out, n, r) = shift_text_in_element(&bytes, b"f", edit, "");
+            let (out, n, r, qrisk) = shift_text_in_element(&bytes, b"f", edit, "");
             bytes = out;
             touched = n > 0 || r > 0;
             report.refs_shifted += n;
             report.ref_errors += r;
+            if qrisk {
+                report.residuals.push(Residual {
+                    part: name.clone(),
+                    reason: "non_ascii_sheet_qualifier".into(),
+                    detail: "unquoted non-ASCII sheet qualifier in a chart formula — edit                              refused (fail-closed)".into(),
+                });
+            }
         } else if (name.starts_with("xl/pivotCache/") || name.starts_with("xl/pivotTables/"))
             && name.ends_with(".xml")
         {
@@ -572,6 +593,20 @@ fn rewrite_edited_sheet(
             }
             Event::Text(t) if in_f && !f_residual => {
                 let raw = t.unescape().unwrap_or_default().into_owned();
+                // FAIL-CLOSED: unquoted non-ASCII sheet qualifiers are outside the
+                // tokenizer's ASCII grammar — refuse rather than mis-shift.
+                if refshift::has_unquoted_non_ascii_qualifier(&raw) {
+                    report.residuals.push(Residual {
+                        part: part_name.to_string(),
+                        reason: "non_ascii_sheet_qualifier".into(),
+                        detail: "a formula carries an UNQUOTED non-ASCII sheet qualifier, \
+                                 which the reference tokenizer cannot parse — edit refused \
+                                 (fail-closed)".into(),
+                    });
+                    writer.write_event(Event::Text(t.into_owned()))?;
+                    buf.clear();
+                    continue;
+                }
                 let (nf, n) = refshift::shift_formula(&raw, &sheet, edit);
                 report.refs_shifted += n;
                 report.ref_errors += nf.matches("#REF!").count() as u32;
@@ -716,6 +751,22 @@ fn rewrite_edited_sheet_move(
             }
             Event::Text(t) if in_f && !f_residual => {
                 let raw = t.unescape().unwrap_or_default().into_owned();
+                // FAIL-CLOSED: same non-ASCII-qualifier guard as the insert/delete path.
+                if refshift::has_unquoted_non_ascii_qualifier(&raw) {
+                    report.residuals.push(Residual {
+                        part: part_name.to_string(),
+                        reason: "non_ascii_sheet_qualifier".into(),
+                        detail: "a formula carries an UNQUOTED non-ASCII sheet qualifier, \
+                                 which the reference tokenizer cannot parse — edit refused \
+                                 (fail-closed)".into(),
+                    });
+                    match row_buf.as_mut() {
+                        Some((_, w)) => w.write_event(Event::Text(t.into_owned()))?,
+                        None => main.write_event(Event::Text(t.into_owned()))?,
+                    }
+                    buf.clear();
+                    continue;
+                }
                 let before_ref = raw.matches("#REF!").count();
                 let (nf, n) = refshift::shift_formula(&raw, &sheet, edit);
                 let new_ref = nf.matches("#REF!").count().saturating_sub(before_ref);
@@ -1042,13 +1093,14 @@ fn shift_text_in_element(
     tag: &[u8],
     edit: &StructuralEdit,
     host: &str,
-) -> (Vec<u8>, u32, u32) {
+) -> (Vec<u8>, u32, u32, bool) {
     let mut reader = Reader::from_reader(src);
     reader.config_mut().expand_empty_elements = false;
     let mut writer = Writer::new(Cursor::new(Vec::new()));
     let mut buf = Vec::new();
     let mut in_tag = false;
     let mut residual = false;
+    let mut qualifier_risk = false;
     let (mut shifted, mut errs) = (0u32, 0u32);
     loop {
         match reader.read_event_into(&mut buf) {
@@ -1065,6 +1117,13 @@ fn shift_text_in_element(
             }
             Ok(Event::Text(t)) if in_tag && !residual => {
                 let raw = t.unescape().unwrap_or_default().into_owned();
+                // FAIL-CLOSED: unquoted non-ASCII qualifier — flag, do not shift.
+                if refshift::has_unquoted_non_ascii_qualifier(&raw) {
+                    qualifier_risk = true;
+                    let _ = writer.write_event(Event::Text(t.into_owned()));
+                    buf.clear();
+                    continue;
+                }
                 let (nf, n) = refshift::shift_formula(&raw, host, edit);
                 shifted += n;
                 errs += nf.matches("#REF!").count() as u32;
@@ -1080,7 +1139,7 @@ fn shift_text_in_element(
         }
         buf.clear();
     }
-    (writer.into_inner().into_inner(), shifted, errs)
+    (writer.into_inner().into_inner(), shifted, errs, qualifier_risk)
 }
 
 fn tag_local_eq(name: &[u8], local: &[u8]) -> bool {
@@ -1114,7 +1173,7 @@ mod tests {
     fn foreign_sheet_shifts_only_edited_sheet_refs() {
         let xml = br#"<worksheet><sheetData><row r="1"><c r="A1"><f>Sheet1!A5+B10</f></c></row></sheetData></worksheet>"#;
         let e = edit("Sheet1", Axis::Row, Op::Insert, 3, 1);
-        let (out, n, _r) = shift_text_in_element(xml, b"f", &e, "Sheet2");
+        let (out, n, _r, _q) = shift_text_in_element(xml, b"f", &e, "Sheet2");
         let s = String::from_utf8_lossy(&out);
         assert!(s.contains("Sheet1!A6+B10"), "got: {s}");
         assert_eq!(n, 1);
@@ -1124,7 +1183,7 @@ mod tests {
     fn chart_ref_shifts() {
         let xml = br#"<c:chart><c:f>Sheet1!$A$1:$A$10</c:f></c:chart>"#;
         let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 2);
-        let (out, n, _r) = shift_text_in_element(xml, b"f", &e, "");
+        let (out, n, _r, _q) = shift_text_in_element(xml, b"f", &e, "");
         let s = String::from_utf8_lossy(&out);
         assert!(s.contains("Sheet1!$A$1:$A$12"), "got: {s}");
         assert_eq!(n, 1);
@@ -1134,7 +1193,7 @@ mod tests {
     fn defined_name_shifts() {
         let xml = br#"<definedNames><definedName name="Data">Sheet1!$A$1:$A$10</definedName></definedNames>"#;
         let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
-        let (out, n, _r) = shift_text_in_element(xml, b"definedName", &e, "");
+        let (out, n, _r, _q) = shift_text_in_element(xml, b"definedName", &e, "");
         let s = String::from_utf8_lossy(&out);
         assert!(s.contains("Sheet1!$A$1:$A$11"), "got: {s}");
         assert_eq!(n, 1);
