@@ -658,8 +658,13 @@ closed v1's scope limits: the **full EUSES corpus** (4,648 converted workbooks a
 all 11 categories), a **seeded-random Enron sample** (replacing v1's lexicographic
 prefix), all **five** structural ops, a cross-sheet-capable truth grammar, the
 measurement artifacts v1's post-hoc analysis attributed (both eliminated exactly as
-predicted — the error class went to zero), and the system under test frozen at the
-thrice-fixed binary. Scored: **5 confirm / 3 disconfirm / 2 partial.**
+predicted — the error class went to zero), and the system under test at the
+thrice-fixed binary. One disclosed protocol deviation: the third fix (the range-head
+defect, found by the verified-reference differential on development-tier data) landed
+*after* the pre-registration commit but *before* the run and before any v2 data was
+contacted — the freeze-wording was violated by one dev-tier-verified fix, which
+cannot manufacture agreement against the independent truth grammar but is reported as
+the deviation it is. Scored: **5 confirm / 3 disconfirm / 2 partial.**
 
 - **Shift correctness: 1,006,997 real formula cells, five ops, zero mismatches**
   (EUSES 316,746; Enron 690,251) — the widened grammar checked ~4× more cells per

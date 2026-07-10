@@ -25,9 +25,10 @@
       "spent": 1
     },
     "paper_review_rounds": {
-      "limit": 3,
-      "spent": 3,
-      "grant_note": "user granted 1 extra round 2026-07-10, quote: 'yes, do it' (in response to: 'if you want one more adversarial pass over \u00a75.9 before submission, that needs your explicit grant')"
+      "limit": 4,
+      "spent": 4,
+      "grant_note": "user granted 1 extra round 2026-07-10, quote: 'yes, do it' (in response to: 'if you want one more adversarial pass over \u00a75.9 before submission, that needs your explicit grant')",
+      "grant_note_2": "user granted round 4, quote 2026-07-10: 'then run another adversarial panel clean'; spent at dispatch"
     }
   },
   "tasks": [
@@ -125,6 +126,14 @@
       "desc": "ITER 5: locked test v2 pre-registration + run (full EUSES all categories, seeded random Enron sample, 5 ops, cross-sheet truth grammar, agent study n>=100 x 2 models, more dbt projects)",
       "status": "done",
       "evidence": "inthewild_{euses,enron}_v2.json + coincidence_q_*_v2.json + results_v2_{fast,mid}.json + inthewild_dbt_{spellbook,calitp}.json committed; ledger 5 confirm/3 disconfirm/2 partial; research-log/019",
+      "parent": null
+    },
+    {
+      "id": "T013",
+      "phase": "6",
+      "desc": "Granted clean adversarial panel over final integrated paper",
+      "status": "in_progress",
+      "evidence": null,
       "parent": null
     }
   ],

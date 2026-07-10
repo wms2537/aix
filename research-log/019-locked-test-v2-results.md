@@ -59,3 +59,16 @@ not metric). CONCLUDE: no further iterations without user grant.
 Fold v1+v2 into the paper as the two-locked-tests evidence architecture; update §3
 (CopyEdits, Tokenizer), §4 (verified reference + differential), §5 (v2 section),
 §6 (third defect + cost-reduction), abstract + claims. Then final draft to user.
+
+## Protocol deviation, self-caught before the granted panel (appended)
+
+The 018 pre-registration stated "systems under test are FROZEN at current HEAD."
+Between that commit and the v2 runs, ONE further change landed in the system under
+test: the range-head fix (commit 'fix: range-head defect...'), found by the
+verified-reference tokenizer differential — i.e., by dev-tier verification, with no
+contact with v2 corpora (which were still downloading). The v2 runs therefore used a
+binary one disclosed fix AHEAD of the pre-registration freeze. The deviation is
+direction-safe (the fix could only reduce mismatches xlq would otherwise show against
+the independent truth grammar — it cannot manufacture agreement, since the truth
+shifter is independent and engine-validated) but it is a deviation from the freeze
+wording and is disclosed here and in §5.10.
