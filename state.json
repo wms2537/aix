@@ -73,8 +73,8 @@
       "id": "T006",
       "phase": "6",
       "desc": "POST-ANALYSIS: fix xlq UTF-8 double-encoding defect + regression test; fold test-tier results into paper",
-      "status": "open",
-      "evidence": null,
+      "status": "done",
+      "evidence": "defect fix: cargo test 197 green incl. shift_preserves_non_ascii_literals; end-to-end on defect file literal intact; paper \u00a75.9 + abstract + \u00a76 + \u00a78 integrated, PDF 15pp rebuilt",
       "parent": "T003"
     }
   ],
@@ -114,9 +114,9 @@
     "Working-tree drift: paper numbers must match git-show-HEAD artifacts; check benchmarks/*.json against HEAD before citing"
   ],
   "best_state": {
-    "run_id": "paper-v3",
-    "metric": "B+ / major-revision-then-accept (FSE/ASE/ISSTA class), four gating holes fixed",
-    "commit": "18a2209"
+    "run_id": "paper-v3+inthewild",
+    "metric": "test-tier: 0 false certs/503, 0 shift errors/283960 cells, defect found+fixed",
+    "commit": "HEAD"
   },
   "gates": {
     "0": {
