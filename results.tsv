@@ -24,4 +24,4 @@ v2-extlink-share	enron_denylist_externalLink_share	0.40-0.60	match-literature	me
 v2-q-euses	pooled_q_offbyone	0.478±0.15	match-literature	low	-	-	-	-	-	LOCKED V2: full-EUSES q-hat
 v2-q-enron	pooled_q_offbyone	0.566±0.10	match-literature	low	-	-	-	-	-	LOCKED V2: Enron-random q-hat
 v2-agents	guard_blocks_all_erroneous	0 false certs; mid-tier errs less	match-literature	medium	-	-	-	-	-	LOCKED V2: n>=100 tasks x 2 models
-v2-dbt-extras	coverage_and_verdicts	0.20-0.60; CERTIFIED/REFUSED	match-literature	low	-	-	-	-	-	LOCKED V2: +2 public dbt projects
+v2-dbt-extras	coverage_and_verdicts	0.20-0.60; CERTIFIED/REFUSED	match-literature	low	0.0% / 13.7%; certify legs unevaluable	disconfirm	-	-	-	LOCKED V2: +2 public dbt projects | ACTUAL: spellbook/daily_spellbook 0/2484 covered (every model macro-headed with {{ config() }}); cal-itp 85/619 parse (13.7%), closed subgraph 9 with no ref edges -> certify legs skipped. The Mattermost 40% does NOT generalize to macro-heavy production dbt — honest scope finding

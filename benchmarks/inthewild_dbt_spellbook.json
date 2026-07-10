@@ -1,0 +1,17 @@
+{
+  "benchmark": "LOCKED in-the-wild dbt leg (research-log/016)",
+  "project": "/home/soh/aix/data/inthewild/dbt/v2/spellbook/dbt_subprojects/daily_spellbook",
+  "coverage": {
+    "total": 2484,
+    "dynamic": 2484,
+    "unresolved_ref": 0,
+    "covered_parse": 0,
+    "closed_subgraph": 0,
+    "parse_coverage": 0.0,
+    "closed_coverage": 0.0
+  },
+  "certify_legs": {
+    "skipped": "no closed-subgraph model with dependents",
+    "note": "reported honestly; certify legs need a ref edge inside the covered subgraph"
+  }
+}

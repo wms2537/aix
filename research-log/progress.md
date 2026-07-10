@@ -26,3 +26,4 @@
 2026-07-10 | P5 | iter5 v2 in flight | in_progress | pre-registered (018) + ledger rows committed; harness fixes applied + dev-identity verified; v2 runner smoked; corpora converting in background
 2026-07-10 | P5 | v2 acquisition | done | EUSES-full 4648/4652 converted (11 categories, layout deviation disclosed), Enron seeded-random 799/800, dbt: spellbook (1506 stars, BUSL-1.1, 7419 models) + cal-itp/data-infra (AGPL-3.0, 619 models); PROVENANCE v2 recorded
 2026-07-10 | P5 | V2 LOCKED RUN START | in_progress | irreversible: xlsx legs euses_v2+enron_v2 (cap 500) + q legs + dbt legs, run once
+2026-07-10 | P5 | v2 dbt legs | done | DISCONFIRM: spellbook 0% coverage (config-macro-headed), cal-itp 13.7% w/ no covered ref edges — mini-dbt subset does not transfer to macro-heavy production projects; certify legs unevaluable; recorded as measured (adapter frozen)
