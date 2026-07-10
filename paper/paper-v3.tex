@@ -77,10 +77,12 @@ edits can be certified \textbf{engine-free} --- offline, against the
 artifact's own structure, trusting neither the editor nor a
 recomputation --- and we answer by machine-checking \textbf{both sides
 of the boundary} (Lean 4, no \texttt{sorry}, axioms \texttt{propext} and
-\texttt{Quot.sound} only), with the remaining middle ground stated open.
-On the certifiable side: the premise of our invariance theorem --- the
-edit's reference-dependency graph is a function-preserving relabeling of
-the original's --- is \emph{decidable from syntax}, and we ship an
+\texttt{Quot.sound} only) --- and the middle ground between them (copy
+edits reusing witnessed formulas) is structured by an argument-value
+witnessing criterion with theorems on both of its sides. On the
+certifiable side: the premise of our invariance theorem --- the edit's
+reference-dependency graph is a function-preserving relabeling of the
+original's --- is \emph{decidable from syntax}, and we ship an
 executable decision procedure \texttt{check} with a machine-checked
 soundness theorem: if \texttt{check} accepts, every computed value
 transports across the edit under \textbf{every possible engine} (the
@@ -98,9 +100,13 @@ reusing witnessed semantics) is stated open. A companion locality
 theorem factors mixed edits into a certified structural scaffold plus a
 bounded value-fill audit cone. The theory is load-bearing in the running
 system: the deployed checker agrees with the Lean decision procedure on
-a randomized differential battery, a production certifier
-(\texttt{xlq\ certify}) covers five structural operations on real
-spreadsheets, and the same format-parametric core certifies dbt model
+a randomized battery, the trusted byte→token layer itself carries a
+\textbf{verified reference tokenizer} (losslessness, literal opacity,
+σ-image --- machine-checked) whose corpus-scale differential against the
+production tokenizer (1.81M comparisons on 452k real formulas) agrees
+everywhere on the model surface after finding a real defect, a
+production certifier (\texttt{xlq\ certify}) covers five structural
+operations, and the same format-parametric core certifies dbt model
 refactors engine-free --- catching dangling references and silent logic
 changes that re-materialization confirms, while certifying faithful
 renames with no SQL executed. We are deliberate about what is
@@ -164,20 +170,24 @@ Our claims, in order of strength:
   engine-free checker (impossibility: indistinguishable engines
   disagree), so \emph{certify-or-refuse is the only sound shape} (§3,
   Lean 4, no \texttt{sorry}). The middle ground (edits reusing witnessed
-  semantics at new positions) is stated open.
+  semantics) is structured by argument-value witnessing with theorems on
+  both sides and a stated fuel-graded residual (Theorem 6).
 \item
   \textbf{(Composition.)} A locality theorem factors a mixed edit into a
   certified structural scaffold plus value fills whose effect is
   provably contained in their downstream cone --- collapsing the audit
   surface from the whole artifact to a bounded set (§3, measured in §5).
 \item
-  \textbf{(Mechanism, theory-linked.)} A certify-or-refuse router whose
-  deployed checker implements \texttt{check} and agrees with the Lean
-  decision procedure on a randomized differential battery; a production
-  certifier (\texttt{xlq\ certify}, five structural ops) in
-  translation-validation mode; a hardened, engine-corroborated trusted
-  parse; and fail-closed boundaries for everything outside the verified
-  surface (§4).
+  \textbf{(Mechanism, theory-linked down to bytes.)} A certify-or-refuse
+  router whose deployed checker implements \texttt{check} and agrees
+  with the Lean decider on a randomized battery; a production certifier
+  (\texttt{xlq\ certify}, five structural ops) in translation-validation
+  mode; and --- where all three real defects lived --- a
+  \textbf{verified reference tokenizer} for the trusted byte→token layer
+  (losslessness, opacity, σ-image; Theorem 7) differentially enforced
+  against the production tokenizer at corpus scale (1.81M comparisons,
+  zero disagreements on the model surface), with fail-closed boundaries
+  for everything outside it (§4).
 \item
   \textbf{(Generality + corroboration, reported with confounds.)} The
   same format-parametric core certifies dbt model refactors engine-free
@@ -353,13 +363,50 @@ excludes. Within that scope, certify-or-refuse is the only sound shape
 engine-free certification: edits whose reference graph is a
 skeleton-preserving relabeling are certifiable, with an executable
 proven-sound decider (Theorem 4); edits introducing unwitnessed
-semantics are uncertifiable by any engine-free checker (Theorem 5). The
-honest middle ground --- edits that \emph{reuse} witnessed skeletons at
-new positions, such as copy-pasting an existing formula shape onto new
-inputs --- is not settled by either theorem and is stated as open: its
-values are forced by the original's syntax only when the reused
-skeleton's dependencies carry observed values, a case our current
-checker routes to refusal.
+semantics are uncertifiable by any engine-free checker (Theorem 5).
+
+\textbf{Theorem 6 (the middle ground, structured ---
+\texttt{formal/CopyEdits.lean}).} The remaining class --- edits that
+\emph{reuse} witnessed skeletons at new positions (copy-pasting an
+existing formula shape onto new inputs) --- is now governed by an
+\textbf{argument-value witnessing criterion with machine-checked
+theorems on both sides}. \texttt{copy\_value\_forced} (axiom-free): a
+copied node with the same skeleton and equal argument values as a
+witnessed application takes the same value under \emph{every} engine;
+\texttt{copy\_certifiable} gives the engine-free checkable premise ---
+scaffold checked by Theorem 4's \texttt{check}, dependency
+\textbf{oracle values} pointwise equal to the witnessed application's
+--- forcing the copied value to that application's cached output. And
+\texttt{copy\_unwitnessed\_uncertifiable}: an argument tuple unwitnessed
+at every fuel up to the oracle fuel admits an engine override, pointwise
+indistinguishable through the original, that refutes any committed value
+--- unwitnessed copies must be refused. Honest residual, stated: the
+criterion is fuel-graded (a tuple witnessed only below the oracle fuel
+falls between the two theorems).
+
+\textbf{Theorem 7 (the trusted byte→token layer, verified ---
+\texttt{formal/Tokenizer.lean}).} Every real defect our campaigns found
+(§6) lived in the byte→token parse the earlier theorems scope out. We
+therefore place a \textbf{reference tokenizer for that layer inside the
+machine-checked core}, at the byte level: \textbf{T1 losslessness}
+(\texttt{render\ ∘\ tokenize\ =\ id} --- the tokenizer never invents,
+drops, or rewrites a byte, making the double-encoding defect class
+impossible by construction), \textbf{T2 opacity} (the shift rewrites
+only reference segments --- precisely the property the mojibake defect
+violated), and \textbf{T3 σ-image} (the reference list of the shifted
+segments is the σ-image of the input's --- the invariance theorem's
+premise discharged from bytes). The model refuses all sheet-qualified
+formulas by construction, so the qualifier-defect class cannot
+mis-tokenize. The remaining trusted link --- \emph{the production Rust
+tokenizer implements this reference on the model surface} --- is
+discharged empirically: a corpus-scale differential (452,384 unique real
+formulas × four edits = \textbf{1,810,796 comparisons}) between the
+executable Lean reference and the production tokenizer agrees
+\textbf{901,946 / 901,946 in-surface and 8,392 / 8,392 on guard refusals
+--- zero disagreements} --- after itself finding a third real production
+defect (§6). Out-of-model surface (ASCII-qualified formulas,
+whole-column/row refs, the delete clamp on ranges) is counted and
+disclosed, not compared.
 
 \section{4. The certify-or-refuse router and its trusted
 base}\label{the-certify-or-refuse-router-and-its-trusted-base}
@@ -874,6 +921,68 @@ unchanged; its costs are real and now quantified; and its one failure
 was found by our own protocol, in the layer our own theory declared
 unproven.}
 
+\subsection{5.10 Locked test v2: full corpora, five ops, the fixed
+system}\label{locked-test-v2-full-corpora-five-ops-the-fixed-system}
+
+A second pre-registered, run-once test (10 predictions committed before
+acquisition) closed v1's scope limits: the \textbf{full EUSES corpus}
+(4,648 converted workbooks across all 11 categories), a
+\textbf{seeded-random Enron sample} (replacing v1's lexicographic
+prefix), all \textbf{five} structural ops, a cross-sheet-capable truth
+grammar, the measurement artifacts v1's post-hoc analysis attributed
+(both eliminated exactly as predicted --- the error class went to zero),
+and the system under test frozen at the thrice-fixed binary. Scored:
+\textbf{5 confirm / 3 disconfirm / 2 partial.}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Shift correctness: 1,006,997 real formula cells, five ops,
+  zero mismatches} (EUSES 316,746; Enron 690,251) --- the widened
+  grammar checked \textasciitilde4× more cells per corpus than v1, and
+  the new fail-closed guard refused three real non-ASCII-qualifier files
+  in the wild.
+\item
+  \textbf{Zero false certifications on 852 fresh foreign edits} --- the
+  central claim's third independent confirmation.
+\item
+  \textbf{The probabilistic tier collapses in the tail}: the random
+  Enron sample contains near-check-blind files; 99.9\% detection
+  requires \textbf{k = 237} checked cells (EUSES-full: 18).
+  Sampling-based value checking cannot certify real business data at
+  high confidence --- the exact tier is a necessity, not an
+  optimization.
+\item
+  \textbf{The fail-closed cost is structural and levered}: 21.2\%
+  (EUSES-full) and 34.3\% (Enron-random) --- both \emph{above} our
+  artifact-corrected predictions (disconfirmed: the fuller samples
+  simply carry more denylist parts), with \textbf{externalLinks the sole
+  cause of 64\% of Enron's denylist refusals} --- verifying that one
+  part class would roughly halve the cost. Prevalence on EUSES-full:
+  94.6\%, \emph{above} v1's database-category 69.3\% (our ``lower''
+  prediction disconfirmed --- the full corpus is richer in formulas, not
+  poorer).
+\item
+  \textbf{Two-model agent study} (21 tasks × fast/mid tiers): the
+  mid-tier model made the study's one error --- three corruption modes
+  in a single file (unshifted references, dropped \texttt{\$} absolutes,
+  and an \emph{invented} function argument) --- refused by the guard;
+  zero false certifications; and \textbf{refusals of correct work fell
+  from v1's 5 to 0}, a measured cost reduction caused directly by the
+  range-head fix the verified-tokenizer differential found. The
+  pre-registered ``mid-tier errs less'' prediction was disconfirmed (1
+  vs 0 --- counts at trivial error rates).
+\item
+  \textbf{dbt does not transfer}: two further production projects
+  (7,419- and 619-model) yield 0.0\% and 13.7\% adapter coverage ---
+  every spellbook model opens with a \texttt{\{\{\ config()\ \}\}} macro
+  the fail-closed adapter treats as dynamic. The Mattermost 40\% is not
+  representative of macro-heavy production dbt; the format-parametric
+  claim holds at the theory level, the current adapter subset does not,
+  and we say so plainly (config-stripping, semantically inert for the
+  dependency graph, is the disclosed future-work lever).
+\end{itemize}
+
 \section{6. On finding our own
 defects}\label{on-finding-our-own-defects}
 
@@ -922,13 +1031,25 @@ harness, whose truth grammar skips all cross-sheet formulas. Rather than
 extend the grammar (new trusted surface), the fix is fail-closed: a
 detector refuses any edit whose formulas carry an unquoted non-ASCII
 qualifier, with regression tests and an end-to-end refusal check; the
-locked numbers stay as measured. We report each as a fixed defect. This
-is part of the contribution: a certify-or-refuse claim is only credible
-if its authors have tried hardest to break it --- the record of what
-broke, and what the fix was, is the evidence that the remaining boundary
-is real, and it is why we are conservative about calling the
-corroboration anything more than corroboration, and the denylist
-anything more than a denylist.
+locked numbers stay as measured. Finally, the \textbf{verified-reference
+differential} (Theorem 7) found a third production defect in its first
+full-corpus run: a failed range-kind parse (\texttt{A2:CHOOSE(...)} ---
+a range whose tail is a function call) \emph{swallowed} the valid head
+reference, leaving it unshifted --- value-preserving for \texttt{SUM} by
+accident, wrong for \texttt{COUNT}-class functions (3 disagreements in
+1,810,796 comparisons, all this shape). Fixed with regressions; the
+post-fix differential agrees everywhere on the model surface; and the
+fix \emph{measurably reduced the guard's cost} --- refusals of correct
+agent work in the study fell from 5 to 0 (§5.10), because the
+previously-documented guard-vs-tool divergence on this construct
+disappeared. Three defects, three layers of the same trusted surface,
+each found by the project's own verification machinery. We report each
+as a fixed defect. This is part of the contribution: a certify-or-refuse
+claim is only credible if its authors have tried hardest to break it ---
+the record of what broke, and what the fix was, is the evidence that the
+remaining boundary is real, and it is why we are conservative about
+calling the corroboration anything more than corroboration, and the
+denylist anything more than a denylist.
 
 \section{7. Scope and limitations}\label{scope-and-limitations}
 
