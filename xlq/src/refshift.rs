@@ -789,7 +789,16 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
             let both_full = (c1 && r1) && (c2 && r2);
             let both_wholecol = (c1 && !r1) && (c2 && !r2);
             let both_wholerow = (!c1 && r1) && (!c2 && r2);
-            return (total, (both_full || both_wholecol || both_wholerow) && !ident_tail(total));
+            if both_full || both_wholecol || both_wholerow {
+                return (total, !ident_tail(total));
+            }
+            // The tail is NOT a valid range endpoint (e.g. `A2:CHOOSE(...)`,
+            // `B1:OFFSET(...)` — a range whose tail is a function call). Do NOT
+            // swallow the head: fall through and treat the head as a single cell
+            // ref, exactly as Excel does (the head still shifts; the function
+            // tail is protected by its own ident-tail guard). Swallowing it left
+            // range heads UNSHIFTED — found by the verified-reference tokenizer
+            // differential (3 disagreements in 1.81M comparisons, all this shape).
         }
     }
     // single endpoint: a real cell ref needs a row number (else it's a name), and
@@ -896,6 +905,26 @@ mod tests {
     fn offset_preserves_non_ascii_literals() {
         let out = offset_formula(r#"IF(B2="","",$A$1&"○×表")"#, 1, 0);
         assert_eq!(out, r#"IF(B3="","",$A$1&"○×表")"#);
+    }
+
+    /// Regression for the function-endpoint-range head defect, found by the
+    /// verified-reference tokenizer differential: `A2:CHOOSE(...)` must shift
+    /// its HEAD cell ref (Excel semantics) — the failed range-kind parse must
+    /// not swallow it.
+    #[test]
+    fn function_endpoint_range_head_shifts() {
+        let e = row_edit(Op::Insert, 2, 1);
+        let (o1, n1) = shift_formula("SUM(A2:CHOOSE(3,A3,A4,A5))", "Sheet1", &e);
+        assert_eq!(o1, "SUM(A3:CHOOSE(3,A4,A5,A6))");
+        assert_eq!(n1, 4);
+        let (o2, _) = shift_formula("SUM(A9:CHOOSE(2,A10,A11,A12))", "Sheet1", &e);
+        assert_eq!(o2, "SUM(A10:CHOOSE(2,A11,A12,A13))");
+        let ec = col_edit(Op::Insert, 2, 1);
+        let (o3, _) = shift_formula("SUM(B1:OFFSET(B1,3,0))", "Sheet1", &ec);
+        assert_eq!(o3, "SUM(C1:OFFSET(C1,3,0))");
+        // valid ranges and whole-col ranges unaffected by the fallback
+        let (o4, _) = shift_formula("SUM(A2:B5)+SUM(F:F)", "Sheet1", &e);
+        assert_eq!(o4, "SUM(A3:B6)+SUM(F:F)");
     }
 
     /// Regression for the post-review sibling defect: unquoted non-ASCII sheet

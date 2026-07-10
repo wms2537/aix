@@ -1,0 +1,15 @@
+{
+  "benchmark": "Lean verified reference tokenizer vs Rust production tokenizer",
+  "requests": 1810796,
+  "stats": {
+    "in_surface_agree": 901946,
+    "in_surface_DISAGREE": 0,
+    "guard_agree_refuse": 8392,
+    "guard_DISAGREE": 0,
+    "oos_ascii_qualified": 818640,
+    "excluded_delete_range": 79084,
+    "oos_wholecolrow": 2734,
+    "lean_refused_other": 0
+  },
+  "findings": []
+}
