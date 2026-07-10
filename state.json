@@ -1,5 +1,5 @@
 {
-  "phase": "4",
+  "phase": "6",
   "cycle": 1,
   "iteration": 4,
   "entry_mode": "idea",
@@ -123,8 +123,8 @@
       "id": "T012",
       "phase": "5",
       "desc": "ITER 5: locked test v2 pre-registration + run (full EUSES all categories, seeded random Enron sample, 5 ops, cross-sheet truth grammar, agent study n>=100 x 2 models, more dbt projects)",
-      "status": "in_progress",
-      "evidence": null,
+      "status": "done",
+      "evidence": "inthewild_{euses,enron}_v2.json + coincidence_q_*_v2.json + results_v2_{fast,mid}.json + inthewild_dbt_{spellbook,calitp}.json committed; ledger 5 confirm/3 disconfirm/2 partial; research-log/019",
       "parent": null
     }
   ],
@@ -179,6 +179,10 @@
       "seven_questions": "research-log/017 \u00a7seven questions",
       "test_set_run_once": "research-log/017 logs the irreversible event; harness-bug reruns disclosed therein",
       "publish_decision_user_quote": "(a) Contribution paper (Recommended) \u2014 AskUserQuestion 2026-07-10; no-publish steelman presented first (defect unfixed at test time, 17.8-21.5% cost, LO conversion, single-op guard legs)"
+    },
+    "5.v2": {
+      "analysis": "research-log/019",
+      "budget": "iterations 5/5 SPENT \u2014 conclude"
     }
   }
 }

@@ -1,0 +1,89 @@
+{
+  "benchmark": "LOCKED TEST V2 (pre-registered research-log/018)",
+  "corpus_dir": "/home/soh/aix/data/inthewild/euses/converted_v2",
+  "eligibility": {
+    "eligible": 500,
+    "ineligible_lt2_formulas": 1223,
+    "beyond_cap": 2924
+  },
+  "files_run": 500,
+  "leg1_shift_correctness": {
+    "insert-rows": {
+      "applied_workbooks": 483,
+      "refused_workbooks": 17,
+      "cells_checked": 71630,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "skipped_out_of_grammar_cells": 1281
+    },
+    "delete-rows": {
+      "applied_workbooks": 483,
+      "refused_workbooks": 17,
+      "cells_checked": 68370,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "skipped_out_of_grammar_cells": 4156
+    },
+    "insert-cols": {
+      "applied_workbooks": 483,
+      "refused_workbooks": 17,
+      "cells_checked": 71630,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "skipped_out_of_grammar_cells": 1281
+    },
+    "delete-cols": {
+      "applied_workbooks": 483,
+      "refused_workbooks": 17,
+      "cells_checked": 58771,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "skipped_out_of_grammar_cells": 10043
+    },
+    "move-rows": {
+      "applied_workbooks": 418,
+      "refused_workbooks": 82,
+      "cells_checked": 46345,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "skipped_out_of_grammar_cells": 18039
+    }
+  },
+  "leg2_prevalence": {
+    "would_corrupt_files": 473,
+    "no_shift_needed_files": 27,
+    "prevalence": 0.946
+  },
+  "leg3_guard": {
+    "own_CERTIFIED": 394,
+    "opx_REFUSED": 496,
+    "own_not_attempted_restructure_refused": 17,
+    "own_REFUSED": 89,
+    "opx_edit_failed": 4
+  },
+  "refusal_causes_restructure": {
+    "move-rows:move_straddles_range": 65,
+    "insert-rows:defined_name_ref_collision": 7,
+    "delete-rows:defined_name_ref_collision": 7,
+    "insert-cols:defined_name_ref_collision": 7,
+    "delete-cols:defined_name_ref_collision": 7,
+    "move-rows:defined_name_ref_collision": 7,
+    "insert-rows:array_formula_present": 4,
+    "delete-rows:array_formula_present": 4,
+    "insert-cols:array_formula_present": 4,
+    "delete-cols:array_formula_present": 4,
+    "move-rows:array_formula_present": 4,
+    "insert-rows:non_ascii_sheet_qualifier": 3,
+    "delete-rows:non_ascii_sheet_qualifier": 3,
+    "insert-cols:non_ascii_sheet_qualifier": 3,
+    "delete-cols:non_ascii_sheet_qualifier": 3
+  },
+  "own_refusal_causes": {
+    "unverified_reference_part": 89,
+    "restructure:defined_name_ref_collision": 7,
+    "restructure:array_formula_present": 4,
+    "restructure:non_ascii_sheet_qualifier": 3,
+    "restructure:threeD_span_unverifiable": 3
+  },
+  "mismatch_samples": []
+}

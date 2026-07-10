@@ -1,0 +1,89 @@
+{
+  "benchmark": "LOCKED TEST V2 (pre-registered research-log/018)",
+  "corpus_dir": "/home/soh/aix/data/inthewild/enron/converted_v2",
+  "eligibility": {
+    "ineligible_lt2_formulas": 432,
+    "eligible": 362,
+    "parse_failed": 5
+  },
+  "files_run": 362,
+  "leg1_shift_correctness": {
+    "insert-rows": {
+      "applied_workbooks": 342,
+      "refused_workbooks": 20,
+      "cells_checked": 156249,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "skipped_out_of_grammar_cells": 17666
+    },
+    "delete-rows": {
+      "applied_workbooks": 342,
+      "refused_workbooks": 18,
+      "cells_checked": 149783,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "skipped_out_of_grammar_cells": 24031
+    },
+    "insert-cols": {
+      "applied_workbooks": 342,
+      "refused_workbooks": 18,
+      "cells_checked": 156249,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "skipped_out_of_grammar_cells": 17666
+    },
+    "delete-cols": {
+      "applied_workbooks": 342,
+      "refused_workbooks": 18,
+      "cells_checked": 131981,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "skipped_out_of_grammar_cells": 31788
+    },
+    "move-rows": {
+      "applied_workbooks": 284,
+      "refused_workbooks": 76,
+      "cells_checked": 95989,
+      "xlq_mismatch": 0,
+      "xlq_correct_rate": 1.0,
+      "skipped_out_of_grammar_cells": 50036
+    }
+  },
+  "leg2_prevalence": {
+    "would_corrupt_files": 330,
+    "no_shift_needed_files": 32,
+    "prevalence": 0.9116
+  },
+  "leg3_guard": {
+    "own_not_attempted_restructure_refused": 18,
+    "opx_REFUSED": 356,
+    "own_CERTIFIED": 238,
+    "own_REFUSED": 103,
+    "opx_edit_failed": 3,
+    "file_timeout": 3
+  },
+  "refusal_causes_restructure": {
+    "move-rows:move_straddles_range": 58,
+    "insert-rows:defined_name_ref_collision": 12,
+    "delete-rows:defined_name_ref_collision": 10,
+    "insert-cols:defined_name_ref_collision": 10,
+    "delete-cols:defined_name_ref_collision": 10,
+    "move-rows:defined_name_ref_collision": 10,
+    "insert-rows:array_formula_present": 7,
+    "delete-rows:array_formula_present": 7,
+    "insert-cols:array_formula_present": 7,
+    "delete-cols:array_formula_present": 7,
+    "move-rows:array_formula_present": 7,
+    "insert-rows:threeD_span_unverifiable": 1,
+    "delete-rows:threeD_span_unverifiable": 1,
+    "insert-cols:threeD_span_unverifiable": 1,
+    "delete-cols:threeD_span_unverifiable": 1
+  },
+  "own_refusal_causes": {
+    "unverified_reference_part": 103,
+    "restructure:defined_name_ref_collision": 10,
+    "restructure:array_formula_present": 7,
+    "restructure:threeD_span_unverifiable": 1
+  },
+  "mismatch_samples": []
+}
