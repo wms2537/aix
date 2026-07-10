@@ -463,7 +463,7 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
     // TOCTOU gap where an editor that ignored the advisory lock changed the file
     // after step (1) — we refuse rather than apply predicted values onto content
     // they were never computed for.
-    let timestamp = iso_timestamp(patch.clock);
+    let timestamp = journal::iso_timestamp(patch.clock);
     let resolved_actor = journal::resolve_actor(actor.or(patch.actor.as_deref()));
 
     let original_bytes = std::fs::read(file).with_context(|| format!("read {file_name}"))?;
@@ -609,6 +609,7 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
         file,
         &new_bytes,
         rev,
+        "apply",
         &actual_hash,
         &result_hash,
         ops_json,
@@ -712,38 +713,6 @@ fn verify_output(
     Ok(outcome)
 }
 
-/// Receipt timestamp as ISO-8601 UTC. Determinism: when the patch pins a
-/// `clock` (epoch ms) it is used verbatim; otherwise the wall clock is read
-/// (the library takes no wall-clock itself — the timestamp is passed in).
-fn iso_timestamp(clock: Option<i64>) -> String {
-    let ms = clock.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0)
-    });
-    let secs = ms.div_euclid(1000);
-    let days = secs.div_euclid(86_400);
-    let tod = secs.rem_euclid(86_400);
-    let (h, mi, s) = (tod / 3600, (tod % 3600) / 60, tod % 60);
-    let (y, m, d) = civil_from_days(days);
-    format!("{y:04}-{m:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z")
-}
-
-/// Gregorian (year, month, day) for a count of days since 1970-01-01
-/// (Howard Hinnant's `civil_from_days`).
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
-    (y + if m <= 2 { 1 } else { 0 }, m, d)
-}
 
 /// The raw `ops` array straight from the patch file, so the receipt records
 /// exactly what was requested without depending on Op: Serialize.

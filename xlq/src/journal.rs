@@ -27,7 +27,7 @@
 //!   /// Write new bytes as `<book>.rev-N.xlsx` (never overwrite an existing
 //!   /// rev file), fsync, then atomically rename onto `book_path`. Appends
 //!   /// the receipt. Returns the receipt.
-//!   pub fn commit(book_path: &str, new_bytes: &[u8], rev: u64, base_hash: &str,
+//!   pub fn commit(book_path: &str, new_bytes: &[u8], rev: u64, kind: &str, base_hash: &str,
 //!       result_hash: &str, ops: serde_json::Value, actor: &str,
 //!       clock: Option<i64>, seed: Option<u64>) -> Result<Receipt>
 //!
@@ -289,10 +289,12 @@ fn sync_parent_dir(book_path: &str) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn commit(
     book_path: &str,
     new_bytes: &[u8],
     rev: u64,
+    kind: &str,
     base_hash: &str,
     result_hash: &str,
     ops: serde_json::Value,
@@ -336,7 +338,7 @@ pub fn commit(
     // 3. Record the receipt (append-only, fsynced).
     let receipt = Receipt {
         rev,
-        kind: "apply".to_string(),
+        kind: kind.to_string(),
         base_hash: base_hash.to_string(),
         result_hash: result_hash.to_string(),
         ops,
@@ -385,6 +387,40 @@ pub fn append_adoption_marker(
     };
     append_receipt(book_path, &receipt)?;
     Ok(receipt)
+}
+
+/// Receipt timestamp as ISO-8601 UTC. Single source shared by every writing
+/// command (previously each had its own copy — `restructure`'s was broken and
+/// stamped `1970-01-01…` on every receipt). Determinism: a pinned `clock` (epoch
+/// ms) is used verbatim; otherwise the wall clock is read here, at the write.
+pub fn iso_timestamp(clock: Option<i64>) -> String {
+    let ms = clock.unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    });
+    let secs = ms.div_euclid(1000);
+    let days = secs.div_euclid(86_400);
+    let tod = secs.rem_euclid(86_400);
+    let (h, mi, s) = (tod / 3600, (tod % 3600) / 60, tod % 60);
+    let (y, m, d) = civil_from_days(days);
+    format!("{y:04}-{m:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z")
+}
+
+/// Gregorian (year, month, day) for a day count since 1970-01-01
+/// (Howard Hinnant's `civil_from_days`).
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 #[cfg(test)]
@@ -445,6 +481,8 @@ mod tests {
             &book,
             b"v1-bytes",
             1,
+            "restructure", // a non-"apply" kind — proves the param is honored,
+            // not the previously-hardcoded "apply"
             "base0",
             "hash0",
             json!({"set": "A1"}),
@@ -456,7 +494,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(r.rev, 1);
-        assert_eq!(r.kind, "apply");
+        assert_eq!(r.kind, "restructure");
+        // and the journal line records the kind too
+        assert_eq!(read_lines(&book)[0]["kind"], json!("restructure"));
         assert_eq!(r.engine_version, ENGINE_VERSION);
         assert_eq!(r.actor, "alice");
         assert_eq!(r.clock, Some(7));
@@ -479,7 +519,7 @@ mod tests {
         std::fs::write(&book, b"original").unwrap();
 
         commit(
-            &book, b"v1", 1, "base0", "hash0", json!({}), "t0", "a", None, None,
+            &book, b"v1", 1, "apply", "base0", "hash0", json!({}), "t0", "a", None, None,
         )
         .unwrap();
 
@@ -488,7 +528,7 @@ mod tests {
 
         // base_hash of rev-2 equals the previous receipt's result_hash.
         let r2 = commit(
-            &book, b"v2", 2, "hash0", "hash1", json!({}), "t1", "a", None, None,
+            &book, b"v2", 2, "apply", "hash0", "hash1", json!({}), "t1", "a", None, None,
         )
         .unwrap();
         assert_eq!(r2.rev, 2);
@@ -515,7 +555,7 @@ mod tests {
         std::fs::write(&book, b"original").unwrap();
 
         commit(
-            &book, b"v1", 1, "b", "h1", json!({}), "t", "a", None, None,
+            &book, b"v1", 1, "apply", "b", "h1", json!({}), "t", "a", None, None,
         )
         .unwrap();
         // Simulate the crash: rev-2 exists on disk but no receipt was written.
@@ -525,7 +565,7 @@ mod tests {
         assert_eq!(next_rev(&book).unwrap(), 3);
         // The commit at that rev succeeds instead of returning rev_exists.
         let r = commit(
-            &book, b"v3", 3, "h1", "h3", json!({}), "t", "a", None, None,
+            &book, b"v3", 3, "apply", "h1", "h3", json!({}), "t", "a", None, None,
         )
         .unwrap();
         assert_eq!(r.rev, 3);
@@ -538,14 +578,14 @@ mod tests {
         std::fs::write(&book, b"original").unwrap();
 
         commit(
-            &book, b"v0", 0, "b", "h0", json!({}), "t", "a", None, None,
+            &book, b"v0", 0, "apply", "b", "h0", json!({}), "t", "a", None, None,
         )
         .unwrap();
 
         // Re-committing rev 0 must fail (history is immutable) and leave the
         // existing rev-0 bytes untouched.
         let err = commit(
-            &book, b"OVERWRITE", 0, "b", "h0b", json!({}), "t", "a", None, None,
+            &book, b"OVERWRITE", 0, "apply", "b", "h0b", json!({}), "t", "a", None, None,
         )
         .unwrap_err();
         assert_eq!(format!("{err}"), "rev_exists");
@@ -577,7 +617,7 @@ mod tests {
         std::fs::write(&book, b"original").unwrap();
 
         commit(
-            &book, b"v0", 0, "b", "hash0", json!({}), "t", "a", None, None,
+            &book, b"v0", 0, "apply", "b", "hash0", json!({}), "t", "a", None, None,
         )
         .unwrap();
 
@@ -596,7 +636,7 @@ mod tests {
 
         let rev0 = next_rev(&book).unwrap(); // genesis -> 1
         commit(
-            &book, b"v1", rev0, "b", "hash0", json!({}), "t", "a", None, None,
+            &book, b"v1", rev0, "apply", "b", "hash0", json!({}), "t", "a", None, None,
         )
         .unwrap();
 
@@ -623,7 +663,7 @@ mod tests {
 
         // A real commit follows on top of the adopted hash.
         commit(
-            &book, b"v2", rev_next, "external", "hash1", json!({}), "t3", "a", None, None,
+            &book, b"v2", rev_next, "apply", "external", "hash1", json!({}), "t3", "a", None, None,
         )
         .unwrap();
         assert_eq!(std::fs::read(&book).unwrap(), b"v2");

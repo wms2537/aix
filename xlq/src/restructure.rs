@@ -90,7 +90,7 @@ pub fn run(
     }
 
     let result_hash = sha256_bytes(&new_bytes);
-    let timestamp = iso_timestamp(None);
+    let timestamp = journal::iso_timestamp(None);
     let resolved_actor = journal::resolve_actor(actor);
 
     // Re-verify the on-disk bytes still hash to base (lock held since before the
@@ -118,8 +118,8 @@ pub fn run(
         json!([{ "type": op_str, "sheet": sheet, "at": at, "count": count }])
     };
     let receipt = journal::commit(
-        file, &new_bytes, rev, &base_hash, &result_hash, ops, &timestamp, &resolved_actor,
-        None, None,
+        file, &new_bytes, rev, "restructure", &base_hash, &result_hash, ops, &timestamp,
+        &resolved_actor, None, None,
     )?;
 
     Ok(json!({
@@ -206,16 +206,6 @@ fn sha256_bytes(bytes: &[u8]) -> String {
     format!("{:x}", h.finalize())
 }
 
-fn iso_timestamp(clock: Option<i64>) -> String {
-    let secs = clock.unwrap_or(0);
-    // minimal deterministic ISO-8601; matches apply.rs's convention of a
-    // caller-supplied clock (0 → epoch) so the library holds no wall-clock.
-    let days = secs / 86400;
-    let rem = secs % 86400;
-    let (h, mi, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    // 1970-01-01 + days, computed simply (good enough for the receipt stamp)
-    format!("1970-01-01T{:02}:{:02}:{:02}Z+{}d", h, mi, s, days)
-}
 
 #[cfg(test)]
 mod tests {
