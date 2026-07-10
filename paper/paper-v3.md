@@ -35,9 +35,9 @@ what is *corroboration*: the machine-checked boundary is the result; the empiric
 of development-tier workbooks — confirmed-genuine after our own study corrected two
 mislabels — while the certified path corrupts none; and a pre-registered, run-once
 **locked test on corpora development never touched** — EUSES, Enron, and a production
-dbt project — in which the guard made **zero false certifications across 503 foreign
-edits**, the shift arithmetic made zero errors in 283,960 real cells, measured
-fail-closed cost of 20–32%, and the one real defect found sat exactly in the layer
+dbt project — in which the guard made **zero false certifications across 518 foreign
+edits (503 refused, 15 fail-closed errors)**, the shift arithmetic made zero errors in 283,960 real cells, measured
+fail-closed cost of 19.6–32.0%, and the one real defect found sat exactly in the layer
 our theory declares trusted-not-proven, since fixed) corroborates it, and we report
 each measurement with its confound — including two false certifications our own adversarial reviews
 found in earlier versions of the system, which we closed and report as fixed defects.
@@ -308,7 +308,10 @@ formula routes to REFUSE; a benign name (`TaxRate`) proceeds. This converts the 
 hidden hole into a demonstrated boundary and scopes the verified surface explicitly:
 **single sheet, in-grid coordinates, row/column shifts, no name collision.**
 
-## 5. Corroboration on real workbooks (reported with confounds)
+## 5. Corroboration on the development-tier corpus (reported with confounds)
+
+Sections 5.1–5.8 measure on the vendored fixture corpus — real-provenance files, but
+our de-facto *development tier* (the locked test tier is §5.9).
 
 None of the following is the soundness argument — that is §3. Each supports the
 theorem on real files and each carries a limitation we state.
@@ -327,7 +330,7 @@ soundness — a high certify rate on faithful edits — requires the complete pa
 
 ### 5.2 Independent-oracle A/B: the corruption the boundary prevents
 
-On 172 real workbooks, insert-row@2, with LibreOffice (independent of both `openpyxl`
+On 172 development-tier workbooks, insert-row@2, with LibreOffice (independent of both `openpyxl`
 and the tool's engine) recomputing each edit against Excel's cache: the naive
 `openpyxl` edit path silently corrupts 149/172 workbooks *as originally measured* —
 of which **147/172 = 85.5% is confirmed-genuine reference corruption** after our own
@@ -542,29 +545,53 @@ protocol and nine predictions committed to the repository *before* any test data
 downloaded (research-log/016); corpora untouched by development — **EUSES** (796
 converted workbooks, CC-BY-4.0, checksums matched to the canonical Zenodo record) and
 **Enron** (786, CC0, FERC-released business spreadsheets), both `.xls`→`.xlsx` via
-LibreOffice (disclosed caveat: cached values are engine-regenerated); plus one **real
-production dbt project** (Mattermost's data warehouse, 254 models; the pre-registered
-GitLab target went private, substitution recorded before inspection). Rules: run once;
-measurement-harness bugs fixable with disclosure (three were: a cell-association
-regex artifact, XML entity decoding, a per-file watchdog — after each fix the
-development-tier results re-verified byte-identical); the systems under test frozen.
+LibreOffice (disclosed caveat: cached values are engine-regenerated). One sampling
+caveat the pre-registration did not anticipate: conversion capacity forced a
+deterministic *lexicographic-prefix* subset at acquisition (first 800 sorted paths per
+corpus; Enron additionally a first-1,500-of-20,872 archive prefix for disk budget) —
+applied before any content inspection but *not* pre-registered, and for EUSES the
+prefix collapses to essentially one category (791 of 796 files from the `database`
+folder, 9 from `cs101`, out of 4,652 files in 11 categories). EUSES-leg numbers
+should therefore be read as the *database category*, not the full corpus, and
+cross-corpus generality claims are correspondingly tempered; plus one **real
+production dbt project** (Mattermost's data warehouse, 254 models). The dbt leg's
+provenance is honestly *weaker* than the xlsx legs': the pre-registered GitLab target
+went private, the pre-registered fallback (a demo project) was bypassed for the
+better real-production substitute, and the substitution rationale, leg harness, one
+harness fix (an identical source-oracle sentinel on both sides — a rename does not
+touch the warehouse), and results all attest in a single commit rather than a
+pre-inspection commit. Rules: run once; measurement-harness bugs fixable with
+disclosure (four were: the dbt sentinel above, a cell-association regex artifact, XML
+entity decoding, a per-file watchdog — after each xlsx-side fix the development-tier
+results re-verified byte-identical, and the two mismatch-reducing fixes are further
+justified by XML semantics independent of results: a self-closing `<c/>` cannot
+contain an `<f>` child, and `&quot;` denotes the same formula as a literal quote);
+the systems under test frozen.
 
 Results against the pre-registered predictions (all scored in the repository's
 prediction ledger — 4 confirm, 3 disconfirm, 2 partial):
 
-- **The central claim held on data development never touched:** across **503**
-  `certify(openpyxl edit)` calls (158 EUSES + 345 Enron), **zero false
-  certifications**; every would-corrupt edit refused.
+- **The central claim held on data development never touched:** **zero false
+  certifications** across all 518 completed `certify(openpyxl edit)` calls — 503
+  refusals (158 EUSES + 345 Enron) plus 15 fail-closed errors — and 7 further edits
+  failed before certification; **no would-corrupt edit was certified**.
 - **Reference-shift arithmetic: 0 errors in 283,960 real formula cells** across the
-  four ops (Enron: 170,796 cells, 100%). The *only* defect the test found — 38 cells
-  (0.034%), all in one Japanese workbook — was **not** a shift error: xlq
+  four ops (Enron: 170,796 cells, 100%). The checked-cell denominator is bounded by
+  the truth grammar: cells outside it are skipped, never guessed — and the largest
+  skipped class is *cross-sheet formulas* (on Enron, skipped cells exceed checked
+  cells per op), which is exactly where the post-review qualifier defect below lives. The *only* defect the test found — 38 cells
+  (0.034% of the 113,164 EUSES-leg cells), all in one Japanese workbook — was **not** a shift error: xlq
   double-encoded non-ASCII string literals (a Latin-1 byte misread in the rewrite
   path), silently corrupting literal *text* while shifting references correctly.
   This landed **exactly in the layer §3 explicitly labels trusted-not-proven** (the
-  byte→token surface) — the scoping was load-bearing, not decorative. The defect
-  could not falsely certify a foreign edit (both certify sides share the encoder for
-  own-transforms; for foreign edits it over-refuses), was frozen during the test per
-  protocol, and is fixed with regression tests since (§6). Predictions of zero
+  byte→token surface) — the scoping was load-bearing, not decorative. No foreign edit
+  in the corpus was falsely certified because of it; we note precisely that
+  over-refusal is guaranteed only for *correctly-encoding* foreign tools — a foreign
+  tool sharing the identical byte-misread would produce byte-identical corrupted
+  literals and be certified, since the mojibake transformation is deterministic and
+  tool-independent. It also means the tool's own gates passed over the 38 corrupted
+  cells (both certify sides share the encoder). The defect was frozen during the test
+  per protocol and is fixed with regression tests since (§6). Predictions of zero
   mismatches: *disconfirmed* on EUSES, confirmed on Enron — reported as scored.
 - **Fail-closed cost, measured:** the full guarded pipeline (transform residual ∪
   own-certify not certified) refuses 19.6% (EUSES) and 32.0% (Enron) of eligible
@@ -611,7 +638,19 @@ codepoints, double-encoding string literals — references shifted correctly, li
 text corrupted, on exactly the trusted byte→token surface §3 scopes out of the
 proofs. Per the pre-registered protocol the tool stayed frozen for the test (the 38
 affected cells are reported as measured); the defect is since fixed with regression
-tests covering the exact failing shape and all UTF-8 planes.
+tests covering the exact failing shape and all UTF-8 planes — and we state plainly
+that the tool's own certify gate passed over those 38 corrupted cells (both sides of
+an own-transform comparison share the encoder), so the defect was caught by the
+locked test's independent truth instrument, not by the guard. A granted post-test
+review round then found a **live sibling** by attacking the fix's boundary: the
+tokenizer's unquoted-sheet-qualifier grammar is ASCII-only, so a CJK-named sheet's
+unquoted qualifier (`集計01!CI3`) mis-tokenizes and the shift silently leaves the
+reference stale — a class present thousands of times in the locked corpus yet
+structurally invisible to the locked harness, whose truth grammar skips all
+cross-sheet formulas. Rather than extend the grammar (new trusted surface), the fix
+is fail-closed: a detector refuses any edit whose formulas carry an unquoted
+non-ASCII qualifier, with regression tests and an end-to-end refusal check; the
+locked numbers stay as measured.
 We report each as a fixed defect. This is part of the contribution: a certify-or-refuse
 claim is only credible if its authors have tried hardest to break it — the record of
 what broke, and what the fix was, is the evidence that the remaining boundary is real,
@@ -665,17 +704,19 @@ the natural next steps.
 ## 8. Related work
 
 The 2026 wave of LLM-spreadsheet-agent benchmarks documents precisely our failure
-class — Spreadsheet-RL names index-shift and reference-translation hazards and
-enforces an inspect–modify–verify loop, MBABench and BlueFin score structure and
-formula transparency — but all three verify **engine-in-the-loop** (recalculate and
-read) or by rubric/LLM judge, which their authors themselves call "inherently
-ambiguous, difficult to verify"; none certifies offline. Spreadsheet analysis and
+class — Spreadsheet-RL [arXiv:2605.22642] names index-shift and reference-translation
+hazards and enforces an inspect–modify–verify loop; MBABench [arXiv:2605.22664] and
+BlueFin [arXiv:2605.30907] score structure and formula transparency — but all three
+verify **engine-in-the-loop** (recalculate and read) or by rubric/LLM judge, an
+evaluation MBABench's own authors call "inherently ambiguous, difficult to verify"
+(BlueFin similarly concedes theirs is "difficult to verify programmatically"); none
+certifies offline. Spreadsheet analysis and
 smell detection, structural-edit tools that reshape files without a fidelity
 property, and record/replay or unit-test approaches to spreadsheet correctness all
 differ from this work in the same way: they establish behavior on
 tested inputs, whereas we prove value-fidelity of the structural fragment for all
 inputs and all semantics, and gate untrusted edits on that proof. **Translation
-validation** (Pnueli et al.) and verified compilation are the closest methodological
+validation** [Pnueli, Siegel, Singerman, TACAS 1998] and verified compilation are the closest methodological
 analogues, and our production mode (§4.ii) is honestly an instance of TV's weakest
 form — accept iff the output equals a proven reference transform. The delta of this
 work over TV is twofold. First, the *direct-premise mode* (§4.i) does what TV does

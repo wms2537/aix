@@ -82,8 +82,8 @@
       "id": "T007",
       "phase": "6",
       "desc": "Granted final adversarial panel over integrated paper (\u00a75.9/abstract/\u00a75.8/\u00a76/\u00a78)",
-      "status": "in_progress",
-      "evidence": null,
+      "status": "done",
+      "evidence": "panel: 4x SOUND_WITH_SCOPE, chair B+ -> A- conditional accept; all gating fixes applied: sibling qualifier defect fail-closed guard (198 tests + e2e refusal), false-certify claim scoped, EUSES prefix disclosed, dbt provenance restated, 0.034% denominator, arXiv IDs + quote attribution, development-tier relabel; 017 post-review appendix",
       "parent": null
     }
   ],

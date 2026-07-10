@@ -89,3 +89,23 @@ is built to carry.
 2. On (a): fold test-tier results into the paper (new §5.9 + abstract/scope updates,
    fixture corpus relabeled development-tier), fix the encoding defect POST-analysis
    with regression, present final draft.
+
+## Post-review corrections (granted panel round, appended — original text above stands as history)
+
+The granted review round (research-log/progress 2026-07-10) corrected this entry's
+overclaims and found a live sibling defect:
+1. "never falsely certifies" (line ~48) was too strong: over-refusal under the
+   encoding defect is guaranteed only for CORRECTLY-ENCODING foreign tools; a foreign
+   tool with the identical Latin-1 misread would produce byte-identical corrupted
+   output and be certified. Paper §5.9 now carries the scoped statement.
+2. SIBLING DEFECT (live, reproduced by the panel): unquoted non-ASCII sheet
+   qualifiers (集計01!CI3) mis-tokenize under the ASCII-only qualifier grammar —
+   silent stale references; present ~4,110 times in the locked corpus; invisible to
+   the locked harness (truth grammar skips cross-sheet formulas — now disclosed in
+   §5.9). Fixed fail-closed (non_ascii_sheet_qualifier residual), 198 tests green,
+   end-to-end refusal verified. Locked numbers unchanged.
+3. EUSES sampling: the acquisition prefix (791/796 files = database category) was
+   deterministic and pre-inspection but NOT pre-registered; §5.9 now disclosed it and
+   tempers cross-corpus claims. dbt-leg provenance correctly restated as weaker
+   (single-commit attestation; fallback bypassed; 4th harness fix disclosed).
+4. Denominator fix: 0.034% is of the EUSES leg (113,164), not the combined 283,960.

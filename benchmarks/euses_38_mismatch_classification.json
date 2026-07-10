@@ -1,0 +1,25 @@
+{
+  "artifact": "EUSES locked-test 38-mismatch classification",
+  "derivation": "per-op mismatch counts from inthewild_euses.json (10/9/10/9); forensic replay of the insert-rows leg enumerated all 10 cells (research-log 'T003 EUSES classified' progress line): file 10341003.xlsx cells G8,B14..J14, every one carrying non-ASCII string literals; corpus scan found 10341003.xlsx is the only eligible file with non-ASCII literals in first-sheet formulas; delete ops lose one row-14-band cell each (9 vs 10)",
+  "insert_rows_cells_enumerated": [
+    "G8",
+    "B14",
+    "C14",
+    "D14",
+    "E14",
+    "F14",
+    "G14",
+    "H14",
+    "I14",
+    "J14"
+  ],
+  "file": "10341003.xlsx",
+  "defect": "UTF-8 double-encoding of non-ASCII string literals (fixed post-test, commit 73c7543)",
+  "per_op_counts": {
+    "insert-rows": 10,
+    "delete-rows": 9,
+    "insert-cols": 10,
+    "delete-cols": 9
+  },
+  "caveat": "the locked-run JSON itself caps mismatch_samples at 10; delete/cols cell lists are derived from counts + the single-file containment, not enumerated per-op"
+}
