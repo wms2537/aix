@@ -24,8 +24,9 @@
       "spent": 1
     },
     "paper_review_rounds": {
-      "limit": 2,
-      "spent": 2
+      "limit": 3,
+      "spent": 3,
+      "grant_note": "user granted 1 extra round 2026-07-10, quote: 'yes, do it' (in response to: 'if you want one more adversarial pass over \u00a75.9 before submission, that needs your explicit grant')"
     }
   },
   "tasks": [
@@ -76,6 +77,14 @@
       "status": "done",
       "evidence": "defect fix: cargo test 197 green incl. shift_preserves_non_ascii_literals; end-to-end on defect file literal intact; paper \u00a75.9 + abstract + \u00a76 + \u00a78 integrated, PDF 15pp rebuilt",
       "parent": "T003"
+    },
+    {
+      "id": "T007",
+      "phase": "6",
+      "desc": "Granted final adversarial panel over integrated paper (\u00a75.9/abstract/\u00a75.8/\u00a76/\u00a78)",
+      "status": "in_progress",
+      "evidence": null,
+      "parent": null
     }
   ],
   "parked_candidates": [
