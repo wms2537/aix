@@ -425,6 +425,17 @@ fn eq_sheet(a: &str, b: &str) -> bool {
 /// whole-column body) tries to parse a reference. A candidate is only treated
 /// as a reference if it carries a row number, or is an explicit column range
 /// (`A:A`) — a bare identifier (function name / defined name) is left alone.
+/// Length of the UTF-8 sequence starting with lead byte `b0`. The scanner walks
+/// bytes but must copy WHOLE scalars: `b[i] as char` reinterprets each byte as a
+/// Latin-1 codepoint, which re-encodes to two bytes on write — double-encoding
+/// that silently corrupted non-ASCII string literals (found by the in-the-wild
+/// locked test on a Japanese workbook, research-log/017). Inputs are valid &str,
+/// so lead bytes are well-formed and `i` always lands on a boundary.
+#[inline]
+fn utf8_len(b0: u8) -> usize {
+    if b0 < 0x80 { 1 } else if b0 >= 0xF0 { 4 } else if b0 >= 0xE0 { 3 } else { 2 }
+}
+
 pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) -> (String, u32) {
     let b = formula.as_bytes();
     let mut out = String::with_capacity(formula.len());
@@ -432,13 +443,13 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
     let mut shifted = 0u32;
     while i < b.len() {
         let c = b[i];
-        // string literal — copy verbatim
+        // string literal — copy verbatim (whole UTF-8 scalars, see utf8_len)
         if c == b'"' {
             out.push('"');
             i += 1;
             while i < b.len() {
-                out.push(b[i] as char);
                 if b[i] == b'"' {
+                    out.push('"');
                     i += 1;
                     if i < b.len() && b[i] == b'"' {
                         out.push('"');
@@ -447,7 +458,9 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
                     }
                     break;
                 }
-                i += 1;
+                let l = utf8_len(b[i]);
+                out.push_str(&formula[i..i + l]);
+                i += l;
             }
             continue;
         }
@@ -472,8 +485,9 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
                 continue;
             }
         }
-        out.push(c as char);
-        i += 1;
+        let l = utf8_len(c);
+        out.push_str(&formula[i..i + l]);
+        i += l;
     }
     (out, shifted)
 }
@@ -558,8 +572,8 @@ pub fn offset_formula(formula: &str, dr: i64, dc: i64) -> String {
             out.push('"');
             i += 1;
             while i < b.len() {
-                out.push(b[i] as char);
                 if b[i] == b'"' {
+                    out.push('"');
                     i += 1;
                     if i < b.len() && b[i] == b'"' {
                         out.push('"');
@@ -568,7 +582,9 @@ pub fn offset_formula(formula: &str, dr: i64, dc: i64) -> String {
                     }
                     break;
                 }
-                i += 1;
+                let l = utf8_len(b[i]);
+                out.push_str(&formula[i..i + l]);
+                i += l;
             }
             continue;
         }
@@ -584,8 +600,9 @@ pub fn offset_formula(formula: &str, dr: i64, dc: i64) -> String {
                 continue;
             }
         }
-        out.push(c as char);
-        i += 1;
+        let l = utf8_len(c);
+        out.push_str(&formula[i..i + l]);
+        i += l;
     }
     out
 }
@@ -791,6 +808,29 @@ mod tests {
 
     fn row_edit(op: Op, at: u32, count: u32) -> StructuralEdit {
         StructuralEdit { axis: Axis::Row, at, count, op, sheet: "Sheet1".into(), dest: 0 }
+    }
+
+    /// Regression for the in-the-wild locked test's real defect (research-log/017):
+    /// non-ASCII string literals were double-encoded (`b[i] as char` = Latin-1
+    /// misread) — refs shifted correctly but literal TEXT silently corrupted.
+    /// The exact shape from the Japanese EUSES workbook, plus mixed-plane checks.
+    #[test]
+    fn shift_preserves_non_ascii_literals() {
+        let f = r#"IF(C8="","",IF(C8=$IA$4,"大当たり！","はずれ！もう一度考えよう！"))"#;
+        let (out, n) = shift_formula(f, "Sheet1", &row_edit(Op::Insert, 2, 1));
+        assert_eq!(out, r#"IF(C9="","",IF(C9=$IA$5,"大当たり！","はずれ！もう一度考えよう！"))"#);
+        assert_eq!(n, 3);
+        // 2-byte (é), 3-byte (○), 4-byte (𝄞) scalars inside and outside literals
+        let g = r#"IF(A5=1,"café ○ 𝄞","×")&B5"#;
+        let (out2, n2) = shift_formula(g, "Sheet1", &row_edit(Op::Insert, 2, 1));
+        assert_eq!(out2, r#"IF(A6=1,"café ○ 𝄞","×")&B6"#);
+        assert_eq!(n2, 2);
+    }
+
+    #[test]
+    fn offset_preserves_non_ascii_literals() {
+        let out = offset_formula(r#"IF(B2="","",$A$1&"○×表")"#, 1, 0);
+        assert_eq!(out, r#"IF(B3="","",$A$1&"○×表")"#);
     }
     fn col_edit(op: Op, at: u32, count: u32) -> StructuralEdit {
         StructuralEdit { axis: Axis::Col, at, count, op, sheet: "Sheet1".into(), dest: 0 }

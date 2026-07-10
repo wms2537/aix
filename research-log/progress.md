@@ -15,3 +15,4 @@
 2026-07-10 | P5 | incident | done | Enron leg hung 2h on one file (buggy-harness run, discarded anyway); killed by PID; per-file 300s watchdog added to harness (timed-out files SKIPPED+COUNTED, disclosed); certify subprocess timeout 240s; fixture spot-check clean
 2026-07-10 | P5 | T003 LOCKED RUN COMPLETE | done | Enron: 170796 cells 0 mismatch (xlq 100%), prevalence 89.2%, q 0.566 k999=20; combined: 283960 cells / 38 mismatch (one encoding defect) / 0 ref-shift errors / 0 FALSE CERTS in 503 foreign certifies; ledger filled, 017 written
 2026-07-10 | P5 | T005 publish decision | done | user: "(a) Contribution paper (Recommended)"; Phase 5 gate complete, phase -> 6
+2026-07-10 | P6 | T006 defect fix | done | UTF-8 double-encoding fixed (utf8_len whole-scalar copy in shift_formula + offset_formula); 2 regression tests (exact locked-test shape + 2/3/4-byte planes); 197 tests green; end-to-end on the defect file: literal intact, refs shifted
