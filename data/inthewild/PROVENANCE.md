@@ -88,3 +88,97 @@ records). Handling is confined to this machine per recorded user consent. Spread
 contents were not opened or analyzed during acquisition; the only processing was format
 conversion (LibreOffice) and file counting. All spreadsheet files are git-ignored
 (`data/` is excluded from the repo; only this PROVENANCE.md is tracked).
+
+---
+
+# v2 acquisition (2026-07-10, pre-registered locked test v2 — research-log/018)
+
+Acquired for LOCKED TEST V2. Download/convert/extract only; no spreadsheet contents were
+opened or analyzed. Conversion tool: LibreOffice 24.8.7.2 headless (same as v1); sampling
+Python 3.14.3. Same batch method as v1 throughout: sequential batches of 25, dedicated
+LibreOffice profile dir (`-env:UserInstallation`), 300 s timeout per batch, one retry per
+failed batch, failures recorded.
+
+## 1. EUSES v2 — full-corpus conversion (`euses/converted_v2/`)
+
+- **Scope**: ALL 4,652 raw `.xls` under `euses/raw/` (same archive as v1; no new download).
+- **Layout note (disclosed)**: `converted_v2/` mirrors the raw relative directory structure
+  (`<category>/<subdir>/<name>.xlsx`) instead of v1's flat layout: the full corpus has 149
+  exact output-basename collisions that a flat outdir would silently overwrite. The batch
+  method itself is unchanged; a batch spanning >1 raw dir is run as one soffice invocation
+  per raw dir within the batch.
+- **v1 prefix reused**: the 796 v1-converted files were **copied** (not moved, not
+  reconverted) from `euses/converted/` into their mirrored `converted_v2/` locations. The
+  bytewise-sorted full-corpus list's first 800 entries were verified identical to v1's
+  `first800.lst` before splitting.
+- **Remaining 3,852** (sorted positions 801–4,652) converted 2026-07-10: **3,852 OK, 0
+  failures** (log: `euses/convert_v2.log`).
+- **v1's 4 failed files** (all `database/bad/`, "source file could not be loaded") were
+  re-attempted once via the same method: all 4 failed again → recorded in
+  `euses/failed_v2.lst`.
+- **Totals**: `converted_v2/` = **4,648** `.xlsx` of 4,652 raw; failures **4**.
+- Per-category converted composition: cs101 9, database 798, filby 45, financial 809,
+  forms3 26, grades 676, homework 691, inventory 795, jackson 13, modeling 781, personal 5.
+
+## 2. Enron v2 — seeded-random sample (`enron/raw_v2/`, `enron/converted_v2/`)
+
+- **Sample rule (pre-registered)**: list all **20,872** `.xls` member paths of the retained
+  archive `enron/enron_xls-master.zip`; sort bytewise (all paths ASCII; key =
+  UTF-8-encoded path, equivalent to LC_ALL=C); draw
+  `random.Random(20260710).sample(sorted_paths, 1500)` (Python 3.14.3). Seed **20260710**.
+  Sample recorded as drawn in `enron/sample1500_v2.lst`.
+- **Extraction**: exactly those 1,500 members extracted to `enron/raw_v2/` (top-level
+  `enron_xls-master/` prefix stripped, as in v1; all fall under `edrm/`). **1,500 files,
+  448 MB.**
+- **Conversion**: first **800** of the sample in bytewise-sorted full-path order
+  (`enron/first800_v2.lst`), same batch method, output `enron/converted_v2/` (mirrored
+  relative layout, i.e. `edrm/…xlsx`; no basename collisions among the 800).
+  - Converted OK: **799** of 800
+  - Failures: **1** (`enron/failed_v2.lst`; one retry, then recorded). Log:
+    `enron/convert_v2.log`.
+
+## 3. dbt v2 — two additional public dbt projects (`dbt/v2/`)
+
+**Acquisition rule (pre-registered, research-log/018 L6)**: the two most-starred GitHub
+search hits at acquisition time for REAL (non-demo, non-tutorial) public dbt projects with
+a `models/` directory of ≥50 `.sql` files; `mattermost/mattermost-data-warehouse` excluded
+(already used in v1). Downloaded as codeload branch tarballs; tarballs retained.
+
+1. **duneanalytics/spellbook** — Dune Analytics' production "SQL views for Dune" repo.
+   - Stars at acquisition: **1,506**. License: **Business Source License 1.1** (BUSL-1.1;
+     repo `LICENSE`).
+   - Source: `https://codeload.github.com/duneanalytics/spellbook/tar.gz/refs/heads/main`,
+     fetched 2026-07-10; branch HEAD at acquisition:
+     `a1c0ed8561c0c61c70f2886a894ad909289a72af` (2026-07-09T12:57:18Z).
+   - sha256(`dbt/v2/spellbook.tar.gz`, 92,477,958 B):
+     `a6de826f51152c4138a9e1d762d2194db9c2ce01285e23031739c14195900165`
+   - Extracted to `dbt/v2/spellbook/` (tarball top dir `spellbook-main/` stripped).
+   - Model count: **7,419** `.sql` under `models/` dirs (excluding `macros/`), organized
+     as 5 dbt subprojects under `dbt_subprojects/`: daily_spellbook 2,484;
+     hourly_spellbook 2,190; dex 1,819; tokens 664; solana 262.
+2. **cal-itp/data-infra** — California Integrated Travel Project's production data
+   infrastructure (dbt warehouse under `warehouse/`).
+   - Stars at acquisition: **69**. License: **AGPL-3.0** (repo `LICENSE`).
+   - Source: `https://codeload.github.com/cal-itp/data-infra/tar.gz/refs/heads/main`,
+     fetched 2026-07-10; branch HEAD at acquisition:
+     `04734927ce903502381597f4e3f0d3225facc8a4` (2026-07-09T23:24:11Z).
+   - sha256(`dbt/v2/data-infra.tar.gz`, 338,649,099 B):
+     `3e3e27e66007210ca21a061e61944ba70d8a1d101e6fb67dbeed845df0b252c6`
+   - Extracted to `dbt/v2/data-infra/` (top dir `data-infra-main/` stripped).
+   - Model count: **619** `.sql` under `warehouse/models/`.
+
+**Higher-starred candidates considered and excluded (disclosure)**:
+`matsonj/nba-monte-carlo` (604★ — README: "end to end example of running the 'Modern Data
+Stack' on a single node" → demo/showcase); `dagster-io/dagster-open-platform` (463★ — only
+1 `.sql` under `models/` at HEAD, fails the ≥50-model rule); `Levers-Labs/SOMA-B2B-SaaS`
+(385★ — reference spec/template, not an operating project's warehouse; no license file);
+`rittmananalytics/ra_data_warehouse` (270★ — a dbt *package* of pre-built models, not a
+project); `gitlab-data/analytics` (hosted on gitlab.com — no GitHub codeload tarball);
+FlipsideCrypto per-chain model repos (archived or removed).
+
+## v2 data-handling note
+
+Same as v1: Enron data handling confined to this machine per recorded user consent; no
+spreadsheet contents opened; processing limited to zip listing/extraction, format
+conversion, and file counting. All corpus files remain git-ignored; only this
+PROVENANCE.md is tracked.

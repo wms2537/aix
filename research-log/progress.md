@@ -24,3 +24,5 @@
 2026-07-10 | P4 | T011 repro package | done | repro/verify_claims.py: 102 claims (94 artifact + 8 live formal), 101 PASS 0 FAIL 1 env-SKIP, self-tested non-vacuous; verified first-hand; shift_laws.out.txt refreshed (14 PROVED)
 2026-07-10 | P4 | iter4 COMPLETE | done | T008 middle-ground theorems; T009 verified tokenizer + 1.81M differential (0 disagreements, 3rd defect found+fixed); T010 cost breakdown (externalLinks lever + artifact attribution); T011 repro 102/0
 2026-07-10 | P5 | iter5 v2 in flight | in_progress | pre-registered (018) + ledger rows committed; harness fixes applied + dev-identity verified; v2 runner smoked; corpora converting in background
+2026-07-10 | P5 | v2 acquisition | done | EUSES-full 4648/4652 converted (11 categories, layout deviation disclosed), Enron seeded-random 799/800, dbt: spellbook (1506 stars, BUSL-1.1, 7419 models) + cal-itp/data-infra (AGPL-3.0, 619 models); PROVENANCE v2 recorded
+2026-07-10 | P5 | V2 LOCKED RUN START | in_progress | irreversible: xlsx legs euses_v2+enron_v2 (cap 500) + q legs + dbt legs, run once
