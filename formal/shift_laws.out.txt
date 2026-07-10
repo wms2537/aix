@@ -4,3 +4,11 @@ PROVED: insert preserves order (monotone)
 PROVED: delete preserves order on survivors
 PROVED: 6-case clamp_lo matches shifted first-survivor
 PROVED: 6-case clamp_hi matches shifted last-survivor
+PROVED: move-down σ is injective
+PROVED: move-up σ is injective
+PROVED: move-down σ is surjective on [1,M] (inverse pre-image in grid)
+PROVED: move-up σ is surjective on [1,M] (inverse pre-image in grid)
+PROVED: move-down σ maps [1,M] into [1,M]
+PROVED: move-up σ maps [1,M] into [1,M]
+PROVED: move-down preserves order within the moved block
+PROVED: move-up preserves order within the moved block
