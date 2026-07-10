@@ -25,11 +25,12 @@
       "spent": 1
     },
     "paper_review_rounds": {
-      "limit": 5,
-      "spent": 5,
+      "limit": 6,
+      "spent": 6,
       "grant_note": "user granted 1 extra round 2026-07-10, quote: 'yes, do it' (in response to: 'if you want one more adversarial pass over \u00a75.9 before submission, that needs your explicit grant')",
       "grant_note_2": "user granted round 4, quote 2026-07-10: 'then run another adversarial panel clean'; spent at dispatch",
-      "grant_note_3": "user granted round 5, quote 2026-07-10: 'then the fix list completed? if completed then go another round'; spent at dispatch"
+      "grant_note_3": "user granted round 5, quote 2026-07-10: 'then the fix list completed? if completed then go another round'; spent at dispatch",
+      "grant_note_4": "user granted round 6 (confirming), quote 2026-07-10: 'go the cinfirming riund'; spent at dispatch"
     }
   },
   "tasks": [
@@ -143,6 +144,14 @@
       "desc": "Granted panel round 5 over the fix-completed paper",
       "status": "done",
       "evidence": "round-5 chair: A-, fix list NOT complete (2 more silent no-ops + fix-introduced errors + unverified transcribed numbers). ALL 6 residuals now fixed with MY OWN recomputation (6-category composition, 163/500, 27/362 confirmed first-hand), assert-guarded edits, prose-consistency checks mechanized in verify_claims (121 claims 120 PASS 0 FAIL incl. 3 prose sweeps over md/build/tex)",
+      "parent": null
+    },
+    {
+      "id": "T015",
+      "phase": "6",
+      "desc": "Confirming round over the round-5 residual fixes",
+      "status": "in_progress",
+      "evidence": null,
       "parent": null
     }
   ],
