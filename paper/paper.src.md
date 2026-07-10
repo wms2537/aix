@@ -37,7 +37,7 @@ theory declares trusted-not-proven, and every one since fixed; two earlier false
 certifications, found and closed by our own reviews, are likewise on the record
 (§6). An independent claims harness
 re-verifies the paper's headline numbers against their committed artifacts and
-gates every build; the manuscript's numeric content is generated from those
+gates every build; the manuscript's headline numeric content is generated from those
 artifacts, not hand-written.
 
 ## 1. Introduction
@@ -92,7 +92,7 @@ Our claims, in order of strength:
    what the production tokenizer cannot parse (full accounting at Theorem 7, §4).
 4. **(Generality + corroboration, reported with confounds.)** The same
    format-parametric core certifies dbt model refactors engine-free on
-   adapter-covered subgraphs (§5.6) — coverage that reached 40% on one production
+   adapter-covered subgraphs (§5.6) — coverage that reached {{dbt_mattermost_coverage_round}} on one production
    project and 0–14% on two macro-heavy ones, a non-transfer we report plainly
    (§5.10); an
    engine-free foreign-edit battery, an independent-oracle A/B, and a
@@ -407,7 +407,7 @@ On the **real** corpus across all four ops we check shift correctness
 confounded — LibreOffice recomputes exotic financial/date functions (ACCRINT, CUMPRINC,
 DB, DAYS360, TIME) inconsistently with the Excel cache, flagging as "corrupt" files
 whose shifted formulas we verified correct by hand. So we compare xlq's output formulas
-to the two-engine-validated reference shifter over ~6,000 real formula cells
+to the two-engine-validated reference shifter over {{dev_cells_total}} real formula cells
 (`shift_correctness_real.py`): **xlq is 100% correct on every op** (insert-rows 1651
 cells, delete-rows 1608, insert-cols 1648, delete-cols 1076; 0 mismatches), while the
 naive path leaves 17–72% of shift-requiring cells wrong. Constructs the simple checker
@@ -527,7 +527,7 @@ corruption in both arms; sloppy: all seven injected corruptions blocked).
 Results: the careful agent erred on 2/21 tasks, the hasty agent on 4/21 (six saves
 total across the two arms — which share tasks and model, so they are not independent
 runs — spanning four distinct workbooks; with n this small we report counts, not
-rates: 6/6 blocked has a 95% binomial lower bound of 0.54). Unguarded, all six
+rates: 6/6 blocked has a 95% binomial lower bound of {{binom_lb_6}}). Unguarded, all six
 erroneous artifacts ship as silent corruption; four are content errors and two are
 protocol-keying errors (the agent's formulas were right but returned under shifted
 addresses — interface-dependent corruption, still corruption as shipped). Guarded,
@@ -695,9 +695,9 @@ partial.**
 
 - **Shift correctness: {{v2_cellchecks_total}} cell-checks across five ops, zero mismatches**
   (EUSES {{v2_euses_cellchecks}}; Enron {{v2_enron_cellchecks}}; a cell checked under several ops counts once per
-  op — distinct physical cells ≤ ~227,879). Checked volume grew {{v2_enron_growth}} on Enron
+  op — distinct physical cells ≤ {{v2_distinct_cells_bound}}). Checked volume grew {{v2_enron_growth}} on Enron
   and {{v2_euses_growth}} on EUSES — both confounded: Enron v2 is a seeded-random *resample*
-  (zero byte overlap between the converted corpora), and EUSES has 3.1× more files, on
+  (zero byte overlap between the converted corpora), and EUSES has {{euses_file_growth}} more files, on
   top of the widened grammar and the fifth op. The new fail-closed guard refused three
   real non-ASCII-qualifier files in the wild.
 - **Zero false certifications on {{v2_foreign_edits}} further foreign edits** ({{v2_euses_opx}} EUSES + {{v2_enron_opx}}
@@ -717,7 +717,7 @@ partial.**
   the fuller samples simply carry more denylist parts), with **externalLinks the
   sole cause of {{extlink_sole_pct}} of Enron's denylist refusals** (zip-grounded attribution,
   generator committed) — verifying that one part class would roughly halve the
-  cost. Prevalence on the EUSES cap sample: {{v2_euses_prevalence_pct}}, *above* v1's database-category
+  cost. Prevalence: {{v2_euses_prevalence_pct}} on the EUSES cap sample ({{v2_enron_prevalence_pct}} on Enron-random), *above* v1's database-category
   69.3% (our "lower" prediction disconfirmed — the cap's database+financial mix is
   richer in formulas, not poorer).
 - **Two-model agent study** (21 tasks — the corpus's honest ceiling — × fast/mid
@@ -734,7 +734,7 @@ partial.**
   {{dbt_spellbook_models}}-model `daily_spellbook` subproject of the 7.5k-model spellbook repo — every
   one of its models opens with a `{{ config() }}` macro the fail-closed adapter
   treats as dynamic) and {{dbt_calitp_coverage_pct}} (cal-itp, {{dbt_calitp_models}} models) adapter coverage. The Mattermost
-  40% is not representative of macro-heavy production dbt; the format-parametric
+  {{dbt_mattermost_coverage_round}} is not representative of macro-heavy production dbt; the format-parametric
   claim holds at the theory level, the current adapter subset does not, and we say
   so plainly (config-stripping, semantically inert for the dependency graph, is the
   disclosed future-work lever).
@@ -822,7 +822,7 @@ non-value-bearing and foreign tools legitimately vary it; a certified file may d
 from the transform there without affecting any value. Value edits are out of the exact
 tier by construction. The **trusted base** (narrowed by Theorems 3 and 7, not eliminated) is:
 the *production* byte→token parse — now reduced to its conformance with the verified
-reference tokenizer on the model surface (empirical: the 1.81M-comparison
+reference tokenizer on the model surface (empirical: the {{diff_requests_m}}-comparison
 differential) plus the ASCII-sheet-qualified surface the model does not cover; the
 correctness of the shift map `σ` itself (the Z3-proved arithmetic, not re-proved in
 the graph layer); the asymmetric six-case delete clamp and its `#REF!` outcomes; the

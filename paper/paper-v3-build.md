@@ -43,7 +43,7 @@ theory declares trusted-not-proven, and every one since fixed; two earlier false
 certifications, found and closed by our own reviews, are likewise on the record
 (§6). An independent claims harness
 re-verifies the paper's headline numbers against their committed artifacts and
-gates every build; the manuscript's numeric content is generated from those
+gates every build; the manuscript's headline numeric content is generated from those
 artifacts, not hand-written.
 
 # 1. Introduction
@@ -413,7 +413,7 @@ On the **real** corpus across all four ops we check shift correctness
 confounded — LibreOffice recomputes exotic financial/date functions (ACCRINT, CUMPRINC,
 DB, DAYS360, TIME) inconsistently with the Excel cache, flagging as "corrupt" files
 whose shifted formulas we verified correct by hand. So we compare xlq's output formulas
-to the two-engine-validated reference shifter over ~6,000 real formula cells
+to the two-engine-validated reference shifter over 5,983 real formula cells
 (`shift_correctness_real.py`): **xlq is 100% correct on every op** (insert-rows 1651
 cells, delete-rows 1608, insert-cols 1648, delete-cols 1076; 0 mismatches), while the
 naive path leaves 17–72% of shift-requiring cells wrong. Constructs the simple checker
@@ -723,7 +723,7 @@ partial.**
   the fuller samples simply carry more denylist parts), with **externalLinks the
   sole cause of 64% of Enron's denylist refusals** (zip-grounded attribution,
   generator committed) — verifying that one part class would roughly halve the
-  cost. Prevalence on the EUSES cap sample: 94.6%, *above* v1's database-category
+  cost. Prevalence: 94.6% on the EUSES cap sample (91.16% on Enron-random), *above* v1's database-category
   69.3% (our "lower" prediction disconfirmed — the cap's database+financial mix is
   richer in formulas, not poorer).
 - **Two-model agent study** (21 tasks — the corpus's honest ceiling — × fast/mid

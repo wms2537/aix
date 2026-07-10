@@ -20,8 +20,11 @@ paper/paper.src.md — prose with {{fact_name}} placeholders
         │    · pandoc error / missing glyph                     → ABORT
         ▼
 paper/.staging/{md, build.md, tex, pdf}    ← everything renders HERE first
+        │    (os.makedirs without exist_ok atomically claims the staging dir —
+        │     a concurrent build aborts instead of racing)
         │  repro/verify_claims.py runs against STAGING (PAPER_DIR env):
-        │    · 126+ artifact claims (independent, separately-written extraction)
+        │    · the full independent claim table (separately-written extraction; run
+        │      verify_claims.py for the current count — it is not hand-maintained here)
         │    · gated-phrase sweep (same shared list: repro/gated_phrases.json)
         │    · CONSISTENCY GUARD: re-renders paper.src.md and byte-compares
         │      against the generated md/build.md — hand-edits to generated

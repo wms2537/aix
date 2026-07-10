@@ -107,8 +107,8 @@ the layer the theory declares trusted-not-proven, and every one since
 fixed; two earlier false certifications, found and closed by our own
 reviews, are likewise on the record (§6). An independent claims harness
 re-verifies the paper's headline numbers against their committed
-artifacts and gates every build; the manuscript's numeric content is
-generated from those artifacts, not hand-written.
+artifacts and gates every build; the manuscript's headline numeric
+content is generated from those artifacts, not hand-written.
 
 \section{1. Introduction}\label{introduction}
 
@@ -586,16 +586,15 @@ real-corpus value-preservation is confounded --- LibreOffice recomputes
 exotic financial/date functions (ACCRINT, CUMPRINC, DB, DAYS360, TIME)
 inconsistently with the Excel cache, flagging as ``corrupt'' files whose
 shifted formulas we verified correct by hand. So we compare xlq's output
-formulas to the two-engine-validated reference shifter over
-\textasciitilde6,000 real formula cells
-(\texttt{shift\_correctness\_real.py}): \textbf{xlq is 100\% correct on
-every op} (insert-rows 1651 cells, delete-rows 1608, insert-cols 1648,
-delete-cols 1076; 0 mismatches), while the naive path leaves 17--72\% of
-shift-requiring cells wrong. Constructs the simple checker cannot
-independently verify (whole-column/row, cross-sheet, tables,
-range-with-function endpoint) are skipped, not guessed; every early
-``mismatch'' was a checker bug (comparing a deleted-band cell to the
-wrong output cell; the reference shifter not handling \texttt{F:F},
+formulas to the two-engine-validated reference shifter over 5,983 real
+formula cells (\texttt{shift\_correctness\_real.py}): \textbf{xlq is
+100\% correct on every op} (insert-rows 1651 cells, delete-rows 1608,
+insert-cols 1648, delete-cols 1076; 0 mismatches), while the naive path
+leaves 17--72\% of shift-requiring cells wrong. Constructs the simple
+checker cannot independently verify (whole-column/row, cross-sheet,
+tables, range-with-function endpoint) are skipped, not guessed; every
+early ``mismatch'' was a checker bug (comparing a deleted-band cell to
+the wrong output cell; the reference shifter not handling \texttt{F:F},
 which xlq correctly shifts to \texttt{G:G}), and xlq had zero real
 errors.
 
@@ -995,10 +994,10 @@ Scored: \textbf{5 confirm / 3 disconfirm / 2 partial.}
   simply carry more denylist parts), with \textbf{externalLinks the sole
   cause of 64\% of Enron's denylist refusals} (zip-grounded attribution,
   generator committed) --- verifying that one part class would roughly
-  halve the cost. Prevalence on the EUSES cap sample: 94.6\%,
-  \emph{above} v1's database-category 69.3\% (our ``lower'' prediction
-  disconfirmed --- the cap's database+financial mix is richer in
-  formulas, not poorer).
+  halve the cost. Prevalence: 94.6\% on the EUSES cap sample (91.16\% on
+  Enron-random), \emph{above} v1's database-category 69.3\% (our
+  ``lower'' prediction disconfirmed --- the cap's database+financial mix
+  is richer in formulas, not poorer).
 \item
   \textbf{Two-model agent study} (21 tasks --- the corpus's honest
   ceiling --- × fast/mid tiers): the mid-tier model made the study's one

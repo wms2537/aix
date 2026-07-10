@@ -168,8 +168,8 @@
       "id": "T017",
       "phase": "6",
       "desc": "Round 8: certification of the hardened system + final A+ ruling",
-      "status": "in_progress",
-      "evidence": null,
+      "status": "done",
+      "evidence": "ROUND 8 CHAIR RULING (pinned f8c012a): round-7 closure CERTIFIED (3x CERTIFIED_WITH_NOTES, ZERO gating findings \u2014 first empty gating list of the arc; every mechanism re-executed by hostile certifiers incl. a live build race and same-length byte tamper). FINAL GRADE: A+ \u2014 condition met. Submission verdict: submit after listed polish P1-P5 \u2014 ALL FIVE now applied (rounded facts derived+injected, residual numbers injected, harness sentence scoped exactly, uninjected facts homed, BUILD.md de-quantified + lock documented, makedirs-is-the-guard), build green",
       "parent": null
     }
   ],

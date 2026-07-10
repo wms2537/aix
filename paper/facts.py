@@ -134,6 +134,16 @@ def facts():
     F["smoke_prefix_refusals"] = str(sp5)                        # 5
     F["smoke_postfix_refusals"] = str(sp4)                       # 4
 
+    # ---- rounded/derived variants (round-8 polish: rounded restatements must be
+    # derived too, or hand-rounded copies silently outlive artifact changes) ----
+    F["dbt_mattermost_coverage_round"] = f"{dm['coverage']['parse_coverage'] * 100:.0f}%"   # 40%
+    F["diff_requests_m"] = f"{td['requests'] / 1e6:.2f}M"                                    # 1.81M
+    e2_ins = e2["leg1_shift_correctness"]["insert-rows"]["cells_checked"]
+    n2_ins = n2["leg1_shift_correctness"]["insert-rows"]["cells_checked"]
+    F["v2_distinct_cells_bound"] = "~" + n(e2_ins + n2_ins)                                  # ~227,879
+    F["euses_file_growth"] = f"{500 / 163:.1f}×"                                             # 3.1×
+    F["binom_lb_6"] = f"{0.025 ** (1 / 6):.2f}"                                              # 0.54
+
     # ---- dev-tier headline (§5.2) ----
     F["ab_confirmed_pct"] = "85.5%"   # 147/172, per EDIT_PATH_AB.md correction
     scr = J("benchmarks/shift_correctness_real.json")
