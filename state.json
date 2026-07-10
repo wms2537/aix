@@ -1,7 +1,7 @@
 {
-  "phase": "6",
+  "phase": "4",
   "cycle": 1,
-  "iteration": 3,
+  "iteration": 4,
   "entry_mode": "idea",
   "project_type": "empirical",
   "project_type_note": "empirical/systems with a machine-checked theoretical core (Lean 4 + Z3, sorry-free); theoretical claims ledger lives in formal/ and is closed",
@@ -17,7 +17,8 @@
   "budgets": {
     "research_iterations": {
       "limit": 5,
-      "spent": 3
+      "spent": 4,
+      "grant_note": "iterations 4+5 authorized 2026-07-10, user quote: 'try your best to close the gap please' (in response to the A+ gap assessment)"
     },
     "hypothesis_review_rounds": {
       "limit": 2,
@@ -84,6 +85,46 @@
       "desc": "Granted final adversarial panel over integrated paper (\u00a75.9/abstract/\u00a75.8/\u00a76/\u00a78)",
       "status": "done",
       "evidence": "panel: 4x SOUND_WITH_SCOPE, chair B+ -> A- conditional accept; all gating fixes applied: sibling qualifier defect fail-closed guard (198 tests + e2e refusal), false-certify claim scoped, EUSES prefix disclosed, dbt provenance restated, 0.034% denominator, arXiv IDs + quote attribution, development-tier relabel; 017 post-review appendix",
+      "parent": null
+    },
+    {
+      "id": "T008",
+      "phase": "4",
+      "desc": "ITER 4: middle-ground theorems in Lean \u2014 copy_certifiable (witnessed argument values force the value) + copy_uncertifiable (unwitnessed args admit disagreeing O-consistent engines): bracket -> characterization at the oracle level",
+      "status": "open",
+      "evidence": null,
+      "parent": null
+    },
+    {
+      "id": "T009",
+      "phase": "4",
+      "desc": "ITER 4: verified trusted layer \u2014 Tokenizer.lean (lossless render\u2218tokenize=id, literal opacity, ref-extraction linking to RefShift \u03c3, fail-closed non-ASCII qualifier) + corpus-scale differential vs the Rust tokenizer",
+      "status": "open",
+      "evidence": null,
+      "parent": null
+    },
+    {
+      "id": "T010",
+      "phase": "4",
+      "desc": "ITER 4: fail-closed cost breakdown (which denylist parts dominate own-refusals) + extend certify's compare surface to the top class, dev-tier validated; in-the-wild flip-count flagged exploratory",
+      "status": "open",
+      "evidence": null,
+      "parent": null
+    },
+    {
+      "id": "T011",
+      "phase": "4",
+      "desc": "repro package: one command regenerates every paper table from committed artifacts",
+      "status": "open",
+      "evidence": null,
+      "parent": null
+    },
+    {
+      "id": "T012",
+      "phase": "5",
+      "desc": "ITER 5: locked test v2 pre-registration + run (full EUSES all categories, seeded random Enron sample, 5 ops, cross-sheet truth grammar, agent study n>=100 x 2 models, more dbt projects)",
+      "status": "open",
+      "evidence": null,
       "parent": null
     }
   ],
