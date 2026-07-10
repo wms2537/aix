@@ -43,8 +43,8 @@ mislabels — while the certified path corrupts none; and TWO pre-registered, ru
 **locked tests on external corpora** — EUSES, Enron, and production dbt projects —
 in which the guard made **zero false certifications across 1,370 foreign-edit calls**
 (v1: 518, surfacing the first of three real defects, all found by our own
-verification machinery in the trusted byte layer and since fixed; v2: 852 further,
-with zero errors across 1,006,997 cell-checks over five operations), measured
+verification machinery in the trusted byte layer and since fixed; v2: 852 further; and zero
+mismatches across 1,006,997 cell-checks over five operations), measured
 fail-closed cost of 19.6–34.3%, and value-collision evidence that sampling-based
 checking needs up to 237 cells per file for 99.9% confidence on one real corpus)
 corroborates it, and we report
@@ -298,8 +298,9 @@ the router, and we are precise about which carries which guarantee. *(i)
 Direct-premise mode* implements Theorem 4's `check` literally: extract both artifacts
 into `(skeleton, deps, oracle)` triples and decide the premise — skeletons preserved,
 dependency lists the `σ`-image, containment (no unaccounted nodes), oracle values
-preserved outside any declared fill cone. Its accept class is exactly the certifiable
-class of §3 — any tool's faithful edit, regardless of bytes — and its soundness is
+preserved outside any declared fill cone. Its accept class is exactly the proven-certifiable
+relabeling class of §3 — any tool's faithful *relabeling*, regardless of bytes —
+and its soundness is
 `check_sound`. The deployed implementation agrees with the Lean decision procedure
 (run via `#eval`) on a randomized differential battery of faithful edits and four
 botch classes — skeleton change, dependency reorder, retarget, dropped dependency —
@@ -708,11 +709,11 @@ partial.**
   (EUSES 316,746; Enron 690,251; a cell checked under several ops counts once per
   op — distinct physical cells ≤ ~227,879). Checked volume grew 4.0× on Enron
   and 2.8× on EUSES — both confounded: Enron v2 is a seeded-random *resample*
-  (zero byte overlap with v1's prefix sample), and EUSES has 3.1× more files, on
+  (zero byte overlap between the converted corpora), and EUSES has 3.1× more files, on
   top of the widened grammar and the fifth op. The new fail-closed guard refused three
   real non-ASCII-qualifier files in the wild.
 - **Zero false certifications on 852 further foreign edits** (496 EUSES + 356
-  Enron; ~164 EUSES files repeat v1's deterministic edit byte-identically, the
+  Enron; 163 EUSES files repeat v1's deterministic edit byte-identically, the
   rest are fresh) — with v1, 1,370 foreign-edit calls have produced no false
   certification (fail-closed errors and timeouts counted separately and disclosed
   per leg).
@@ -795,9 +796,12 @@ range-kind parse (`A2:CHOOSE(...)` — a range whose tail is a function call)
 `SUM` by accident, wrong for `COUNT`-class functions (3 disagreements in 1,810,796
 comparisons, all this shape). Fixed with regressions; the post-fix differential
 agrees everywhere on the model surface; and the fix *measurably reduced the guard's
-cost* — the like-for-like synthetic arm's refusals of correct work fell 5 → 4, and
-the live arms went 0/2 (v1) → 0/0 (v2) (§5.10) — because the previously-documented
-guard-vs-tool divergence on this construct disappeared. Three defects, three layers of the same trusted surface, each found by
+cost*: the like-for-like synthetic arm's refusals of correct work fell 5 → 4 —
+exactly the one refusal class the fix addressed, because the previously-documented
+guard-vs-tool divergence on this construct disappeared (§5.10). The live arms also
+went 0/2 (v1) → 0/0 (v2), but across different agent conditions and with v1's two
+refusals on unrelated constructs — confounded corroboration, not part of the
+measured effect. Three defects, three layers of the same trusted surface, each found by
 the project's own verification machinery.
 We report each as a fixed defect. This is part of the contribution: a certify-or-refuse
 claim is only credible if its authors have tried hardest to break it — the record of

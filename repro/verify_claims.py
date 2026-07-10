@@ -782,28 +782,34 @@ expect("v2-smoke-postfix", "§5.10 smoke 5->4", "refused_correct = 4", SPX,
 
 
 
-# ---- Prose-consistency checks (round-5 lesson: silent replacement no-ops) ----
-# Each phrase was GATED by an adversarial round; its reappearance in the paper or
-# tex is a regression. Checked mechanically because three separate fix passes each
-# left at least one stale copy behind.
+# ---- Prose-consistency checks (rounds 4-6 lesson: silent replacement no-ops) ----
+# Each phrase was GATED by an adversarial round; its reappearance is a regression.
+# Matching is WHITESPACE-NORMALIZED (round 6: the md hard-wraps lines, so a raw
+# substring sweep missed a wrapped gated phrase) and paths are ROOT-anchored
+# (round 6: bare relative paths made the sweep silently self-disable off-root).
 FORBIDDEN_PHRASES = [
     "fell from 5 to 0", "EUSES-full)", "stated open", "shares no files",
-    "identical files, so the growth", "164 of the 500",
-    "four categories (cs101 9", "452,384 unique real formulas ×",
-    "from v1's 5", "7,419- and",
+    "identical files, so the growth", "164 of the 500", "164 EUSES files",
+    "categories (cs101 9",                       # round-6 fix: bold-insensitive form
+    "452,384 unique real formulas ×", "from v1's 5", "7,419- and",
+    "exactly the certifiable class of",          # round-6: the thrice-missed §4.i phrase
+    "went 0/2 (v1) → 0/0 (v2) (§5.10) — because",  # round-6: live-arm causal overclaim
 ]
 def _prose_checks():
+    import re as _re
     rows = []
-    for path in ("paper/paper-v3.md", "paper/paper-v3-build.md", "paper/paper-v3.tex"):
+    for rel in ("paper/paper-v3.md", "paper/paper-v3-build.md", "paper/paper-v3.tex"):
+        path = os.path.join(ROOT, rel)
         try:
             txt = open(path, encoding="utf-8", errors="replace").read()
         except FileNotFoundError:
-            rows.append(("SKIP", f"prose:{path}", "-", "file present", "missing", path))
+            rows.append(("FAIL", f"prose:{rel}", "-", "file present", "MISSING", rel))
             continue
-        bad = [p for p in FORBIDDEN_PHRASES if p in txt]
-        rows.append(("PASS" if not bad else "FAIL", f"prose:{path.split('/')[-1]}",
-                     "gated-phrase sweep", "0 forbidden phrases",
-                     repr(bad) if bad else "0", path))
+        norm = _re.sub(r"\s+", " ", txt)
+        bad = [p for p in FORBIDDEN_PHRASES if _re.sub(r"\s+", " ", p) in norm]
+        rows.append(("PASS" if not bad else "FAIL", f"prose:{rel.split('/')[-1]}",
+                     "gated-phrase sweep (ws-normalized)", "0 forbidden phrases",
+                     repr(bad) if bad else "0", rel))
     return rows
 
 def main():

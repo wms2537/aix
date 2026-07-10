@@ -150,8 +150,8 @@
       "id": "T015",
       "phase": "6",
       "desc": "Confirming round over the round-5 residual fixes",
-      "status": "in_progress",
-      "evidence": null,
+      "status": "done",
+      "evidence": "round 6: A- unchanged \u2014 4/6 residuals closed, \u00a74.i NOT-FIXED (3rd no-op, wrap-evasion), 164 survivor, NEW \u00a76 live-arm causal overclaim, sweep self-disabled off-root + dead tripwire. ALL now fixed: wrap-aware unique-guarded edits; sweep ROOT-anchored + ws-normalized + tripwires added; matcher validated against the exact wrapped shape + historical bold text; off-root run 3x PASS; 121 claims 0 FAIL",
       "parent": null
     }
   ],
