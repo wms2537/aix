@@ -88,17 +88,25 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
                 .map_err(|e| anyhow!("dir: {e}"))?;
             continue;
         }
-        let mut bytes = Vec::with_capacity(file.size() as usize);
+        // Clamp the reservation: the declared uncompressed size is attacker-
+        // controlled, so a crafted entry must not drive a giant allocation. The
+        // Vec still grows as needed for a genuinely large (but real) part.
+        let cap = (file.size() as usize).min(8 << 20);
+        let mut bytes = Vec::with_capacity(cap);
         file.read_to_end(&mut bytes).map_err(|e| anyhow!("read: {e}"))?;
         drop(file);
 
-        let touched;
+        // `touched` is derived from CONTENT, not from a shift counter: any part
+        // whose bytes actually change must be reported in `parts_touched`, even
+        // if it shifted zero references (e.g. a foreign sheet whose only change
+        // was shared-formula expansion). Reporting fewer parts than we rewrote
+        // would be silently-wrong — the exact property this tool must not have.
+        let before = if name == edited_part { Vec::new() } else { bytes.clone() };
         if name == edited_part {
             // Materialize shared formulas so σ shifts them uniformly, then run
             // the row/cell coordinate + formula surgery on the explicit sheet.
             let expanded = expand_shared_in_sheet(&bytes)?;
             bytes = rewrite_edited_sheet(&expanded, edit, &name, &mut report)?;
-            touched = true;
         } else if name.starts_with("xl/worksheets/sheet") && name.ends_with(".xml") {
             // Only touch a foreign sheet if it cross-references the edited sheet.
             // Sheets that do not are byte-identical — and a shared formula there
@@ -106,59 +114,55 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
             if references_sheet(&bytes, &edit.sheet) {
                 let host = part_sheet.get(&name).cloned().unwrap_or_default();
                 let expanded = expand_shared_in_sheet(&bytes)?;
-                let (out, n, r, qrisk) = shift_text_in_element(&expanded, b"f", edit, &host);
+                let (out, n, r, qrisk) = shift_text_in_element(&expanded, b"f", edit, &host)?;
                 bytes = out;
-                touched = n > 0 || r > 0;
                 report.refs_shifted += n;
                 report.ref_errors += r;
                 if qrisk {
                     report.residuals.push(Residual {
                         part: name.clone(),
                         reason: "non_ascii_sheet_qualifier".into(),
-                        detail: "unquoted non-ASCII sheet qualifier in a cross-sheet formula                                  — edit refused (fail-closed)".into(),
+                        detail: "unquoted non-ASCII sheet qualifier in a cross-sheet formula \
+                                 — edit refused (fail-closed)".into(),
                     });
                 }
-            } else {
-                touched = false;
             }
         } else if name == "xl/workbook.xml" {
-            let (out, n, r, qrisk) = shift_text_in_element(&bytes, b"definedName", edit, "");
+            let (out, n, r, qrisk) = shift_text_in_element(&bytes, b"definedName", edit, "")?;
             bytes = out;
-            touched = n > 0 || r > 0;
             report.refs_shifted += n;
             report.ref_errors += r;
             if qrisk {
                 report.residuals.push(Residual {
                     part: name.clone(),
                     reason: "non_ascii_sheet_qualifier".into(),
-                    detail: "unquoted non-ASCII sheet qualifier in a defined name — edit                              refused (fail-closed)".into(),
+                    detail: "unquoted non-ASCII sheet qualifier in a defined name — edit \
+                             refused (fail-closed)".into(),
                 });
             }
         } else if name.starts_with("xl/charts/") && name.ends_with(".xml") {
-            let (out, n, r, qrisk) = shift_text_in_element(&bytes, b"f", edit, "");
+            let (out, n, r, qrisk) = shift_text_in_element(&bytes, b"f", edit, "")?;
             bytes = out;
-            touched = n > 0 || r > 0;
             report.refs_shifted += n;
             report.ref_errors += r;
             if qrisk {
                 report.residuals.push(Residual {
                     part: name.clone(),
                     reason: "non_ascii_sheet_qualifier".into(),
-                    detail: "unquoted non-ASCII sheet qualifier in a chart formula — edit                              refused (fail-closed)".into(),
+                    detail: "unquoted non-ASCII sheet qualifier in a chart formula — edit \
+                             refused (fail-closed)".into(),
                 });
             }
         } else if (name.starts_with("xl/pivotCache/") || name.starts_with("xl/pivotTables/"))
             && name.ends_with(".xml")
         {
-            let (out, n, r) = rewrite_pivot(&bytes, edit);
+            let (out, n, r) = rewrite_pivot(&bytes, edit)?;
             bytes = out;
-            touched = n > 0 || r > 0;
             report.refs_shifted += n;
             report.ref_errors += r;
-        } else {
-            touched = false;
         }
-        if touched && name != edited_part {
+        let touched = name != edited_part && bytes != before;
+        if touched {
             report.parts_touched.push(name.clone());
         }
 
@@ -223,16 +227,16 @@ fn expand_shared_in_sheet(src: &[u8]) -> Result<Vec<u8>> {
         let mut cur: Option<(u32, u32)> = None;
         let mut pending_si: Option<String> = None;
         loop {
-            match reader.read_event_into(&mut buf) {
-                Ok(Event::Eof) | Err(_) => break,
-                Ok(Event::Start(e)) | Ok(Event::Empty(e)) if e.name().as_ref() == b"c" => {
+            match reader.read_event_into(&mut buf).map_err(|e| anyhow!("shared-formula xml: {e}"))? {
+                Event::Eof => break,
+                Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"c" => {
                     cur = e
                         .attributes()
                         .flatten()
                         .find(|a| a.key.as_ref() == b"r")
                         .and_then(|a| parse_cell_rc(&String::from_utf8_lossy(&a.value)));
                 }
-                Ok(Event::Start(e)) if e.name().as_ref() == b"f" => {
+                Event::Start(e) if e.name().as_ref() == b"f" => {
                     let is_shared = e
                         .attributes()
                         .flatten()
@@ -247,7 +251,7 @@ fn expand_shared_in_sheet(src: &[u8]) -> Result<Vec<u8>> {
                         pending_si = si; // master body is the next Text
                     }
                 }
-                Ok(Event::Text(t)) if pending_si.is_some() => {
+                Event::Text(t) if pending_si.is_some() => {
                     if let Some((c, r)) = cur {
                         let body = t.unescape().unwrap_or_default().into_owned();
                         masters.insert(pending_si.take().unwrap(), (c, r, body));
@@ -1041,49 +1045,67 @@ fn shift_line(pos: u32, edit: &StructuralEdit) -> Option<u32> {
 // foreign parts
 // ---------------------------------------------------------------------------
 
-fn rewrite_pivot(src: &[u8], edit: &StructuralEdit) -> (Vec<u8>, u32, u32) {
+fn rewrite_pivot(src: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, u32, u32)> {
     let mut reader = Reader::from_reader(src);
     reader.config_mut().expand_empty_elements = false;
     let mut writer = Writer::new(Cursor::new(Vec::new()));
     let mut buf = Vec::new();
     let (mut shifted, mut errs) = (0u32, 0u32);
-    loop {
-        let ev = reader.read_event_into(&mut buf);
-        match ev {
-            Ok(Event::Eof) | Err(_) => break,
-            Ok(Event::Start(e)) | Ok(Event::Empty(e))
-                if e.name().as_ref() == b"worksheetSource" =>
-            {
-                let is_empty = matches!(reader.read_event_into(&mut Vec::new()), _ if false);
-                let _ = is_empty;
-                let sheet_attr = e
-                    .attributes()
-                    .flatten()
-                    .find(|a| a.key.as_ref() == b"sheet")
-                    .map(|a| String::from_utf8_lossy(&a.value).into_owned())
-                    .unwrap_or_default();
-                let mut repl: Vec<(&[u8], String)> = Vec::new();
-                if sheet_attr.eq_ignore_ascii_case(&edit.sheet) {
-                    if let Some(a) = e.attributes().flatten().find(|a| a.key.as_ref() == b"ref") {
-                        let val = String::from_utf8_lossy(&a.value).into_owned();
-                        let (nv, n, c, _) = shift_sqref(&val, &edit.sheet, edit);
-                        shifted += n;
-                        errs += c;
-                        if nv != val {
-                            repl.push((b"ref", nv));
-                        }
-                    }
+    // Shift the `ref`/`sheet` attributes of a <worksheetSource> in place. Emitted
+    // in the SAME event shape it arrived in (Empty stays self-closing; Start stays
+    // a Start whose children the loop copies through) — the previous code read and
+    // discarded the following event and forced an Empty, silently dropping a
+    // sibling element and unbalancing the pivot XML.
+    let shift_source = |e: &BytesStart,
+                        shifted: &mut u32,
+                        errs: &mut u32|
+     -> Vec<(&'static [u8], String)> {
+        let sheet_attr = e
+            .attributes()
+            .flatten()
+            .find(|a| a.key.as_ref() == b"sheet")
+            .map(|a| String::from_utf8_lossy(&a.value).into_owned())
+            .unwrap_or_default();
+        let mut repl: Vec<(&[u8], String)> = Vec::new();
+        if sheet_attr.eq_ignore_ascii_case(&edit.sheet) {
+            if let Some(a) = e.attributes().flatten().find(|a| a.key.as_ref() == b"ref") {
+                let val = String::from_utf8_lossy(&a.value).into_owned();
+                let (nv, n, c, _) = shift_sqref(&val, &edit.sheet, edit);
+                *shifted += n;
+                *errs += c;
+                if nv != val {
+                    repl.push((b"ref", nv));
                 }
-                // worksheetSource is self-closing in practice
-                let _ = writer.write_event(Event::Empty(set_attrs(&e, &repl)));
             }
-            Ok(other) => {
-                let _ = writer.write_event(other.into_owned());
+        }
+        repl
+    };
+    loop {
+        // Fail closed: a mid-stream parse error must NOT commit a truncated part.
+        let ev = reader.read_event_into(&mut buf).map_err(|e| anyhow!("pivot xml: {e}"))?;
+        match ev {
+            Event::Eof => break,
+            Event::Empty(e) if e.name().as_ref() == b"worksheetSource" => {
+                let repl = shift_source(&e, &mut shifted, &mut errs);
+                writer
+                    .write_event(Event::Empty(set_attrs(&e, &repl)))
+                    .map_err(|e| anyhow!("pivot write: {e}"))?;
+            }
+            Event::Start(e) if e.name().as_ref() == b"worksheetSource" => {
+                let repl = shift_source(&e, &mut shifted, &mut errs);
+                writer
+                    .write_event(Event::Start(set_attrs(&e, &repl)))
+                    .map_err(|e| anyhow!("pivot write: {e}"))?;
+            }
+            other => {
+                writer
+                    .write_event(other.into_owned())
+                    .map_err(|e| anyhow!("pivot write: {e}"))?;
             }
         }
         buf.clear();
     }
-    (writer.into_inner().into_inner(), shifted, errs)
+    Ok((writer.into_inner().into_inner(), shifted, errs))
 }
 
 /// For every <TAG>text</TAG> (namespace-insensitive local match), run
@@ -1093,7 +1115,7 @@ fn shift_text_in_element(
     tag: &[u8],
     edit: &StructuralEdit,
     host: &str,
-) -> (Vec<u8>, u32, u32, bool) {
+) -> Result<(Vec<u8>, u32, u32, bool)> {
     let mut reader = Reader::from_reader(src);
     reader.config_mut().expand_empty_elements = false;
     let mut writer = Writer::new(Cursor::new(Vec::new()));
@@ -1103,24 +1125,27 @@ fn shift_text_in_element(
     let mut qualifier_risk = false;
     let (mut shifted, mut errs) = (0u32, 0u32);
     loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Eof) | Err(_) => break,
-            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), tag) => {
+        // Fail closed: a mid-stream parse or write error must NOT commit a
+        // truncated part (chart / definedName / foreign sheet) as a "success".
+        let ev = reader.read_event_into(&mut buf).map_err(|e| anyhow!("xml: {e}"))?;
+        match ev {
+            Event::Eof => break,
+            Event::Start(e) if tag_local_eq(e.name().as_ref(), tag) => {
                 in_tag = true;
                 residual = detect_residual(&e).is_some();
-                let _ = writer.write_event(Event::Start(e.into_owned()));
+                writer.write_event(Event::Start(e.into_owned())).map_err(|e| anyhow!("xml write: {e}"))?;
             }
-            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), tag) => {
+            Event::End(e) if tag_local_eq(e.name().as_ref(), tag) => {
                 in_tag = false;
                 residual = false;
-                let _ = writer.write_event(Event::End(e.into_owned()));
+                writer.write_event(Event::End(e.into_owned())).map_err(|e| anyhow!("xml write: {e}"))?;
             }
-            Ok(Event::Text(t)) if in_tag && !residual => {
+            Event::Text(t) if in_tag && !residual => {
                 let raw = t.unescape().unwrap_or_default().into_owned();
                 // FAIL-CLOSED: unquoted non-ASCII qualifier — flag, do not shift.
                 if refshift::has_unquoted_non_ascii_qualifier(&raw) {
                     qualifier_risk = true;
-                    let _ = writer.write_event(Event::Text(t.into_owned()));
+                    writer.write_event(Event::Text(t.into_owned())).map_err(|e| anyhow!("xml write: {e}"))?;
                     buf.clear();
                     continue;
                 }
@@ -1128,18 +1153,20 @@ fn shift_text_in_element(
                 shifted += n;
                 errs += nf.matches("#REF!").count() as u32;
                 if nf == raw {
-                    let _ = writer.write_event(Event::Text(t.into_owned()));
+                    writer.write_event(Event::Text(t.into_owned())).map_err(|e| anyhow!("xml write: {e}"))?;
                 } else {
-                    let _ = writer.write_event(Event::Text(BytesText::from_escaped(text_escape(&nf))));
+                    writer
+                        .write_event(Event::Text(BytesText::from_escaped(text_escape(&nf))))
+                        .map_err(|e| anyhow!("xml write: {e}"))?;
                 }
             }
-            Ok(other) => {
-                let _ = writer.write_event(other.into_owned());
+            other => {
+                writer.write_event(other.into_owned()).map_err(|e| anyhow!("xml write: {e}"))?;
             }
         }
         buf.clear();
     }
-    (writer.into_inner().into_inner(), shifted, errs, qualifier_risk)
+    Ok((writer.into_inner().into_inner(), shifted, errs, qualifier_risk))
 }
 
 fn tag_local_eq(name: &[u8], local: &[u8]) -> bool {
@@ -1173,17 +1200,65 @@ mod tests {
     fn foreign_sheet_shifts_only_edited_sheet_refs() {
         let xml = br#"<worksheet><sheetData><row r="1"><c r="A1"><f>Sheet1!A5+B10</f></c></row></sheetData></worksheet>"#;
         let e = edit("Sheet1", Axis::Row, Op::Insert, 3, 1);
-        let (out, n, _r, _q) = shift_text_in_element(xml, b"f", &e, "Sheet2");
+        let (out, n, _r, _q) = shift_text_in_element(xml, b"f", &e, "Sheet2").unwrap();
         let s = String::from_utf8_lossy(&out);
         assert!(s.contains("Sheet1!A6+B10"), "got: {s}");
         assert_eq!(n, 1);
     }
 
     #[test]
+    fn pivot_shifts_ref_and_preserves_following_sibling() {
+        // Regression: rewrite_pivot previously read+discarded the event AFTER a
+        // self-closing <worksheetSource/>, silently dropping the next sibling and
+        // unbalancing the pivot XML. The sibling (<cacheFields/>) must survive and
+        // the ref must shift under an insert on the source sheet.
+        let xml = br#"<pivotCacheDefinition><cacheSource type="worksheet"><worksheetSource ref="A1:B5" sheet="S"/></cacheSource><cacheFields count="2"/></pivotCacheDefinition>"#;
+        let e = edit("S", Axis::Row, Op::Insert, 2, 1);
+        let (out, n, r) = rewrite_pivot(xml, &e).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(s.contains("<cacheFields"), "following sibling dropped: {s}");
+        assert!(s.contains(r#"ref="A1:B6""#), "ref not shifted: {s}");
+        assert_eq!((n, r), (1, 0)); // one range shifted, no #REF!
+        // and the output is well-formed (round-trips through the reader)
+        let mut rd = Reader::from_reader(out.as_slice());
+        let mut b = Vec::new();
+        loop {
+            match rd.read_event_into(&mut b).expect("malformed pivot XML produced") {
+                Event::Eof => break,
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn pivot_start_form_keeps_children() {
+        // Non-self-closing <worksheetSource>...</worksheetSource>: the Start form
+        // must stay a Start (children copied through), not be forced to Empty.
+        let xml = br#"<worksheetSource ref="A1:B5" sheet="S"><child/></worksheetSource>"#;
+        let e = edit("S", Axis::Row, Op::Insert, 2, 1);
+        let (out, _n, _r) = rewrite_pivot(xml, &e).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(s.contains("<child/>"), "child dropped: {s}");
+        assert!(s.contains("</worksheetSource>"), "not closed: {s}");
+        assert!(s.contains(r#"ref="A1:B6""#), "ref not shifted: {s}");
+    }
+
+    #[test]
+    fn malformed_secondary_xml_fails_closed_not_truncated() {
+        // A mid-stream parse error must propagate (Err), never return a silently
+        // truncated part. Feed unbalanced XML to both rewriters.
+        let bad = b"<definedName>Sheet1!A1</definedName><oops attr='unclosed";
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 2, 1);
+        assert!(shift_text_in_element(bad, b"definedName", &e, "").is_err());
+        let badpivot = b"<worksheetSource ref='A1' sheet='S'/><oops attr='unclosed";
+        assert!(rewrite_pivot(badpivot, &e).is_err());
+    }
+
+    #[test]
     fn chart_ref_shifts() {
         let xml = br#"<c:chart><c:f>Sheet1!$A$1:$A$10</c:f></c:chart>"#;
         let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 2);
-        let (out, n, _r, _q) = shift_text_in_element(xml, b"f", &e, "");
+        let (out, n, _r, _q) = shift_text_in_element(xml, b"f", &e, "").unwrap();
         let s = String::from_utf8_lossy(&out);
         assert!(s.contains("Sheet1!$A$1:$A$12"), "got: {s}");
         assert_eq!(n, 1);
@@ -1193,7 +1268,7 @@ mod tests {
     fn defined_name_shifts() {
         let xml = br#"<definedNames><definedName name="Data">Sheet1!$A$1:$A$10</definedName></definedNames>"#;
         let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
-        let (out, n, _r, _q) = shift_text_in_element(xml, b"definedName", &e, "");
+        let (out, n, _r, _q) = shift_text_in_element(xml, b"definedName", &e, "").unwrap();
         let s = String::from_utf8_lossy(&out);
         assert!(s.contains("Sheet1!$A$1:$A$11"), "got: {s}");
         assert_eq!(n, 1);
