@@ -100,11 +100,15 @@ Two pre-registered, run-once \textbf{locked tests} on external corpora
 mismatches across 1,006,997 cell-checks over five operations, a measured
 fail-closed cost of 19.6\%--34.3\% with one dominant verifiable cause,
 and evidence that sampling-based value checking needs up to 237 cells
-per file for 99.9\% confidence. The tests also surfaced three real
-defects --- all found by our own verification machinery, in exactly the
-layer the theory declares trusted-not-proven, and since fixed. Every
-quantitative claim in this paper is machine-verified against its
-committed artifact.
+per file for 99.9\% confidence. This campaign surfaced three real
+defects --- one by a locked test, two by the adversarial reviews and the
+verified-reference differential built for this paper --- every one in
+the layer the theory declares trusted-not-proven, and every one since
+fixed; two earlier false certifications, found and closed by our own
+reviews, are likewise on the record (§6). A 121-claim harness
+re-verifies the paper's headline numbers against their committed
+artifacts and gates every build; the manuscript's numeric content is
+generated from those artifacts, not hand-written.
 
 \section{1. Introduction}\label{introduction}
 

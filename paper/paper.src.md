@@ -30,10 +30,15 @@ across {{combined_foreign_calls}} foreign-edit calls**, zero mismatches across
 {{v2_cellchecks_total}} cell-checks over five operations, a measured fail-closed
 cost of {{v1_euses_cost_pct}}–{{v2_enron_cost_pct}} with one dominant verifiable
 cause, and evidence that sampling-based value checking needs up to
-{{v2_k999_enron}} cells per file for 99.9% confidence. The tests also surfaced
-three real defects — all found by our own verification machinery, in exactly the
-layer the theory declares trusted-not-proven, and since fixed. Every quantitative
-claim in this paper is machine-verified against its committed artifact.
+{{v2_k999_enron}} cells per file for 99.9% confidence. This campaign surfaced
+three real defects — one by a locked test, two by the adversarial reviews and the
+verified-reference differential built for this paper — every one in the layer the
+theory declares trusted-not-proven, and every one since fixed; two earlier false
+certifications, found and closed by our own reviews, are likewise on the record
+(§6). A 121-claim harness re-verifies
+the paper's headline numbers against their committed artifacts and gates every
+build; the manuscript's numeric content is generated from those artifacts, not
+hand-written.
 
 ## 1. Introduction
 
@@ -617,7 +622,7 @@ Results against the pre-registered predictions (all scored in the repository's
 prediction ledger — 4 confirm, 3 disconfirm, 2 partial):
 
 - **The central claim held on data development never touched:** **zero false
-  certifications** across all 518 completed `certify(openpyxl edit)` calls — 503
+  certifications** across all {{v1_foreign_calls}} completed `certify(openpyxl edit)` calls — {{v1_opx_refused}}
   refusals (158 EUSES + 345 Enron) plus 15 fail-closed errors — and 7 further edits
   failed before certification; **no would-corrupt edit was certified**.
 - **Reference-shift arithmetic: 0 errors in {{v1_cellchecks_total}} real formula cells** across the
@@ -660,10 +665,9 @@ theory declared unproven.*
 ### 5.10 Locked test v2: full corpora, five ops, the fixed system
 
 A second pre-registered, run-once test (10 predictions committed before acquisition)
-widened v1's scope: EUSES converted in full (4,648 workbooks, 11 categories) with the
+widened v1's scope: EUSES converted in full ({{euses_disk_xlsx}} workbooks, {{euses_raw_categories}} categories) with the
 shift/guard legs running on the pre-registered **first-500-eligible cap** — which in
-sorted order spans **{{euses_cap_categories}}** categories (cs101 4, database 162, filby 30, financial
-270, forms3 21, grades 13 — recomputed against the locked eligibility counters; only
+sorted order spans **{{euses_cap_categories}}** categories ({{euses_cap_composition}} — recomputed against the locked eligibility counters; only
 the value-collision leg used the full corpus: {{v2_q_euses_files_measured}} files measured, {{v2_q_euses_files_in_dist}} in the
 off-by-one model's distribution) — plus a
 **seeded-random Enron sample** (replacing v1's lexicographic prefix), all **five**
@@ -691,18 +695,18 @@ partial.**
 
 - **Shift correctness: {{v2_cellchecks_total}} cell-checks across five ops, zero mismatches**
   (EUSES {{v2_euses_cellchecks}}; Enron {{v2_enron_cellchecks}}; a cell checked under several ops counts once per
-  op — distinct physical cells ≤ ~227,879). Checked volume grew 4.0× on Enron
-  and 2.8× on EUSES — both confounded: Enron v2 is a seeded-random *resample*
+  op — distinct physical cells ≤ ~227,879). Checked volume grew {{v2_enron_growth}} on Enron
+  and {{v2_euses_growth}} on EUSES — both confounded: Enron v2 is a seeded-random *resample*
   (zero byte overlap between the converted corpora), and EUSES has 3.1× more files, on
   top of the widened grammar and the fifth op. The new fail-closed guard refused three
   real non-ASCII-qualifier files in the wild.
-- **Zero false certifications on 852 further foreign edits** (496 EUSES + 356
+- **Zero false certifications on {{v2_foreign_edits}} further foreign edits** ({{v2_euses_opx}} EUSES + {{v2_enron_opx}}
   Enron; {{euses_byte_identical}} EUSES files repeat v1's deterministic edit byte-identically, the
   rest are fresh) — with v1, {{combined_foreign_calls}} foreign-edit calls have produced no false
   certification (fail-closed errors and timeouts counted separately and disclosed
   per leg).
 - **The probabilistic tier collapses in the tail**: the random Enron sample
-  contains near-check-blind files (2 of 761 drive the tail); 99.9% detection
+  contains near-check-blind files ({{v2_q_enron_checkblind}} of {{v2_q_enron_files_in_dist}} drive the tail); 99.9% detection
   requires **k = {{v2_k999_enron}}** checked cells there (EUSES corpus: {{v2_k999_euses}}). Together with the
   dev-tier full-check blind-spot floor (§5.8), this grounds the claim that
   sampling-based value checking cannot certify real business data at high

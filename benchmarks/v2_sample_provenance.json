@@ -1,5 +1,21 @@
 {
   "artifact": "v2 sampling + contamination provenance (locked-corpora, deterministic)",
+  "euses_raw": {
+    "categories_total": 11,
+    "categories": [
+      "cs101",
+      "database",
+      "filby",
+      "financial",
+      "forms3",
+      "grades",
+      "homework",
+      "inventory",
+      "jackson",
+      "modeling",
+      "personal"
+    ]
+  },
   "euses_cap": {
     "eligibility_counters": {
       "eligible": 500,

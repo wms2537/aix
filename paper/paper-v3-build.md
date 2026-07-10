@@ -36,10 +36,15 @@ across 1,370 foreign-edit calls**, zero mismatches across
 1,006,997 cell-checks over five operations, a measured fail-closed
 cost of 19.6%–34.3% with one dominant verifiable
 cause, and evidence that sampling-based value checking needs up to
-237 cells per file for 99.9% confidence. The tests also surfaced
-three real defects — all found by our own verification machinery, in exactly the
-layer the theory declares trusted-not-proven, and since fixed. Every quantitative
-claim in this paper is machine-verified against its committed artifact.
+237 cells per file for 99.9% confidence. This campaign surfaced
+three real defects — one by a locked test, two by the adversarial reviews and the
+verified-reference differential built for this paper — every one in the layer the
+theory declares trusted-not-proven, and every one since fixed; two earlier false
+certifications, found and closed by our own reviews, are likewise on the record
+(§6). A 121-claim harness re-verifies
+the paper's headline numbers against their committed artifacts and gates every
+build; the manuscript's numeric content is generated from those artifacts, not
+hand-written.
 
 # 1. Introduction
 
@@ -668,8 +673,7 @@ theory declared unproven.*
 A second pre-registered, run-once test (10 predictions committed before acquisition)
 widened v1's scope: EUSES converted in full (4,648 workbooks, 11 categories) with the
 shift/guard legs running on the pre-registered **first-500-eligible cap** — which in
-sorted order spans **six** categories (cs101 4, database 162, filby 30, financial
-270, forms3 21, grades 13 — recomputed against the locked eligibility counters; only
+sorted order spans **six** categories (cs101 4, database 162, filby 30, financial 270, forms3 21, grades 13 — recomputed against the locked eligibility counters; only
 the value-collision leg used the full corpus: 4,497 files measured, 4,432 in the
 off-by-one model's distribution) — plus a
 **seeded-random Enron sample** (replacing v1's lexicographic prefix), all **five**

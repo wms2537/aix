@@ -159,8 +159,8 @@
       "id": "T016",
       "phase": "6",
       "desc": "Round 7: review the engineered build pipeline + rewritten prose",
-      "status": "in_progress",
-      "evidence": null,
+      "status": "done",
+      "evidence": "round 7: A-, five engineering holes H1-H5 all reproduced by panel; closed by MECHANISM with executed self-tests: A ({{BogusFact}} aborts), B (spaced placeholder aborts), C (tampered generated file -> checker exit 1 via consistency guard); atomic staging verified (BUILD OK only after checker-green install); abstract regressions corrected + phrases gated; facts 47->55 with artifact-read denominators",
       "parent": null
     }
   ],

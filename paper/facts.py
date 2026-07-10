@@ -53,15 +53,26 @@ def facts():
     F["v2_euses_cellchecks"] = n(v2_e)                          # 316,746
     F["v2_enron_cellchecks"] = n(v2_n)                          # 690,251
     F["v2_cellchecks_total"] = n(v2_e + v2_n)                   # 1,006,997
+    F["v2_euses_opx"] = n(e2["leg3_guard"]["opx_REFUSED"])      # 496
+    F["v2_enron_opx"] = n(n2["leg3_guard"]["opx_REFUSED"])      # 356
     v2_opx = e2["leg3_guard"]["opx_REFUSED"] + n2["leg3_guard"]["opx_REFUSED"]
     F["v2_foreign_edits"] = n(v2_opx)                           # 852
     F["combined_foreign_calls"] = n(v1_refused + v1_errors + v2_opx)  # 1,370
-    ec = e2["leg3_guard"]["own_REFUSED"] + e2["leg3_guard"]["own_not_attempted_restructure_refused"]
-    nc = (n2["leg3_guard"]["own_REFUSED"] + n2["leg3_guard"]["own_not_attempted_restructure_refused"]
+    # cost: (transform-refused ∪ own-certify-not-certified ∪ timeout) / files_run —
+    # denominators from the artifacts, timeout term SYMMETRIC (round-7 fix)
+    e2_files, n2_files = e2["files_run"], n2["files_run"]
+    ec = (e2["leg3_guard"]["own_REFUSED"]
+          + e2["leg3_guard"]["own_not_attempted_restructure_refused"]
+          + e2["leg3_guard"].get("file_timeout", 0))
+    nc = (n2["leg3_guard"]["own_REFUSED"]
+          + n2["leg3_guard"]["own_not_attempted_restructure_refused"]
           + n2["leg3_guard"].get("file_timeout", 0))
-    assert (ec, nc) == (106, 124)
-    F["v2_euses_cost_pct"] = f"{ec / 500 * 100:.1f}%"           # 21.2%
-    F["v2_enron_cost_pct"] = f"{nc / 362 * 100:.1f}%"           # 34.3%
+    assert (ec, nc, e2_files, n2_files) == (106, 124, 500, 362)
+    F["v2_euses_cost_pct"] = f"{ec / e2_files * 100:.1f}%"      # 21.2%
+    F["v2_enron_cost_pct"] = f"{nc / n2_files * 100:.1f}%"      # 34.3%
+    # checked-volume growth ratios (round-7: previously hand-written)
+    F["v2_enron_growth"] = f"{v2_n / v1_n_cells:.1f}×"          # 4.0×
+    F["v2_euses_growth"] = f"{v2_e / v1_e_cells:.1f}×"          # 2.8×
     F["v2_euses_prevalence_pct"] = f"{e2['leg2_prevalence']['prevalence'] * 100:.1f}%"  # 94.6%
     F["v2_enron_prevalence_pct"] = f"{n2['leg2_prevalence']['prevalence'] * 100:.2f}%"  # 91.16%
 
@@ -71,6 +82,8 @@ def facts():
     F["v2_k999_enron"] = str(qn2["detection"]["mixture_dependent"]["k_for_99.9pct"])   # 237
     F["v2_q_euses_files_measured"] = n(J("benchmarks/coincidence_q_euses_v2.json")["files_measured"])
     F["v2_q_euses_files_in_dist"] = n(qe2["files_in_distribution"])
+    F["v2_q_enron_files_in_dist"] = str(qn2["files_in_distribution"])      # 761
+    F["v2_q_enron_checkblind"] = str(qn2["files_check_blind_rate>=0.99"])  # 2
 
     x = J("benchmarks/enron_v2_extlink_share.json")
     F["extlink_sole_pct"] = f"{x['extlink_sole'] / x['refused'] * 100:.0f}%"           # 64%
@@ -84,6 +97,8 @@ def facts():
     F["euses_byte_identical_pct"] = f"{sp['euses_cap']['byte_identical_share'] * 100:.0f}%"  # 33%
     F["enron_source_overlap"] = str(sp["enron_eligible_leg"]["source_document_overlap_with_v1"])  # 27
     F["enron_source_overlap_pct"] = f"{sp['enron_eligible_leg']['source_overlap_share'] * 100:.1f}%"  # 7.5%
+    F["euses_raw_categories"] = str(sp["euses_raw"]["categories_total"])   # 11
+    F["euses_disk_xlsx"] = n(sp["euses_disk_vs_walk"]["xlsx_on_disk"])     # 4,648
 
     # ---- tokenizer differential (Theorem 7 / §3 / claims) ----
     td = J("formal/tokenizer_differential.json")

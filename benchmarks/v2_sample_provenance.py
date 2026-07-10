@@ -60,8 +60,11 @@ def main():
                      for n in names if n.endswith(".xlsx"))
     walk_count = sum(counters)  # 500 + 1223 + 2924
 
+    raw_cats = sorted(d for d in os.listdir(f"{ROOT}/data/inthewild/euses/raw")
+                      if os.path.isdir(os.path.join(f"{ROOT}/data/inthewild/euses/raw", d)))
     out = {
         "artifact": "v2 sampling + contamination provenance (locked-corpora, deterministic)",
+        "euses_raw": {"categories_total": len(raw_cats), "categories": raw_cats},
         "euses_cap": {
             "eligibility_counters": {"eligible": 500, "lt2": 1223, "beyond_cap": 2924},
             "category_composition": dict(sorted(comp.items())),

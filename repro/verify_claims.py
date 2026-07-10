@@ -592,6 +592,11 @@ LEAN_THEOREMS = {
                                   "Impossibility.fresh_skeleton_uncertifiable",
                                   "Impossibility.no_engine_free_predictor",
                                   "Impossibility.two_worlds_disagree"],
+    "formal/CopyEdits.lean": ["CopyEdits.copy_value_forced", "CopyEdits.copy_certifiable",
+                              "CopyEdits.eval_overrideAt_unwitnessed",
+                              "CopyEdits.copy_unwitnessed_uncertifiable"],
+    "formal/Tokenizer.lean": ["TokenizerModel.render_tokenize",
+                              "TokenizerModel.refs_shiftSegs"],
 }
 ALLOWED_AXIOMS = {"propext", "Quot.sound"}
 
@@ -777,39 +782,85 @@ expect("v2-dbt-spellbook-coverage", "§5.10", "0/2484 covered", DBS,
        lambda: (J(DBS)["coverage"]["covered_parse"], J(DBS)["coverage"]["total"]), (0, 2484))
 expect("v2-dbt-calitp-coverage", "§5.10", "13.7%", DBC,
        lambda: J(DBC)["coverage"]["parse_coverage"], 0.1373)
+SPV = "benchmarks/v2_sample_provenance.json"
+expect("v2-foreign-split", "§5.10 852 = 496+356", "(496, 356, 852)", EV2,
+       lambda: (J(EV2)["leg3_guard"]["opx_REFUSED"], J(NV2)["leg3_guard"]["opx_REFUSED"],
+                J(EV2)["leg3_guard"]["opx_REFUSED"] + J(NV2)["leg3_guard"]["opx_REFUSED"]),
+       (496, 356, 852))
+expect("v2-cap-composition", "§5.10 six categories", "sum 500, 6 cats", SPV,
+       lambda: (sum(J(SPV)["euses_cap"]["category_composition"].values()),
+                len(J(SPV)["euses_cap"]["category_composition"])), (500, 6))
+expect("v2-contamination", "§5.10 163 / 27", "(163, 27, 0)", SPV,
+       lambda: (J(SPV)["euses_cap"]["byte_identical_v1_copies"],
+                J(SPV)["enron_eligible_leg"]["source_document_overlap_with_v1"],
+                J(SPV)["enron_eligible_leg"]["byte_identical_of_shared"]), (163, 27, 0))
+expect("v2-disk-vs-walk", "§5.10 4,648/4,647", "(4648, 4647)", SPV,
+       lambda: (J(SPV)["euses_disk_vs_walk"]["xlsx_on_disk"],
+                J(SPV)["euses_disk_vs_walk"]["visible_to_harness_walk"]), (4648, 4647))
+expect("v2-checkblind-enron", "§5.10 2 of 761", "(2, 761)", QN2,
+       lambda: (J(QN2)["models"]["M2v_offbyone_row"]["excel_semantics"]["files_check_blind_rate>=0.99"],
+                J(QN2)["models"]["M2v_offbyone_row"]["excel_semantics"]["files_in_distribution"]), (2, 761))
 expect("v2-smoke-postfix", "§5.10 smoke 5->4", "refused_correct = 4", SPX,
        lambda: J(SPX)["GUARDED"]["refused_correct_COST"], 4)
 
 
 
-# ---- Prose-consistency checks (rounds 4-6 lesson: silent replacement no-ops) ----
-# Each phrase was GATED by an adversarial round; its reappearance is a regression.
-# Matching is WHITESPACE-NORMALIZED (round 6: the md hard-wraps lines, so a raw
-# substring sweep missed a wrapped gated phrase) and paths are ROOT-anchored
-# (round 6: bare relative paths made the sweep silently self-disable off-root).
-FORBIDDEN_PHRASES = [
-    "fell from 5 to 0", "EUSES-full)", "stated open", "shares no files",
-    "identical files, so the growth", "164 of the 500", "164 EUSES files",
-    "categories (cs101 9",                       # round-6 fix: bold-insensitive form
-    "452,384 unique real formulas ×", "from v1's 5", "7,419- and",
-    "exactly the certifiable class of",          # round-6: the thrice-missed §4.i phrase
-    "went 0/2 (v1) → 0/0 (v2) (§5.10) — because",  # round-6: live-arm causal overclaim
-]
+# ---- Prose-consistency + source<->generated integrity (rounds 4-7 lessons) ----
+# Gated phrases live in ONE shared file (repro/gated_phrases.json) consumed by both
+# build.py and this checker; matching is whitespace-normalized (md hard-wraps).
+# PAPER_DIR overrides the paper directory so build.py can gate its STAGING outputs
+# before install; standalone runs check the canonical paper/.
+# The consistency guard re-renders paper.src.md via build.py's own render() and
+# byte-compares against the generated files — a hand-edit to any generated file
+# (the rounds-4-6 failure vector) FAILS here mechanically.
+PAPER_DIR = os.environ.get("PAPER_DIR", os.path.join(ROOT, "paper"))
+
+def _gated_phrases():
+    return json.load(open(os.path.join(ROOT, "repro", "gated_phrases.json")))["phrases"]
+
 def _prose_checks():
     import re as _re
     rows = []
-    for rel in ("paper/paper-v3.md", "paper/paper-v3-build.md", "paper/paper-v3.tex"):
-        path = os.path.join(ROOT, rel)
+    phrases = _gated_phrases()
+    for name in ("paper-v3.md", "paper-v3-build.md", "paper-v3.tex"):
+        path = os.path.join(PAPER_DIR, name)
         try:
             txt = open(path, encoding="utf-8", errors="replace").read()
         except FileNotFoundError:
-            rows.append(("FAIL", f"prose:{rel}", "-", "file present", "MISSING", rel))
+            rows.append(("FAIL", f"prose:{name}", "-", "file present", "MISSING", name))
             continue
         norm = _re.sub(r"\s+", " ", txt)
-        bad = [p for p in FORBIDDEN_PHRASES if _re.sub(r"\s+", " ", p) in norm]
-        rows.append(("PASS" if not bad else "FAIL", f"prose:{rel.split('/')[-1]}",
-                     "gated-phrase sweep (ws-normalized)", "0 forbidden phrases",
-                     repr(bad) if bad else "0", rel))
+        bad = [p for p in phrases if _re.sub(r"\s+", " ", p) in norm]
+        rows.append(("PASS" if not bad else "FAIL", f"prose:{name}",
+                     "gated-phrase sweep (shared list, ws-normalized)",
+                     "0 forbidden phrases", repr(bad) if bad else "0", name))
+    return rows
+
+def _consistency_checks():
+    """Generated files must equal a fresh render of paper.src.md (the mechanism
+    that makes hand-edits to generated files impossible to ship)."""
+    rows = []
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "paper"))
+        import importlib
+        import build as _build
+        importlib.reload(_build)
+        md = _build.render()
+        expect_md = _build.BANNER + md
+        expect_build = _build.derive_build_md(md)
+        for name, expect in (("paper-v3.md", expect_md),
+                             ("paper-v3-build.md", expect_build)):
+            path = os.path.join(PAPER_DIR, name)
+            actual = open(path, encoding="utf-8").read()
+            ok = actual == expect
+            rows.append(("PASS" if ok else "FAIL", f"consistency:{name}",
+                         "generated == render(paper.src.md)",
+                         "byte-identical", "byte-identical" if ok else
+                         f"DIVERGES (len {len(actual)} vs {len(expect)})", name))
+    except SystemExit as e:
+        rows.append(("FAIL", "consistency:render", "-", "render OK", f"render aborted: {e}", "paper/build.py"))
+    except Exception as e:  # noqa: BLE001
+        rows.append(("FAIL", "consistency:render", "-", "render OK", f"exception: {e}", "paper/build.py"))
     return rows
 
 def main():
@@ -823,6 +874,7 @@ def main():
         rows.append((status, cid, loc, claimed, actual, artifact))
     rows.extend(formal_results())
     rows.extend(_prose_checks())
+    rows.extend(_consistency_checks())
 
     wid = max(len(r[1]) for r in rows)
     wloc = max(len(r[2]) for r in rows)

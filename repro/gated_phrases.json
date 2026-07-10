@@ -1,0 +1,20 @@
+{
+ "comment": "Adversarially-gated phrases (rounds 4-7). SINGLE SOURCE — loaded by both paper/build.py and repro/verify_claims.py; matching is whitespace-normalized.",
+ "phrases": [
+  "fell from 5 to 0",
+  "EUSES-full)",
+  "stated open",
+  "shares no files",
+  "identical files, so the growth",
+  "164 of the 500",
+  "164 EUSES files",
+  "categories (cs101 9",
+  "452,384 unique real formulas ×",
+  "from v1's 5",
+  "7,419- and",
+  "exactly the certifiable class of",
+  "went 0/2 (v1) → 0/0 (v2) (§5.10) — because",
+  "The tests also surfaced three real defects",
+  "Every quantitative claim in this paper is machine-verified"
+ ]
+}
