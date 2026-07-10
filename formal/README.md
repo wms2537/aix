@@ -78,6 +78,33 @@ sound checkers must REFUSE fresh-skeleton edits — certify-or-refuse is the onl
 shape, not a design choice. Together with `Checker.lean` this characterizes the
 boundary of engine-free certification. No `sorry`; axioms `[propext, Quot.sound]`.
 
+## Lean 4 — the middle ground characterized (`CopyEdits.lean`)
+
+The stated-open middle ground (edits reusing witnessed skeletons) now has theorems on
+BOTH sides of a witnessing criterion: `copy_value_forced`/`copy_certifiable` — same
+skeleton + dependency ORACLE values pointwise equal to a witnessed application's (an
+engine-free premise, scaffold via `check_sound`) forces the copied value to that
+application's cached output, under every consistent engine; and
+`copy_unwitnessed_uncertifiable` — an argument tuple unwitnessed at every fuel ≤ the
+oracle fuel admits an engine override indistinguishable through the original that
+refutes any committed value. Honest residual: the criterion is fuel-graded. No
+`sorry`; `copy_value_forced` is axiom-free.
+
+## Lean 4 — the verified reference tokenizer (`Tokenizer.lean`)
+
+Both real defects the in-the-wild campaign found lived in the trusted byte→token
+layer. This file puts a REFERENCE TOKENIZER for that layer in the machine-checked
+core, at the byte level: **T1 losslessness** (`render_tokenize` — the tokenizer never
+invents, drops, or rewrites a byte: the double-encoding class is impossible by
+construction), **T2 opacity** (the shift touches ONLY reference segments — the exact
+property the mojibake defect violated), **T3 σ-image** (references of the shifted
+segments are the σ-image — the invariance theorem's `hdeps` premise discharged from
+bytes). Fail-closed by construction: any `!` or `'` outside a literal refuses
+(`none`), so the non-ASCII-qualifier class cannot mis-tokenize. Executable: `#eval`
+regressions cover both defect shapes; `lean --run Tokenizer.lean` is a TSV
+shift-oracle for the corpus-scale Rust differential
+(`formal/tokenizer_differential.py`). No `sorry`; axioms `[propext, Quot.sound]`.
+
 ## Z3 — the reference-shift algebra laws (`shift_laws.py`)
 
 The algebraic laws underpinning the shift map, proved for **all** positions,
