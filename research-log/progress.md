@@ -19,3 +19,5 @@
 2026-07-10 | P6 | T006 paper integration | done | §5.9 locked test + abstract + §5.8 transfer + §6 defect entry + §8 2026-benchmark-wave positioning; PDF 15pp; cycle deliverable complete
 2026-07-10 | P6 | T007 granted panel + fixes | done | chair: B+ -> A- conditional accept (A- condition MET); all 7 gating fixes applied incl. LIVE sibling defect (non-ASCII sheet qualifier -> fail-closed guard, 198 tests); paper 16pp rebuilt
 2026-07-10 | P4 | grant | done | user: "try your best to close the gap please" — iterations 4+5 spent on the A+ gap plan (T008-T012)
+2026-07-10 | P4 | T008 middle-ground theorems | done | CopyEdits.lean sorry-free: copy_value_forced (axiom-free) + copy_certifiable (engine-free premise) + copy_unwitnessed_uncertifiable; fuel-graded residual stated
+2026-07-10 | P4 | T009 Lean side | done | Tokenizer.lean sorry-free: T1 losslessness + T2 opacity + T3 sigma-image at byte level; driver verified on 5 smoke classes; corpus differential pending Rust CLI
