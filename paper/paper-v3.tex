@@ -115,14 +115,16 @@ SQL executed. We are deliberate about what is \emph{proof} and what is
 empirical harness (147/147 corrupted foreign edits refused; a naive edit
 path silently corrupts 85.5\% of development-tier workbooks ---
 confirmed-genuine after our own study corrected two mislabels --- while
-the certified path corrupts none; and a pre-registered, run-once
-\textbf{locked test on corpora development never touched} --- EUSES,
-Enron, and a production dbt project --- in which the guard made
-\textbf{zero false certifications across 518 foreign edits (503 refused,
-15 fail-closed errors)}, the shift arithmetic made zero errors in
-283,960 real cells, measured fail-closed cost of 19.6--32.0\%, and the
-one real defect found sat exactly in the layer our theory declares
-trusted-not-proven, since fixed) corroborates it, and we report each
+the certified path corrupts none; and TWO pre-registered, run-once
+\textbf{locked tests on external corpora} --- EUSES, Enron, and
+production dbt projects --- in which the guard made \textbf{zero false
+certifications across 1,370 foreign-edit calls} (v1: 518, surfacing the
+first of three real defects, all found by our own verification machinery
+in the trusted byte layer and since fixed; v2: 852 further, with zero
+errors across 1,006,997 cell-checks over five operations), measured
+fail-closed cost of 19.6--34.3\%, and value-collision evidence that
+sampling-based checking needs up to 237 cells per file for 99.9\%
+confidence on one real corpus) corroborates it, and we report each
 measurement with its confound --- including two false certifications our
 own adversarial reviews found in earlier versions of the system, which
 we closed and report as fixed defects.
@@ -947,25 +949,29 @@ A second pre-registered, run-once test (10 predictions committed before
 acquisition) widened v1's scope: EUSES converted in full (4,648
 workbooks, 11 categories) with the shift/guard legs running on the
 pre-registered \textbf{first-500-eligible cap} --- which in sorted order
-spans \textbf{four} categories (cs101 9, database 245, filby 38,
-financial 208; only the value-collision leg used the full 4,432-file
-corpus) --- plus a \textbf{seeded-random Enron sample} (replacing v1's
-lexicographic prefix), all \textbf{five} structural ops, a
-cross-sheet-capable truth grammar, the measurement artifacts v1's
-post-hoc analysis attributed (both eliminated exactly as predicted ---
-the error class went to zero), and the system under test at the
-thrice-fixed binary.
+spans \textbf{six} categories (cs101 4, database 162, filby 30,
+financial 270, forms3 21, grades 13 --- recomputed against the locked
+eligibility counters; only the value-collision leg used the full corpus:
+4,497 files measured, 4,432 in the off-by-one model's distribution) ---
+plus a \textbf{seeded-random Enron sample} (replacing v1's lexicographic
+prefix), all \textbf{five} structural ops, a cross-sheet-capable truth
+grammar, the measurement artifacts v1's post-hoc analysis attributed
+(both eliminated exactly as predicted --- the error class went to zero),
+and the system under test at the thrice-fixed binary.
 
 Two disclosed protocol deviations. \emph{(i)} The third fix (the
 range-head defect) landed after the pre-registration commit but before
 the run; we originally described its discovery as development-tier only
 --- \textbf{that was wrong}: the differential's formula corpus included
-the v1 locked corpora, and 164 of the 500 EUSES shift-leg files are
-byte-identical v1 copies. The \textbf{Enron leg shares no files with the
-fix's discovery corpus sample and is the uncontaminated headline}
-(690,251 cell-checks, zero mismatches); the fix also cannot manufacture
-agreement against the independent, engine-validated truth grammar ---
-but the provenance is reported as it is. \emph{(ii)} The
+the v1 locked corpora, and 163 of the 500 EUSES shift-leg files are
+byte-identical v1 copies. The Enron leg is the \textbf{less-contaminated
+headline} (690,251 cell-checks, zero mismatches): 27 of its 362 eligible
+files (7.5\%) are re-conversions of source workbooks whose v1
+conversions fed the discovery corpus --- zero byte-identical, the
+overlap is at source-document level --- versus 163/500 (33\%)
+byte-identical v1 copies on the EUSES leg; the fix also cannot
+manufacture agreement against the independent, engine-validated truth
+grammar --- but the provenance is reported as it is. \emph{(ii)} The
 pre-registration said function-endpoint ranges ``stay out-of-grammar'';
 the shipped v2 grammar admits them with semantics written to match
 production's fixed behavior --- an unregistered, anti-conservative
@@ -981,10 +987,12 @@ Scored: \textbf{5 confirm / 3 disconfirm / 2 partial.}
   \textbf{Shift correctness: 1,006,997 cell-checks across five ops, zero
   mismatches} (EUSES 316,746; Enron 690,251; a cell checked under
   several ops counts once per op --- distinct physical cells ≤
-  \textasciitilde227,879). Checked volume grew 4.0× on Enron (identical
-  files, so the growth is the widened grammar + fifth op) and 2.8× on
-  EUSES (confounded with 3.1× more files). The new fail-closed guard
-  refused three real non-ASCII-qualifier files in the wild.
+  \textasciitilde227,879). Checked volume grew 4.0× on Enron and 2.8× on
+  EUSES --- both confounded: Enron v2 is a seeded-random \emph{resample}
+  (zero byte overlap with v1's prefix sample), and EUSES has 3.1× more
+  files, on top of the widened grammar and the fifth op. The new
+  fail-closed guard refused three real non-ASCII-qualifier files in the
+  wild.
 \item
   \textbf{Zero false certifications on 852 further foreign edits} (496
   EUSES + 356 Enron; \textasciitilde164 EUSES files repeat v1's
@@ -1001,8 +1009,8 @@ Scored: \textbf{5 confirm / 3 disconfirm / 2 partial.}
   checking cannot certify real business data at high confidence --- on
   these corpora the exact tier is a necessity, not an optimization.
 \item
-  \textbf{The fail-closed cost is structural and levered}: 21.2\%
-  (EUSES-full) and 34.3\% (Enron-random) --- both \emph{above} our
+  \textbf{The fail-closed cost is structural and levered}: 21.2\% (EUSES
+  cap sample) and 34.3\% (Enron-random) --- both \emph{above} our
   artifact-corrected predictions (disconfirmed: the fuller samples
   simply carry more denylist parts), with \textbf{externalLinks the sole
   cause of 64\% of Enron's denylist refusals} (zip-grounded attribution,
@@ -1094,17 +1102,18 @@ reference, leaving it unshifted --- value-preserving for \texttt{SUM} by
 accident, wrong for \texttt{COUNT}-class functions (3 disagreements in
 1,810,796 comparisons, all this shape). Fixed with regressions; the
 post-fix differential agrees everywhere on the model surface; and the
-fix \emph{measurably reduced the guard's cost} --- refusals of correct
-agent work in the study fell from 5 to 0 (§5.10), because the
-previously-documented guard-vs-tool divergence on this construct
-disappeared. Three defects, three layers of the same trusted surface,
-each found by the project's own verification machinery. We report each
-as a fixed defect. This is part of the contribution: a certify-or-refuse
-claim is only credible if its authors have tried hardest to break it ---
-the record of what broke, and what the fix was, is the evidence that the
-remaining boundary is real, and it is why we are conservative about
-calling the corroboration anything more than corroboration, and the
-denylist anything more than a denylist.
+fix \emph{measurably reduced the guard's cost} --- the like-for-like
+synthetic arm's refusals of correct work fell 5 → 4, and the live arms
+went 0/2 (v1) → 0/0 (v2) (§5.10) --- because the previously-documented
+guard-vs-tool divergence on this construct disappeared. Three defects,
+three layers of the same trusted surface, each found by the project's
+own verification machinery. We report each as a fixed defect. This is
+part of the contribution: a certify-or-refuse claim is only credible if
+its authors have tried hardest to break it --- the record of what broke,
+and what the fix was, is the evidence that the remaining boundary is
+real, and it is why we are conservative about calling the corroboration
+anything more than corroboration, and the denylist anything more than a
+denylist.
 
 \section{7. Scope and limitations}\label{scope-and-limitations}
 
@@ -1137,30 +1146,36 @@ pure view-state the transform also shifts --- the used-range
 non-value-bearing and foreign tools legitimately vary it; a certified
 file may differ from the transform there without affecting any value.
 Value edits are out of the exact tier by construction. The
-\textbf{trusted base} (narrowed by Theorem 3 but not eliminated) is: the
-byte→token parse; the correctness of the shift map \texttt{σ} itself
-(the Z3-proved arithmetic, not re-proved in the graph layer); the
-asymmetric six-case delete clamp and its \texttt{\#REF!} outcomes; the
-multi-cell interior of ranges (modeled by endpoints); the constructs
-absent from the token type; and the completeness of the non-cell
-denylist. The corroboration is bounded accordingly: value-preservation
-is necessary-not-sufficient (though now confirmed across all four
-structural ops and by two independent engines that agree, ruling out a
-single-engine artifact, and still not Excel); the confusion matrix's
-\texttt{FN=0} is by-construction over deviations-from-transform, so the
-informative test is the non-cell corruptor of §5.3, which found and
-closed a real false certification. The exact tier certifies a measured
-37.5\% of operations and 27\% of whole tasks on a realistic
-edit-distribution study; the majority of real tasks are mixed and need
-the probabilistic tier --- but by Theorem 2 a mixed task factors into a
-\emph{certified structural scaffold} plus a bounded value-fill cone, and
-we measure this (\texttt{composition\_coverage.py}): on mixed edits the
-scaffold is always certified and the audit surface collapses to the
-value-fill cone (100/84/68/52\% of the artifact certified untouched as
-fills grow, mean 76\%), so the certifiable \emph{component} rises from
-\textbf{27\% fully certified to 87\% with a certified scaffold}. A
-verified byte-level tokenizer, and a model faithful to the
-clamp/\texttt{\#REF!} algebra, are the natural next steps.
+\textbf{trusted base} (narrowed by Theorems 3 and 7, not eliminated) is:
+the \emph{production} byte→token parse --- now reduced to its
+conformance with the verified reference tokenizer on the model surface
+(empirical: the 1.81M-comparison differential) plus the
+ASCII-sheet-qualified surface the model does not cover; the correctness
+of the shift map \texttt{σ} itself (the Z3-proved arithmetic, not
+re-proved in the graph layer); the asymmetric six-case delete clamp and
+its \texttt{\#REF!} outcomes; the multi-cell interior of ranges (modeled
+by endpoints); the constructs absent from the token type; and the
+completeness of the non-cell denylist. The corroboration is bounded
+accordingly: value-preservation is necessary-not-sufficient (though now
+confirmed across all four structural ops and by two independent engines
+that agree, ruling out a single-engine artifact, and still not Excel);
+the confusion matrix's \texttt{FN=0} is by-construction over
+deviations-from-transform, so the informative test is the non-cell
+corruptor of §5.3, which found and closed a real false certification.
+The exact tier certifies a measured 37.5\% of operations and 27\% of
+whole tasks on a realistic edit-distribution study; the majority of real
+tasks are mixed and need the probabilistic tier --- but by Theorem 2 a
+mixed task factors into a \emph{certified structural scaffold} plus a
+bounded value-fill cone, and we measure this
+(\texttt{composition\_coverage.py}): on mixed edits the scaffold is
+always certified and the audit surface collapses to the value-fill cone
+(100/84/68/52\% of the artifact certified untouched as fills grow, mean
+76\%), so the certifiable \emph{component} rises from \textbf{27\% fully
+certified to 87\% with a certified scaffold}. Theorem 7 delivers the
+verified byte-level \emph{reference} tokenizer; verifying the
+\emph{production} implementation itself (extraction, or Rust
+verification tooling) and a model faithful to the clamp/\texttt{\#REF!}
+algebra are the natural next steps.
 
 \section{8. Related work}\label{related-work}
 

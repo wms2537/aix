@@ -141,8 +141,8 @@
       "id": "T014",
       "phase": "6",
       "desc": "Granted panel round 5 over the fix-completed paper",
-      "status": "in_progress",
-      "evidence": null,
+      "status": "done",
+      "evidence": "round-5 chair: A-, fix list NOT complete (2 more silent no-ops + fix-introduced errors + unverified transcribed numbers). ALL 6 residuals now fixed with MY OWN recomputation (6-category composition, 163/500, 27/362 confirmed first-hand), assert-guarded edits, prose-consistency checks mechanized in verify_claims (121 claims 120 PASS 0 FAIL incl. 3 prose sweeps over md/build/tex)",
       "parent": null
     }
   ],

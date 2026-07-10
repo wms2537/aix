@@ -72,3 +72,15 @@ direction-safe (the fix could only reduce mismatches xlq would otherwise show ag
 the independent truth grammar — it cannot manufacture agreement, since the truth
 shifter is independent and engine-validated) but it is a deviation from the freeze
 wording and is disclosed here and in §5.10.
+
+## Round-5 corrections (appended — text above stands as history)
+
+Round 5 falsified parts of this entry's account and the paper now carries the
+corrected versions: (a) the deviation appendix's "no contact with v2 corpora" was
+wrong in a second way — 27/362 Enron eligible leg files are source-document
+re-conversions of discovery-corpus workbooks (0 byte-identical); (b) ledger row
+v2-agents' "refused_correct 5->0" used the wrong comparator — like-for-like
+(synthetic perfect smoke, post-fix rerun) is 5->4; live arms 0/2 -> 0/0; (c) the cap
+composition is SIX categories (cs101 4, database 162, filby 30, financial 270,
+forms3 21, grades 13), recomputed against the locked eligibility counters; (d)
+EUSES v1-copy overlap is 163/500, not 164.

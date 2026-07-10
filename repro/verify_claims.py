@@ -781,6 +781,31 @@ expect("v2-smoke-postfix", "§5.10 smoke 5->4", "refused_correct = 4", SPX,
        lambda: J(SPX)["GUARDED"]["refused_correct_COST"], 4)
 
 
+
+# ---- Prose-consistency checks (round-5 lesson: silent replacement no-ops) ----
+# Each phrase was GATED by an adversarial round; its reappearance in the paper or
+# tex is a regression. Checked mechanically because three separate fix passes each
+# left at least one stale copy behind.
+FORBIDDEN_PHRASES = [
+    "fell from 5 to 0", "EUSES-full)", "stated open", "shares no files",
+    "identical files, so the growth", "164 of the 500",
+    "four categories (cs101 9", "452,384 unique real formulas ×",
+    "from v1's 5", "7,419- and",
+]
+def _prose_checks():
+    rows = []
+    for path in ("paper/paper-v3.md", "paper/paper-v3-build.md", "paper/paper-v3.tex"):
+        try:
+            txt = open(path, encoding="utf-8", errors="replace").read()
+        except FileNotFoundError:
+            rows.append(("SKIP", f"prose:{path}", "-", "file present", "missing", path))
+            continue
+        bad = [p for p in FORBIDDEN_PHRASES if p in txt]
+        rows.append(("PASS" if not bad else "FAIL", f"prose:{path.split('/')[-1]}",
+                     "gated-phrase sweep", "0 forbidden phrases",
+                     repr(bad) if bad else "0", path))
+    return rows
+
 def main():
     rows = []
     for cid, loc, claimed, artifact, fn in CLAIMS:
@@ -791,6 +816,7 @@ def main():
             status, actual = "FAIL", f"exception: {e}"
         rows.append((status, cid, loc, claimed, actual, artifact))
     rows.extend(formal_results())
+    rows.extend(_prose_checks())
 
     wid = max(len(r[1]) for r in rows)
     wloc = max(len(r[2]) for r in rows)

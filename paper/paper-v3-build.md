@@ -45,12 +45,15 @@ faithful renames with no SQL executed. We are deliberate about what is *proof* a
 what is *corroboration*: the machine-checked boundary is the result; the empirical harness
 (147/147 corrupted foreign edits refused; a naive edit path silently corrupts 85.5%
 of development-tier workbooks — confirmed-genuine after our own study corrected two
-mislabels — while the certified path corrupts none; and a pre-registered, run-once
-**locked test on corpora development never touched** — EUSES, Enron, and a production
-dbt project — in which the guard made **zero false certifications across 518 foreign
-edits (503 refused, 15 fail-closed errors)**, the shift arithmetic made zero errors in 283,960 real cells, measured
-fail-closed cost of 19.6–32.0%, and the one real defect found sat exactly in the layer
-our theory declares trusted-not-proven, since fixed) corroborates it, and we report
+mislabels — while the certified path corrupts none; and TWO pre-registered, run-once
+**locked tests on external corpora** — EUSES, Enron, and production dbt projects —
+in which the guard made **zero false certifications across 1,370 foreign-edit calls**
+(v1: 518, surfacing the first of three real defects, all found by our own
+verification machinery in the trusted byte layer and since fixed; v2: 852 further,
+with zero errors across 1,006,997 cell-checks over five operations), measured
+fail-closed cost of 19.6–34.3%, and value-collision evidence that sampling-based
+checking needs up to 237 cells per file for 99.9% confidence on one real corpus)
+corroborates it, and we report
 each measurement with its confound — including two false certifications our own adversarial reviews
 found in earlier versions of the system, which we closed and report as fixed defects.
 
@@ -680,8 +683,10 @@ theory declared unproven.*
 A second pre-registered, run-once test (10 predictions committed before acquisition)
 widened v1's scope: EUSES converted in full (4,648 workbooks, 11 categories) with the
 shift/guard legs running on the pre-registered **first-500-eligible cap** — which in
-sorted order spans **four** categories (cs101 9, database 245, filby 38, financial
-208; only the value-collision leg used the full 4,432-file corpus) — plus a
+sorted order spans **six** categories (cs101 4, database 162, filby 30, financial
+270, forms3 21, grades 13 — recomputed against the locked eligibility counters; only
+the value-collision leg used the full corpus: 4,497 files measured, 4,432 in the
+off-by-one model's distribution) — plus a
 **seeded-random Enron sample** (replacing v1's lexicographic prefix), all **five**
 structural ops, a cross-sheet-capable truth grammar, the measurement artifacts v1's
 post-hoc analysis attributed (both eliminated exactly as predicted — the error class
@@ -690,10 +695,12 @@ went to zero), and the system under test at the thrice-fixed binary.
 Two disclosed protocol deviations. *(i)* The third fix (the range-head defect) landed
 after the pre-registration commit but before the run; we originally described its
 discovery as development-tier only — **that was wrong**: the differential's formula
-corpus included the v1 locked corpora, and 164 of the 500 EUSES shift-leg files are
-byte-identical v1 copies. The **Enron leg shares no files with the fix's discovery
-corpus sample and is the uncontaminated headline** (690,251 cell-checks, zero
-mismatches); the fix also cannot manufacture agreement against the independent,
+corpus included the v1 locked corpora, and 163 of the 500 EUSES shift-leg files are
+byte-identical v1 copies. The Enron leg is the **less-contaminated headline** (690,251 cell-checks, zero
+mismatches): 27 of its 362 eligible files (7.5%) are re-conversions of source
+workbooks whose v1 conversions fed the discovery corpus — zero byte-identical, the
+overlap is at source-document level — versus 163/500 (33%) byte-identical v1 copies
+on the EUSES leg; the fix also cannot manufacture agreement against the independent,
 engine-validated truth grammar — but the provenance is reported as it is. *(ii)* The
 pre-registration said function-endpoint ranges "stay out-of-grammar"; the shipped v2
 grammar admits them with semantics written to match production's fixed behavior — an
@@ -706,8 +713,9 @@ partial.**
 - **Shift correctness: 1,006,997 cell-checks across five ops, zero mismatches**
   (EUSES 316,746; Enron 690,251; a cell checked under several ops counts once per
   op — distinct physical cells ≤ ~227,879). Checked volume grew 4.0× on Enron
-  (identical files, so the growth is the widened grammar + fifth op) and 2.8× on
-  EUSES (confounded with 3.1× more files). The new fail-closed guard refused three
+  and 2.8× on EUSES — both confounded: Enron v2 is a seeded-random *resample*
+  (zero byte overlap with v1's prefix sample), and EUSES has 3.1× more files, on
+  top of the widened grammar and the fifth op. The new fail-closed guard refused three
   real non-ASCII-qualifier files in the wild.
 - **Zero false certifications on 852 further foreign edits** (496 EUSES + 356
   Enron; ~164 EUSES files repeat v1's deterministic edit byte-identically, the
@@ -721,7 +729,7 @@ partial.**
   sampling-based value checking cannot certify real business data at high
   confidence — on these corpora the exact tier is a necessity, not an
   optimization.
-- **The fail-closed cost is structural and levered**: 21.2% (EUSES-full) and 34.3%
+- **The fail-closed cost is structural and levered**: 21.2% (EUSES cap sample) and 34.3%
   (Enron-random) — both *above* our artifact-corrected predictions (disconfirmed:
   the fuller samples simply carry more denylist parts), with **externalLinks the
   sole cause of 64% of Enron's denylist refusals** (zip-grounded attribution,
@@ -793,9 +801,9 @@ range-kind parse (`A2:CHOOSE(...)` — a range whose tail is a function call)
 `SUM` by accident, wrong for `COUNT`-class functions (3 disagreements in 1,810,796
 comparisons, all this shape). Fixed with regressions; the post-fix differential
 agrees everywhere on the model surface; and the fix *measurably reduced the guard's
-cost* — refusals of correct agent work in the study fell from 5 to 0 (§5.10),
-because the previously-documented guard-vs-tool divergence on this construct
-disappeared. Three defects, three layers of the same trusted surface, each found by
+cost* — the like-for-like synthetic arm's refusals of correct work fell 5 → 4, and
+the live arms went 0/2 (v1) → 0/0 (v2) (§5.10) — because the previously-documented
+guard-vs-tool divergence on this construct disappeared. Three defects, three layers of the same trusted surface, each found by
 the project's own verification machinery.
 We report each as a fixed defect. This is part of the contribution: a certify-or-refuse
 claim is only credible if its authors have tried hardest to break it — the record of
