@@ -48,15 +48,25 @@ WHOLEROW = re.compile(r"(?<![A-Za-z0-9.])\$?\d+:\$?\d+(?![0-9])")
 RANGE_FN = re.compile(r"[A-Z]{1,3}\d+:[A-Za-z_]")   # range endpoint is a function (A9:CHOOSE)
 
 
-def ref_shift(formula, axis, op, k, count):
+QUALTOK = re.compile(r"(?:'(?P<q>(?:[^']|'')*)'|(?P<u>[A-Za-z_][A-Za-z0-9_.]*))!")
+
+
+def ref_shift(formula, axis, op, k, count, sheet=None):
     """Independent grid-validity reference shifter for insert/delete on rows or cols.
     (Same predicate validated against 2 engines in conformance_v2.) Returns the shifted
     formula, or None if a construct is outside this shifter's grammar — tables,
     cross-sheet, whole-column/row (A:A, 5:5), or a range whose endpoint is a function
     (A9:CHOOSE(...)) — which xlq handles but this simple checker cannot independently
     verify, so it SKIPS them rather than guess (they are not counted either way)."""
-    if "[" in formula or "!" in formula or WHOLECOL.search(formula) or \
-       WHOLEROW.search(formula) or RANGE_FN.search(formula):
+    if "[" in formula or WHOLECOL.search(formula) or WHOLEROW.search(formula):
+        return None
+    if sheet is None and ("!" in formula or RANGE_FN.search(formula)):
+        # v1-compatible mode: qualified formulas skip, and the historical
+        # RANGE_FN gate (which over-matches ALL cell ranges — kept verbatim so
+        # committed dev-tier numbers stay byte-identical) skips too. v2 mode
+        # (sheet given) admits plain and function-endpoint ranges: the walk
+        # shifts range endpoints and single heads exactly as production now
+        # does (post range-head fix), and the paren guard protects functions.
         return None
     out, i, n = [], 0, len(formula)
 
@@ -77,6 +87,39 @@ def ref_shift(formula, axis, op, k, count):
             while j < n and formula[j] != '"':
                 j += 1
             out.append(formula[i:j + 1]); i = j + 1; continue
+        # v2 (pre-registered, research-log/018): ASCII sheet qualifiers. Shift the
+        # body iff the qualifier names the edited sheet; other sheets' cells do
+        # not move under an edit to `sheet`. Unquoted non-ASCII qualifiers and
+        # any unconsumed '!' are out of grammar (None) — production refuses them.
+        if sheet is not None:
+            qm = QUALTOK.match(formula, i)
+            prev = formula[i - 1] if i > 0 else ""
+            if qm and not (prev.isalnum() or prev in ("_", ".", "$", "!", "'")):
+                name = qm.group("q")
+                if name is not None:
+                    name = name.replace("''", "'")
+                else:
+                    name = qm.group("u")
+                    if any(ord(c) > 127 for c in name):
+                        return None
+                j = qm.end()
+                rm2 = RANGETOK.match(formula, j) or CELLTOK.match(formula, j)
+                if rm2 is None:
+                    return None                # qualifier without a plain ref body
+                body = formula[j:rm2.end()]
+                nxt = formula[rm2.end()] if rm2.end() < n else ""
+                if nxt.isalpha() or nxt in ("_", "(", ":"):
+                    return None                # qualified ranges beyond the body: skip
+                if name == sheet:
+                    shifted = ref_shift(body, axis, op, k, count, sheet=sheet)
+                    if shifted is None:
+                        return None
+                    out.append(formula[i:j] + shifted)
+                else:
+                    out.append(formula[i:rm2.end()])
+                i = rm2.end(); continue
+            if ch == "!":
+                return None                    # unconsumed qualifier — out of grammar
         rm = RANGETOK.match(formula, i)
         if rm:                                # shift both endpoints (single-col clamp skip)
             toks = re.findall(r"(\$?)([A-Z]{1,3})(\$?)(\d+)", rm.group(0))
@@ -153,10 +196,19 @@ def formulas_of(path):
     return out
 
 
+def _xml_unescape(s):
+    for ent, ch in (("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'),
+                    ("&apos;", "'"), ("&amp;", "&")):
+        s = s.replace(ent, ch)
+    return s
+
+
 def zip_sheet_name(path):
     d = zipfile.ZipFile(path).read("xl/workbook.xml").decode("utf-8", "replace")
     m = re.search(r'<sheet\b[^>]*\bname="([^"]*)"', d)
-    return m.group(1) if m else None
+    # v2 harness fix (research-log/018, pre-registered): decode XML entities —
+    # xlq decodes them, so the raw attribute text refused 15 v1 files spuriously.
+    return _xml_unescape(m.group(1)) if m else None
 
 
 def new_pos(col, row, axis, op, at, count):
