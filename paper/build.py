@@ -102,7 +102,12 @@ def main():
         print("render OK (check mode, nothing written)")
         return
     staging = os.path.join(HERE, ".staging")
-    shutil.rmtree(staging, ignore_errors=True)
+    # Concurrent-build guard: os.makedirs without exist_ok is an atomic
+    # test-and-claim — a second build racing this one aborts instead of
+    # deleting the first one's staging out from under it (observed race).
+    if os.path.isdir(staging):
+        sys.exit("BUILD FAILED — another build appears to be in progress "
+                 "(paper/.staging exists); remove it only if that build is dead")
     os.makedirs(staging)
     open(os.path.join(staging, "paper-v3.md"), "w", encoding="utf-8").write(BANNER + md)
     open(os.path.join(staging, "paper-v3-build.md"), "w", encoding="utf-8").write(derive_build_md(md))
