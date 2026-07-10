@@ -68,66 +68,43 @@ Untrusted Agent Edits to Opaque-Semantics Artifacts}
 
 \section{Abstract}\label{abstract}
 
-An LLM agent that edits a spreadsheet, a database schema, or a dbt
-project produces an artifact that \emph{opens fine} but may be silently
-wrong: a structural edit that fails to propagate references corrupts
-computed values with no visible symptom, and neither the agent nor a
-human reviewer can see it without the defining engine. We ask which such
-edits can be certified \textbf{engine-free} --- offline, against the
-artifact's own structure, trusting neither the editor nor a
-recomputation --- and we answer by machine-checking \textbf{both sides
-of the boundary} (Lean 4, no \texttt{sorry}, axioms \texttt{propext} and
-\texttt{Quot.sound} only) --- and the middle ground between them (copy
-edits reusing witnessed formulas) is structured by an argument-value
-witnessing criterion with theorems on both of its sides. On the
-certifiable side: the premise of our invariance theorem --- the edit's
-reference-dependency graph is a function-preserving relabeling of the
-original's --- is \emph{decidable from syntax}, and we ship an
-executable decision procedure \texttt{check} with a machine-checked
-soundness theorem: if \texttt{check} accepts, every computed value
-transports across the edit under \textbf{every possible engine} (the
-engine is universally quantified, never run), carrying the artifact's
-embedded cached values as a self-oracle. On the uncertifiable side: an
-impossibility theorem --- an edit introducing function semantics
-unwitnessed in the original admits two engines that are pointwise
-indistinguishable through the original artifact yet disagree on the
-edited value, so \emph{no} engine-free checker can certify it.
-Certify-or- refuse is therefore not a design choice but the only sound
-shape, and our checker's accept class is exactly the
-\emph{proven-certifiable} relabeling class --- every accept is
-certifiable; the certifiable class provably extends to witnessed copy
-edits (Theorem 6), with a fuel-graded residual between the two sides
-stated plainly. A companion locality theorem factors mixed edits into a
-certified structural scaffold plus a bounded value-fill audit cone. The
-theory is load-bearing in the running system: the deployed checker
-agrees with the Lean decision procedure on a randomized battery, the
-trusted byte→token layer itself carries a \textbf{verified reference
-tokenizer} (losslessness, literal opacity, σ-image --- machine-checked)
-whose corpus-scale differential against the production tokenizer (1.81M
-comparisons on 452k real formulas) agrees everywhere on the model
-surface after finding a real defect, a production certifier
-(\texttt{xlq\ certify}) covers five structural operations, and the same
-format-parametric core certifies dbt model refactors engine-free ---
-catching dangling references and silent logic changes that
-re-materialization confirms, while certifying faithful renames with no
-SQL executed. We are deliberate about what is \emph{proof} and what is
-\emph{corroboration}: the machine-checked boundary is the result; the
-empirical harness (147/147 corrupted foreign edits refused; a naive edit
-path silently corrupts 85.5\% of development-tier workbooks ---
-confirmed-genuine after our own study corrected two mislabels --- while
-the certified path corrupts none; and TWO pre-registered, run-once
-\textbf{locked tests on external corpora} --- EUSES, Enron, and
-production dbt projects --- in which the guard made \textbf{zero false
-certifications across 1,370 foreign-edit calls} (v1: 518, surfacing the
-first of three real defects, all found by our own verification machinery
-in the trusted byte layer and since fixed; v2: 852 further; and zero
-mismatches across 1,006,997 cell-checks over five operations), measured
-fail-closed cost of 19.6--34.3\%, and value-collision evidence that
-sampling-based checking needs up to 237 cells per file for 99.9\%
-confidence on one real corpus) corroborates it, and we report each
-measurement with its confound --- including two false certifications our
-own adversarial reviews found in earlier versions of the system, which
-we closed and report as fixed defects.
+An LLM agent that edits a spreadsheet or a dbt project produces an
+artifact that \emph{opens fine} but may be silently wrong: a structural
+edit that fails to propagate references corrupts computed values with no
+visible symptom, and neither the agent nor a reviewer can see it without
+the defining engine. We ask which such edits can be certified
+\textbf{engine-free} --- offline, against the artifact's own structure,
+trusting neither the editor nor a recomputation --- and answer by
+machine-checking both sides of the boundary (Lean 4, no \texttt{sorry},
+axioms \texttt{propext}/\texttt{Quot.sound} only). Relabeling edits are
+certifiable: their premise is decidable from syntax, and our executable
+decision procedure \texttt{check} carries a soundness theorem
+quantifying over \textbf{every possible engine}. Edits introducing
+unwitnessed semantics are uncertifiable: indistinguishable engines
+disagree, so certify-or-refuse is the only sound shape. The middle
+ground --- copies of witnessed formulas --- is structured by an
+argument-value witnessing criterion with theorems on both of its sides.
+
+The theory is load-bearing in the running system. The deployed checker
+agrees with the Lean decider; the trusted byte→token layer carries a
+\textbf{verified reference tokenizer} (losslessness, literal opacity,
+σ-image) held to the production tokenizer by a 1,810,796-comparison
+corpus differential with zero disagreements on its model surface (50.3\%
+of comparisons; the largest remainder, ASCII-sheet-qualified formulas,
+is disclosed-unverified surface); and a production certifier covers five
+structural operations.
+
+Two pre-registered, run-once \textbf{locked tests} on external corpora
+(EUSES, Enron, production dbt projects) corroborate the theory:
+\textbf{zero false certifications across 1,370 foreign-edit calls}, zero
+mismatches across 1,006,997 cell-checks over five operations, a measured
+fail-closed cost of 19.6\%--34.3\% with one dominant verifiable cause,
+and evidence that sampling-based value checking needs up to 237 cells
+per file for 99.9\% confidence. The tests also surfaced three real
+defects --- all found by our own verification machinery, in exactly the
+layer the theory declares trusted-not-proven, and since fixed. Every
+quantitative claim in this paper is machine-verified against its
+committed artifact.
 
 \section{1. Introduction}\label{introduction}
 
@@ -187,14 +164,13 @@ Our claims, in order of strength:
   (\texttt{xlq\ certify}, five structural ops) in translation-validation
   mode; and --- where all three real defects lived --- a
   \textbf{verified reference tokenizer} for the trusted byte→token layer
-  (losslessness, opacity, σ-image; Theorem 7) differentially enforced
-  against the production tokenizer at corpus scale (1,810,796
-  comparisons: 50.3\% on the model surface --- 901,946 in-surface +
-  8,392 guard agreements, zero disagreements; the remainder counted and
-  classified: 45.2\% ASCII-sheet-qualified formulas, which production
-  shifts as DISCLOSED-UNVERIFIED surface outside the model, plus
-  whole-column/row and delete-clamp classes), with fail-closed refusal
-  for the classes the production tokenizer cannot parse (§4).
+  (losslessness, opacity, σ-image; Theorem 7), held to the production
+  tokenizer by a corpus-scale differential --- zero disagreements on the
+  model surface, which covers 50.3\% of comparisons; the largest
+  remainder (45.2\%, ASCII-sheet-qualified formulas) is
+  DISCLOSED-UNVERIFIED surface that production shifts outside the model,
+  with fail-closed refusal for what the production tokenizer cannot
+  parse (full accounting at Theorem 7, §4).
 \item
   \textbf{(Generality + corroboration, reported with confounds.)} The
   same format-parametric core certifies dbt model refactors engine-free
@@ -860,20 +836,20 @@ prefix collapses to essentially one category (791 of 796 files from the
 \texttt{database} folder, 9 from \texttt{cs101}, out of 4,652 files in
 11 categories). EUSES-leg numbers should therefore be read as the
 \emph{database category}, not the full corpus, and cross-corpus
-generality claims are correspondingly tempered; plus one \textbf{real
-production dbt project} (Mattermost's data warehouse, 254 models). The
-dbt leg's provenance is honestly \emph{weaker} than the xlsx legs': the
-pre-registered GitLab target went private, the pre-registered fallback
-(a demo project) was bypassed for the better real-production substitute,
-and the substitution rationale, leg harness, one harness fix (an
-identical source-oracle sentinel on both sides --- a rename does not
-touch the warehouse), and results all attest in a single commit rather
-than a pre-inspection commit. Rules: run once; measurement-harness bugs
-fixable with disclosure (four were: the dbt sentinel above, a
-cell-association regex artifact, XML entity decoding, a per-file
-watchdog --- after each xlsx-side fix the development-tier results
-re-verified byte-identical, and the two mismatch-reducing fixes are
-further justified by XML semantics independent of results: a
+generality claims are correspondingly tempered. The third corpus is one
+\textbf{real production dbt project} (Mattermost's data warehouse, 254
+models). The dbt leg's provenance is honestly \emph{weaker} than the
+xlsx legs': the pre-registered GitLab target went private, the
+pre-registered fallback (a demo project) was bypassed for the better
+real-production substitute, and the substitution rationale, leg harness,
+one harness fix (an identical source-oracle sentinel on both sides --- a
+rename does not touch the warehouse), and results all attest in a single
+commit rather than a pre-inspection commit. Rules: run once;
+measurement-harness bugs fixable with disclosure (four were: the dbt
+sentinel above, a cell-association regex artifact, XML entity decoding,
+a per-file watchdog --- after each xlsx-side fix the development-tier
+results re-verified byte-identical, and the two mismatch-reducing fixes
+are further justified by XML semantics independent of results: a
 self-closing \texttt{\textless{}c/\textgreater{}} cannot contain an
 \texttt{\textless{}f\textgreater{}} child, and \texttt{\&quot;} denotes
 the same formula as a literal quote); the systems under test frozen.
@@ -1100,23 +1076,23 @@ full-corpus run: a failed range-kind parse (\texttt{A2:CHOOSE(...)} ---
 a range whose tail is a function call) \emph{swallowed} the valid head
 reference, leaving it unshifted --- value-preserving for \texttt{SUM} by
 accident, wrong for \texttt{COUNT}-class functions (3 disagreements in
-1,810,796 comparisons, all this shape). Fixed with regressions; the
-post-fix differential agrees everywhere on the model surface; and the
-fix \emph{measurably reduced the guard's cost}: the like-for-like
-synthetic arm's refusals of correct work fell 5 → 4 --- exactly the one
-refusal class the fix addressed, because the previously-documented
-guard-vs-tool divergence on this construct disappeared (§5.10). The live
-arms also went 0/2 (v1) → 0/0 (v2), but across different agent
-conditions and with v1's two refusals on unrelated constructs ---
-confounded corroboration, not part of the measured effect. Three
-defects, three layers of the same trusted surface, each found by the
-project's own verification machinery. We report each as a fixed defect.
-This is part of the contribution: a certify-or-refuse claim is only
-credible if its authors have tried hardest to break it --- the record of
-what broke, and what the fix was, is the evidence that the remaining
-boundary is real, and it is why we are conservative about calling the
-corroboration anything more than corroboration, and the denylist
-anything more than a denylist.
+the full differential of Theorem 7, all this shape). Fixed with
+regressions; the post-fix differential agrees everywhere on the model
+surface; and the fix \emph{measurably reduced the guard's cost}: the
+like-for-like synthetic arm's refusals of correct work fell 5 → 4 ---
+exactly the one refusal class the fix addressed, because the
+previously-documented guard-vs-tool divergence on this construct
+disappeared (§5.10). The live arms also went 0/2 (v1) → 0/0 (v2), but
+across different agent conditions and with v1's two refusals on
+unrelated constructs --- confounded corroboration, not part of the
+measured effect. Three defects, three layers of the same trusted
+surface, each found by the project's own verification machinery. We
+report each as a fixed defect. This is part of the contribution: a
+certify-or-refuse claim is only credible if its authors have tried
+hardest to break it --- the record of what broke, and what the fix was,
+is the evidence that the remaining boundary is real, and it is why we
+are conservative about calling the corroboration anything more than
+corroboration, and the denylist anything more than a denylist.
 
 \section{7. Scope and limitations}\label{scope-and-limitations}
 
