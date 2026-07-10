@@ -266,6 +266,17 @@ fn main() {
                 "{}",
                 serde_json::to_string_pretty(&value).expect("serialize report")
             );
+            // Uniform exit-code contract (the JSON on stdout is unchanged):
+            //   0 = the operation produced its intended effect/answer,
+            //   1 = an operational refusal or failure (certify REFUSED, a
+            //       restructure residual/verification failure, …),
+            //   2 = a malformed invocation (bad --op / bad args).
+            // This lets an agent branch on `xlq certify …` in a shell: a refusal
+            // must NOT read as success, which is the bug this fixes.
+            let code = outcome_exit_code(&value);
+            if code != 0 {
+                std::process::exit(code);
+            }
         }
         Err(err) => {
             eprintln!("xlq error: {err:#}");
@@ -277,4 +288,25 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+/// Map a command's `Ok` JSON to an exit code (see the contract at the call site).
+/// The JSON payload itself is never modified — only the process exit status.
+fn outcome_exit_code(v: &serde_json::Value) -> i32 {
+    // Malformed invocation → 2 (usage), consistent with clap's own arg errors.
+    if let Some(kind) = v.get("error").and_then(|e| e.as_str()) {
+        return if matches!(kind, "bad_op" | "bad_args") { 2 } else { 1 };
+    }
+    // Any other top-level error object, an explicit REFUSED, or a write that
+    // did not verify → 1 (operational refusal/failure).
+    if v.get("error").is_some() {
+        return 1;
+    }
+    if v.get("status").and_then(|s| s.as_str()) == Some("REFUSED") {
+        return 1;
+    }
+    if v.get("verified") == Some(&serde_json::Value::Bool(false)) {
+        return 1;
+    }
+    0
 }

@@ -268,3 +268,67 @@ fn calc_payroll_reports_coverage_and_zero_recalc_drift() {
     assert_eq!(json["truncated"], false);
     assert_eq!(json["changed"], serde_json::json!([]));
 }
+
+/// Exit-code contract: 0 = effect/answer produced, 1 = operational refusal/
+/// failure, 2 = malformed invocation. An agent branches on these in a shell, so
+/// a certify REFUSED must NOT read as success.
+mod exit_codes {
+    use std::path::Path;
+    use std::process::Command;
+
+    fn run(args: &[&str]) -> i32 {
+        Command::new(env!("CARGO_BIN_EXE_xlq"))
+            .args(args)
+            .output()
+            .expect("spawn xlq")
+            .status
+            .code()
+            .expect("exit code")
+    }
+
+    fn fixture(name: &str) -> String {
+        format!("{}/../fixtures/structural/{name}", env!("CARGO_MANIFEST_DIR"))
+    }
+
+    #[test]
+    fn certify_refused_exits_1_certified_exits_0() {
+        let orig = fixture("refs.xlsx");
+        let dir = std::env::temp_dir().join(format!("xlq-exit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let good = dir.join("good.xlsx");
+        std::fs::copy(&orig, &good).unwrap();
+        let good = good.to_str().unwrap();
+        // xlq's own faithful transform certifies (exit 0)
+        assert_eq!(
+            run(&["restructure", good, "--sheet", "Sheet1", "--op", "insert-rows",
+                  "--at", "2", "--count", "1", "--actor", "t"]),
+            0
+        );
+        assert_eq!(
+            run(&["certify", &orig, good, "--sheet", "Sheet1", "--op", "insert-rows",
+                  "--at", "2", "--count", "1"]),
+            0,
+            "faithful transform must certify (exit 0)"
+        );
+        // the untouched original is NOT the insert-row transform → REFUSED (exit 1)
+        assert_eq!(
+            run(&["certify", &orig, &orig, "--sheet", "Sheet1", "--op", "insert-rows",
+                  "--at", "2", "--count", "1"]),
+            1,
+            "REFUSED must exit 1 so a shell 'if xlq certify' does not ship it"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bad_op_exits_2_missing_file_exits_1() {
+        let orig = fixture("refs.xlsx");
+        assert_eq!(
+            run(&["restructure", &orig, "--sheet", "Sheet1", "--op", "bogus", "--at", "2"]),
+            2,
+            "malformed --op is a usage error (exit 2)"
+        );
+        assert!(!Path::new("/no/such/file.xlsx").exists());
+        assert_eq!(run(&["inspect", "/no/such/file.xlsx"]), 1);
+    }
+}

@@ -1231,6 +1231,45 @@ mod tests {
     }
 
     #[test]
+    fn real_pivot_workbook_stays_wellformed_after_structural_edit() {
+        // End-to-end regression on the committed pivot+chart fixture: a structural
+        // edit must leave every pivot/chart part WELL-FORMED (the event-swallow bug
+        // produced unbalanced XML) and the whole workbook must reload.
+        const PIVOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../fixtures/t1/pivot-chart.xlsx");
+        let input = std::fs::read(PIVOT).unwrap();
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 2, 1);
+        let (out, _report) = structural_edit(&input, &e).unwrap();
+        // every pivot/chart part in the output parses as well-formed XML
+        let mut z = zip::ZipArchive::new(Cursor::new(out.as_slice())).unwrap();
+        for i in 0..z.len() {
+            let mut f = z.by_index(i).unwrap();
+            let name = f.name().to_string();
+            if name.starts_with("xl/pivotCache") || name.starts_with("xl/pivotTables")
+                || name.starts_with("xl/charts/")
+            {
+                let mut b = Vec::new();
+                f.read_to_end(&mut b).unwrap();
+                let mut rd = Reader::from_reader(b.as_slice());
+                let mut buf = Vec::new();
+                loop {
+                    match rd.read_event_into(&mut buf)
+                        .unwrap_or_else(|err| panic!("{name} is not well-formed: {err}"))
+                    {
+                        Event::Eof => break,
+                        _ => {}
+                    }
+                    buf.clear();
+                }
+            }
+        }
+        // and the workbook still loads in the engine
+        let tmp = unique_tmp("pivotwb");
+        std::fs::write(&tmp, &out).unwrap();
+        assert!(ironcalc::import::load_from_xlsx(&tmp, "en", "UTC", "en").is_ok());
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
     fn pivot_start_form_keeps_children() {
         // Non-self-closing <worksheetSource>...</worksheetSource>: the Start form
         // must stay a Start (children copied through), not be forced to Empty.
@@ -1309,18 +1348,22 @@ mod tests {
         assert_eq!(report.rows_deleted, 1);
     }
 
+    /// Committed fixtures, resolved relative to the crate (machine-independent).
+    const FIX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../fixtures/structural/");
+
     fn unique_tmp(tag: &str) -> String {
         use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::SeqCst);
-        format!(
-            "/tmp/claude-1000/-home-soh-aix/a1b7f99e-cc58-4254-b95a-10d56f89029d/scratchpad/st-{tag}-{n}.xlsx"
-        )
+        std::env::temp_dir()
+            .join(format!("xlq-st-{tag}-{}-{n}.xlsx", std::process::id()))
+            .to_string_lossy()
+            .into_owned()
     }
 
     #[test]
     fn end_to_end_insert_row_recomputes_and_shifts_all_refs() {
-        let input = std::fs::read("/home/soh/aix/fixtures/structural/refs.xlsx").unwrap();
+        let input = std::fs::read(format!("{FIX}refs.xlsx")).unwrap();
         let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
         let (out, report) = structural_edit(&input, &e).unwrap();
 
@@ -1357,7 +1400,7 @@ mod tests {
     fn minimal_patch_only_coordinate_bytes_change() {
         // The invariant: parts with no reference to the edited sheet are
         // byte-identical; changed parts differ only where σ fired.
-        let input = std::fs::read("/home/soh/aix/fixtures/structural/refs.xlsx").unwrap();
+        let input = std::fs::read(format!("{FIX}refs.xlsx")).unwrap();
         let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
         let (out, _r) = structural_edit(&input, &e).unwrap();
         let before = zip_parts(&input);
@@ -1413,11 +1456,7 @@ mod tests {
     fn table_part_forces_residual() {
         // a workbook containing a table part must be REFUSED (we don't shift
         // table extents), never silently corrupted.
-        let py = "/home/soh/aix/fixtures/structural/table.xlsx";
-        if !std::path::Path::new(py).exists() {
-            return;
-        }
-        let input = std::fs::read(py).unwrap();
+        let input = std::fs::read(format!("{FIX}table.xlsx")).unwrap();
         let e = edit("Sheet1", Axis::Row, Op::Insert, 3, 1);
         let (_out, report) = structural_edit(&input, &e).unwrap();
         assert!(
@@ -1452,11 +1491,7 @@ mod tests {
     fn shared_formula_no_longer_refused_end_to_end() {
         // a workbook whose only formulas are shared must now be SAFELY editable
         // (expanded + shifted), not refused.
-        let py = "/home/soh/aix/fixtures/structural/shared.xlsx";
-        if !std::path::Path::new(py).exists() {
-            return;
-        }
-        let input = std::fs::read(py).unwrap();
+        let input = std::fs::read(format!("{FIX}shared.xlsx")).unwrap();
         let e = edit("Sheet1", Axis::Row, Op::Insert, 3, 1);
         let (out, report) = structural_edit(&input, &e).unwrap();
         assert!(
@@ -1546,7 +1581,7 @@ mod tests {
     #[test]
     fn move_cols_rejected_defensively() {
         // Move is row-only; a column Move must error rather than mis-transform.
-        let input = std::fs::read("/home/soh/aix/fixtures/structural/refs.xlsx").unwrap();
+        let input = std::fs::read(format!("{FIX}refs.xlsx")).unwrap();
         let e = StructuralEdit {
             axis: Axis::Col,
             at: 2,

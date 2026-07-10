@@ -221,14 +221,23 @@ fn iso_timestamp(clock: Option<i64>) -> String {
 mod tests {
     use super::*;
 
-    fn setup(tag: &str) -> String {
+    /// Committed fixtures, resolved relative to the crate — machine-independent
+    /// (works on any checkout of the repo, on any machine).
+    const FIX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../fixtures/structural/");
+
+    fn scratch(name: &str) -> String {
         use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::SeqCst);
-        let dst = format!(
-            "/tmp/claude-1000/-home-soh-aix/a1b7f99e-cc58-4254-b95a-10d56f89029d/scratchpad/rs-{tag}-{n}.xlsx"
-        );
-        std::fs::copy("/home/soh/aix/fixtures/structural/refs.xlsx", &dst).unwrap();
+        std::env::temp_dir()
+            .join(format!("xlq-rs-{name}-{}-{n}.xlsx", std::process::id()))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn setup(tag: &str) -> String {
+        let dst = scratch(tag);
+        std::fs::copy(format!("{FIX}refs.xlsx"), &dst).unwrap();
         dst
     }
 
@@ -272,15 +281,8 @@ mod tests {
     fn shared_formula_edit_now_succeeds() {
         // shared formulas are EXPANDED (materialize → shift), so a shared-only
         // real file must now commit, not be refused.
-        let fixture = "/home/soh/aix/fixtures/structural/shared.xlsx"; // YEAR.xlsx: shared, no table
-        if !std::path::Path::new(fixture).exists() {
-            return;
-        }
-        let dst = setup_from("shared", fixture);
-        for suffix in (["", ".xlq.jsonl", ".rev-1.xlsx", ".xlq.lock"]).iter() {
-            let _ = std::fs::remove_file(format!("{dst}{suffix}"));
-        }
-        std::fs::copy(fixture, &dst).unwrap();
+        let fixture = format!("{FIX}shared.xlsx"); // YEAR.xlsx: shared, no table
+        let dst = setup_from("shared", &fixture); // unique temp name — no stale sidecars
         let out = run(&dst, "Sheet1", Axis::Row, Op::Insert, 2, 1, 0, false, Some("t")).unwrap();
         assert_eq!(out["rev"], json!(1), "shared edit should commit, got {out}");
         assert_eq!(out["verified"]["reopened"], json!(true));
@@ -292,11 +294,8 @@ mod tests {
     #[test]
     fn table_edit_still_refused() {
         // tables remain unsupported → refused (never silently wrong).
-        let fixture = "/home/soh/aix/fixtures/structural/table.xlsx";
-        if !std::path::Path::new(fixture).exists() {
-            return;
-        }
-        let dst = setup_from("table", fixture);
+        let fixture = format!("{FIX}table.xlsx");
+        let dst = setup_from("table", &fixture);
         let out = run(&dst, "Sheet1", Axis::Row, Op::Insert, 3, 1, 0, false, Some("t")).unwrap();
         assert_eq!(out["error"], json!("residual_unreachable"), "got {out}");
         std::fs::remove_file(&dst).ok();
@@ -326,12 +325,7 @@ mod tests {
     }
 
     fn setup_from(tag: &str, src: &str) -> String {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static N: AtomicU64 = AtomicU64::new(0);
-        let n = N.fetch_add(1, Ordering::SeqCst);
-        let dst = format!(
-            "/tmp/claude-1000/-home-soh-aix/a1b7f99e-cc58-4254-b95a-10d56f89029d/scratchpad/rsf-{tag}-{n}.xlsx"
-        );
+        let dst = scratch(tag);
         std::fs::copy(src, &dst).unwrap();
         dst
     }
