@@ -25,12 +25,13 @@
       "spent": 1
     },
     "paper_review_rounds": {
-      "limit": 6,
-      "spent": 6,
+      "limit": 7,
+      "spent": 7,
       "grant_note": "user granted 1 extra round 2026-07-10, quote: 'yes, do it' (in response to: 'if you want one more adversarial pass over \u00a75.9 before submission, that needs your explicit grant')",
       "grant_note_2": "user granted round 4, quote 2026-07-10: 'then run another adversarial panel clean'; spent at dispatch",
       "grant_note_3": "user granted round 5, quote 2026-07-10: 'then the fix list completed? if completed then go another round'; spent at dispatch",
-      "grant_note_4": "user granted round 6 (confirming), quote 2026-07-10: 'go the cinfirming riund'; spent at dispatch"
+      "grant_note_4": "user granted round 6 (confirming), quote 2026-07-10: 'go the cinfirming riund'; spent at dispatch",
+      "grant_note_5": "user granted round 7 over the re-engineered pipeline+paper, quote 2026-07-10: 'ok, grand this review round'; spent at dispatch"
     }
   },
   "tasks": [
@@ -152,6 +153,14 @@
       "desc": "Confirming round over the round-5 residual fixes",
       "status": "done",
       "evidence": "round 6: A- unchanged \u2014 4/6 residuals closed, \u00a74.i NOT-FIXED (3rd no-op, wrap-evasion), 164 survivor, NEW \u00a76 live-arm causal overclaim, sweep self-disabled off-root + dead tripwire. ALL now fixed: wrap-aware unique-guarded edits; sweep ROOT-anchored + ws-normalized + tripwires added; matcher validated against the exact wrapped shape + historical bold text; off-root run 3x PASS; 121 claims 0 FAIL",
+      "parent": null
+    },
+    {
+      "id": "T016",
+      "phase": "6",
+      "desc": "Round 7: review the engineered build pipeline + rewritten prose",
+      "status": "in_progress",
+      "evidence": null,
       "parent": null
     }
   ],
