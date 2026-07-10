@@ -1,5 +1,5 @@
 {
-  "phase": "5",
+  "phase": "6",
   "cycle": 1,
   "iteration": 3,
   "entry_mode": "idea",
@@ -65,8 +65,8 @@
       "id": "T005",
       "phase": "5",
       "desc": "Publish decision checkpoint (a/b/c) with no-publish steelman",
-      "status": "open",
-      "evidence": null,
+      "status": "done",
+      "evidence": "user quote 2026-07-10: '(a) Contribution paper (Recommended)'",
       "parent": null
     },
     {
@@ -127,7 +127,8 @@
       "path_decision_user_quote": "Path C: locked in-the-wild test (Recommended) + EUSES + Enron (Recommended) (AskUserQuestion 2026-07-09)",
       "budget_check": "research_iterations 3/5 spent; paper_review_rounds 2/2 EXHAUSTED (further reviews need user grant); recorded at migration",
       "seven_questions": "research-log/017 \u00a7seven questions",
-      "test_set_run_once": "research-log/017 logs the irreversible event; harness-bug reruns disclosed therein"
+      "test_set_run_once": "research-log/017 logs the irreversible event; harness-bug reruns disclosed therein",
+      "publish_decision_user_quote": "(a) Contribution paper (Recommended) \u2014 AskUserQuestion 2026-07-10; no-publish steelman presented first (defect unfixed at test time, 17.8-21.5% cost, LO conversion, single-op guard legs)"
     }
   }
 }
