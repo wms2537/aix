@@ -17,7 +17,7 @@
   "budgets": {
     "research_iterations": {
       "limit": 5,
-      "spent": 4,
+      "spent": 5,
       "grant_note": "iterations 4+5 authorized 2026-07-10, user quote: 'try your best to close the gap please' (in response to the A+ gap assessment)"
     },
     "hypothesis_review_rounds": {
@@ -91,39 +91,39 @@
       "id": "T008",
       "phase": "4",
       "desc": "ITER 4: middle-ground theorems in Lean \u2014 copy_certifiable (witnessed argument values force the value) + copy_uncertifiable (unwitnessed args admit disagreeing O-consistent engines): bracket -> characterization at the oracle level",
-      "status": "open",
-      "evidence": null,
+      "status": "done",
+      "evidence": "CopyEdits.lean sorry-free (copy_value_forced axiom-free); lean exit 0 + #print axioms",
       "parent": null
     },
     {
       "id": "T009",
       "phase": "4",
       "desc": "ITER 4: verified trusted layer \u2014 Tokenizer.lean (lossless render\u2218tokenize=id, literal opacity, ref-extraction linking to RefShift \u03c3, fail-closed non-ASCII qualifier) + corpus-scale differential vs the Rust tokenizer",
-      "status": "open",
-      "evidence": null,
+      "status": "done",
+      "evidence": "Tokenizer.lean T1/T2/T3 sorry-free; full-corpus differential 1,810,796 comparisons: 901,946 in-surface agree / 0 disagree, 8,392 guard agree / 0 disagree; FOUND+FIXED 3rd production defect (range-head swallow); 199 tests",
       "parent": null
     },
     {
       "id": "T010",
       "phase": "4",
       "desc": "ITER 4: fail-closed cost breakdown (which denylist parts dominate own-refusals) + extend certify's compare surface to the top class, dev-tier validated; in-the-wild flip-count flagged exploratory",
-      "status": "open",
-      "evidence": null,
+      "status": "done",
+      "evidence": "cost_breakdown.json: externalLinks 15.5% Enron (top lever), charts, pivots; ~7/~4.4 pts = measurement artifacts (stdout pollution + sheet-name entities); exploratory-labeled",
       "parent": null
     },
     {
       "id": "T011",
       "phase": "4",
       "desc": "repro package: one command regenerates every paper table from committed artifacts",
-      "status": "open",
-      "evidence": null,
+      "status": "done",
+      "evidence": "repro/verify_claims.py 102 claims 0 FAIL, verified first-hand",
       "parent": null
     },
     {
       "id": "T012",
       "phase": "5",
       "desc": "ITER 5: locked test v2 pre-registration + run (full EUSES all categories, seeded random Enron sample, 5 ops, cross-sheet truth grammar, agent study n>=100 x 2 models, more dbt projects)",
-      "status": "open",
+      "status": "in_progress",
       "evidence": null,
       "parent": null
     }

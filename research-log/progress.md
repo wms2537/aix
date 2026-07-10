@@ -22,3 +22,5 @@
 2026-07-10 | P4 | T008 middle-ground theorems | done | CopyEdits.lean sorry-free: copy_value_forced (axiom-free) + copy_certifiable (engine-free premise) + copy_unwitnessed_uncertifiable; fuel-graded residual stated
 2026-07-10 | P4 | T009 Lean side | done | Tokenizer.lean sorry-free: T1 losslessness + T2 opacity + T3 sigma-image at byte level; driver verified on 5 smoke classes; corpus differential pending Rust CLI
 2026-07-10 | P4 | T011 repro package | done | repro/verify_claims.py: 102 claims (94 artifact + 8 live formal), 101 PASS 0 FAIL 1 env-SKIP, self-tested non-vacuous; verified first-hand; shift_laws.out.txt refreshed (14 PROVED)
+2026-07-10 | P4 | iter4 COMPLETE | done | T008 middle-ground theorems; T009 verified tokenizer + 1.81M differential (0 disagreements, 3rd defect found+fixed); T010 cost breakdown (externalLinks lever + artifact attribution); T011 repro 102/0
+2026-07-10 | P5 | iter5 v2 in flight | in_progress | pre-registered (018) + ledger rows committed; harness fixes applied + dev-identity verified; v2 runner smoked; corpora converting in background
