@@ -127,10 +127,16 @@ fn shift_span(head: u32, tail: u32, edit: &StructuralEdit) -> Option<(u32, u32)>
             // Independent per-endpoint (C2): reproduces grow/shift/asymmetry.
             let h = if head >= k { head + n } else { head };
             let t = if tail >= k { tail + n } else { tail };
-            // An endpoint pushed past the last row/column is #REF! — never a silently
-            // out-of-grid reference that recomputes to an error value.
             let max = grid_max(edit.axis);
-            (h <= max && t <= max).then_some((h, t))
+            if h > max {
+                // The whole range starts past the last row/column -> #REF!.
+                None
+            } else {
+                // A range whose TAIL overflows is clamped to the last line: a full-height
+                // range (e.g. SUM(A2:A1048576)) cannot grow past the grid, so it stays valid
+                // — #REF!-ing it would silently turn a real value into an error.
+                Some((h, t.min(max)))
+            }
         }
         Op::Delete => {
             let band_end = k + n; // exclusive
@@ -1670,6 +1676,16 @@ mod tests {
         assert_eq!(
             sf("A1048575", "Sheet1", &row_edit(Op::Insert, 1, 1)),
             "A1048576"
+        );
+        // REGRESSION (round-9): a full-height RANGE whose TAIL overflows must CLAMP to the
+        // last line, not collapse the whole range to #REF! — Excel keeps it valid.
+        assert_eq!(
+            sf("SUM(A1:A1048576)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM(A1:A1048576)"
+        );
+        assert_eq!(
+            sf("SUM(A2:A1048576)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM(A3:A1048576)"
         );
         // a clean move introduces none.
         assert!(!sf("A5+A10", "Sheet1", &move_edit(5, 2, 9)).contains("#REF!"));

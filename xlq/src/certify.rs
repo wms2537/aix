@@ -389,15 +389,20 @@ fn sheet_order_and_settings(bytes: &[u8]) -> (Vec<String>, Vec<(String, String)>
             "calc_mode".into(),
             attr(&calcpr, "calcMode").unwrap_or_else(|| "auto".into()),
         ));
-        settings.push((
-            "iterate".into(),
-            if truthy(attr(&calcpr, "iterate")) {
-                "1"
-            } else {
-                "0"
-            }
-            .into(),
-        ));
+        let iterate = truthy(attr(&calcpr, "iterate"));
+        settings.push(("iterate".into(), if iterate { "1" } else { "0" }.into()));
+        // When iterative calc is ON, iterateCount / iterateDelta control which value a
+        // circular reference converges to — a foreign change alters computed values.
+        if iterate {
+            settings.push((
+                "iterate_count".into(),
+                attr(&calcpr, "iterateCount").unwrap_or_else(|| "100".into()),
+            ));
+            settings.push((
+                "iterate_delta".into(),
+                attr(&calcpr, "iterateDelta").unwrap_or_else(|| "0.001".into()),
+            ));
+        }
     }
     settings.sort();
     (order, settings)

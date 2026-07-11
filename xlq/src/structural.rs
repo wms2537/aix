@@ -444,6 +444,14 @@ fn cell_pos(e: &BytesStart) -> Option<(u32, u32)> {
         .find(|a| a.key.as_ref() == b"r")
         .and_then(|a| parse_cell_rc(&String::from_utf8_lossy(&a.value)))
 }
+
+/// True if `e` is a `<c>` cell whose COLUMN falls inside a column-delete's band — such a
+/// cell's content must be dropped (not just coordinate-shifted), or it is left stale and an
+/// interior delete emits duplicate coordinates.
+fn cell_col_deleted(e: &BytesStart, edit: &StructuralEdit) -> bool {
+    e.name().as_ref() == b"c"
+        && cell_pos(e).is_some_and(|(col, _row)| col >= edit.at && col < edit.at + edit.count)
+}
 fn is_shared_f(e: &BytesStart) -> bool {
     e.attributes()
         .flatten()
@@ -956,7 +964,12 @@ fn foreign_sheet_cross_ref_unshifted(xml: &[u8], edit: &StructuralEdit) -> bool 
 /// or its `location` explicitly targets the edited sheet by name. External (URL)
 /// hyperlinks use `r:id`, have no `location`, and are never flagged. Namespace-aware;
 /// an unparseable sheet part fails closed.
-fn sheet_hyperlink_hazard(xml: &[u8], edited_sheet: &str, is_edited_sheet: bool) -> bool {
+fn sheet_hyperlink_hazard(
+    xml: &[u8],
+    edited_sheet: &str,
+    is_edited_sheet: bool,
+    edit: &StructuralEdit,
+) -> bool {
     let mut reader = Reader::from_reader(xml);
     reader.config_mut().expand_empty_elements = false;
     let mut buf = Vec::new();
@@ -966,12 +979,21 @@ fn sheet_hyperlink_hazard(xml: &[u8], edited_sheet: &str, is_edited_sheet: bool)
                 if tag_local_eq(e.name().as_ref(), b"hyperlink") =>
             {
                 if let Some(loc) = attr_by_local(&e, b"location") {
+                    // The location is NOT rewritten by the shift engine, so it is a hazard
+                    // only if THIS edit would actually move the cell it points at — a link
+                    // to Sheet1!A1 under an insert at row 5 is unaffected and must NOT refuse.
                     let hazard = match location_sheet(&loc) {
-                        // Qualified target: a hazard iff it names the edited sheet.
-                        Some(s) => s.eq_ignore_ascii_case(edited_sheet),
-                        // Bare local target: a hazard iff this hyperlink is ON the
-                        // edited sheet (the local cell it points at will move).
-                        None => is_edited_sheet,
+                        // Qualified: a hazard iff it names the edited sheet AND σ moves it.
+                        Some(s) if s.eq_ignore_ascii_case(edited_sheet) => {
+                            refshift::shift_formula(&loc, "\u{0}", edit).0 != loc
+                        }
+                        Some(_) => false, // targets another sheet — unaffected
+                        // Bare local target: belongs to THIS sheet; a hazard iff this is the
+                        // edited sheet AND σ moves it.
+                        None => {
+                            is_edited_sheet
+                                && refshift::shift_formula(&loc, edited_sheet, edit).0 != loc
+                        }
                     };
                     if hazard {
                         return true;
@@ -1280,6 +1302,25 @@ fn scan_extra_residuals(
     for n in scan_parts {
         if let Ok(bytes) = crate::ooxml::read_part(input, n) {
             let text = String::from_utf8_lossy(&bytes);
+            // NON-ASCII edited-sheet name: the reference tokenizer only starts a candidate
+            // at an ASCII letter/$/digit, so an UNQUOTED non-ASCII sheet qualifier (集計!A11)
+            // is never parsed and the σ-oracle silently leaves such a cross-reference stale.
+            // We cannot shift it, so if any part qualifies the edited sheet by that name we
+            // fail closed. (A quoted '集計'! reference IS handled by the tokenizer's quoted
+            // path and is not affected.)
+            if !edit.sheet.is_ascii()
+                && (text.contains(&format!("{}!", edit.sheet))
+                    || text.contains(&format!("{}:", edit.sheet)))
+            {
+                report.residuals.push(Residual {
+                    part: n.clone(),
+                    reason: "non_ascii_sheet_qualifier".into(),
+                    detail: "a reference qualifies the edited sheet by an unquoted non-ASCII \
+                             name, which the reference tokenizer cannot parse — edit refused \
+                             (fail-closed)"
+                        .into(),
+                });
+            }
             if refshift::has_unverifiable_3d_span(&text, &edit.sheet) {
                 report.residuals.push(Residual {
                     part: n.clone(),
@@ -1312,7 +1353,7 @@ fn scan_extra_residuals(
             // rewrites a hyperlink's `ref` but never its `location`, so an in-workbook
             // link that points at (or sits on) the edited sheet would silently mispoint.
             if n.starts_with("xl/worksheets/")
-                && sheet_hyperlink_hazard(&bytes, &edit.sheet, n == edited_part)
+                && sheet_hyperlink_hazard(&bytes, &edit.sheet, n == edited_part, edit)
             {
                 report.residuals.push(Residual {
                     part: n.clone(),
@@ -1655,6 +1696,20 @@ fn rewrite_edited_sheet(
                     }
                     writer.write_event(Event::End(quick_xml::events::BytesEnd::new("cols")))?;
                 }
+                buf.clear();
+                continue;
+            }
+
+            // On a COLUMN delete, DROP a <c> whose column falls inside the deleted band:
+            // the coordinate shift alone leaves the deleted column's content stale, and an
+            // interior delete would emit duplicate coordinates (two `r="B1"`) = invalid
+            // OOXML. This is the column analogue of the row-delete `delete_skip`.
+            Event::Start(e) if col_axis && edit.op == Op::Delete && cell_col_deleted(&e, edit) => {
+                reader.read_to_end(e.name())?;
+                buf.clear();
+                continue;
+            }
+            Event::Empty(e) if col_axis && edit.op == Op::Delete && cell_col_deleted(&e, edit) => {
                 buf.clear();
                 continue;
             }
@@ -3127,6 +3182,29 @@ mod tests {
     }
 
     #[test]
+    fn delete_cols_drops_deleted_cell_content() {
+        // A1=10 B1=20 C1=30 D1=40; delete cols 2-3 (B,C). B/C content must be DROPPED (not
+        // left stale), and D1 shifted to B1 — no duplicate coordinates (invalid OOXML).
+        let xml = br#"<worksheet><sheetData><row r="1"><c r="A1"><v>10</v></c><c r="B1"><v>20</v></c><c r="C1"><v>30</v></c><c r="D1"><v>40</v></c></row></sheetData></worksheet>"#;
+        let e = edit("Sheet1", Axis::Col, Op::Delete, 2, 2);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        // exactly two cells survive: A1 (10) and B1 (was D1 = 40).
+        let cells: Vec<&str> = s.matches("<c r=\"").map(|_| "").collect();
+        assert_eq!(cells.len(), 2, "two cells must survive: {s}");
+        assert!(s.contains(r#"<c r="A1"><v>10</v>"#), "A1 kept: {s}");
+        assert!(
+            s.contains(r#"<c r="B1"><v>40</v>"#),
+            "D1(40) shifted to B1: {s}"
+        );
+        assert!(
+            !s.contains("<v>20</v>") && !s.contains("<v>30</v>"),
+            "B/C dropped: {s}"
+        );
+    }
+
+    #[test]
     fn cols_shift_on_column_edits_and_empty_container_is_dropped() {
         // insert-cols shifts min/max (3 -> 4)
         let e = edit("Sheet1", Axis::Col, Op::Insert, 1, 1);
@@ -3392,36 +3470,63 @@ mod tests {
                 r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/><hyperlinks><hyperlink ref="A1" location="{loc}"/></hyperlinks></worksheet>"#
             )
         };
+        // insert at row 1 moves every row >= 1, so a link to A11 IS a hazard.
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 1, 1);
         // local link on the edited sheet -> hazard
-        assert!(sheet_hyperlink_hazard(hl("A11").as_bytes(), "Sheet1", true));
+        assert!(sheet_hyperlink_hazard(
+            hl("A11").as_bytes(),
+            "Sheet1",
+            true,
+            &e
+        ));
         // link (on any sheet) targeting the edited sheet by name -> hazard
         assert!(sheet_hyperlink_hazard(
             hl("Sheet1!A11").as_bytes(),
             "Sheet1",
-            false
+            false,
+            &e
         ));
         assert!(sheet_hyperlink_hazard(
             hl("'Sheet1'!A11").as_bytes(),
             "Sheet1",
-            false
+            false,
+            &e
         ));
         // local link on a NON-edited sheet -> not a hazard for this edit
         assert!(!sheet_hyperlink_hazard(
             hl("A11").as_bytes(),
             "Sheet1",
-            false
+            false,
+            &e
         ));
         // link targeting a DIFFERENT sheet -> not a hazard
         assert!(!sheet_hyperlink_hazard(
             hl("Other!A11").as_bytes(),
             "Sheet1",
-            true
+            true,
+            &e
         ));
         // an external (URL) hyperlink has no location -> never flagged
         assert!(!sheet_hyperlink_hazard(
             br#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><hyperlinks><hyperlink ref="A1" r:id="rId1"/></hyperlinks></worksheet>"#,
             "Sheet1",
-            true
+            true,
+            &e
+        ));
+        // OVER-REFUSAL guard (round-9): a link to a cell ABOVE the insert point does not
+        // move, so it must NOT be flagged (link to A1 while inserting at row 5).
+        let e5 = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
+        assert!(!sheet_hyperlink_hazard(
+            hl("Sheet1!A1").as_bytes(),
+            "Sheet1",
+            false,
+            &e5
+        ));
+        assert!(!sheet_hyperlink_hazard(
+            hl("A1").as_bytes(),
+            "Sheet1",
+            true,
+            &e5
         ));
     }
 

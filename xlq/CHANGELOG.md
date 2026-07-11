@@ -71,9 +71,20 @@ is refused, not committed.
 - **Whitespace around a range colon is handled.** `SUM(A2 : A8)` (which Excel/IronCalc
   read as the range `A2:A8`) tokenized as two independent single cells and bypassed the
   range straddle/clamp logic, silently corrupting the value; it now shifts as a range.
-- **Insert clamps to the grid.** A reference to the last row/column (`A1048576`, `XFD1`)
-  shifted past the grid to an out-of-range reference that recomputed to an error; an
-  overflow is now `#REF!`, mirroring delete.
+- **Insert clamps to the grid.** A single-cell reference to the last row/column
+  (`A1048576`, `XFD1`) shifted past the grid to an out-of-range reference that recomputed
+  to an error; an overflow is now `#REF!`, mirroring delete. A full-height *range*
+  (`SUM(A2:A1048576)`) instead clamps its tail to the last line — Excel keeps it valid.
+- **delete-cols now removes the deleted columns' content.** It shifted cell coordinates
+  but never dropped the cells inside the deleted band, so a rightmost delete retained
+  stale data and an interior delete emitted duplicate coordinates (invalid OOXML); the
+  deleted cells are now dropped, mirroring delete-rows.
+- **Non-ASCII sheet names are handled fail-closed.** The reference tokenizer is ASCII-only,
+  so an unquoted non-ASCII sheet qualifier (`集計!A11`) referencing the edited sheet was
+  left stale; such a cross-reference is now refused rather than committed wrong.
+- **Internal hyperlinks are no longer over-refused.** A link whose in-workbook target is
+  above/left of the edit (unaffected) previously refused the whole edit; it now refuses
+  only when the target would actually move.
 - **`certify`'s part check is now a fail-closed allowlist** (was an enumerated
   denylist). Any part outside the known-safe/compared set — worksheets, workbook,
   styles, theme, sharedStrings, calcChain, metadata, media, printer settings, docProps,
@@ -106,8 +117,10 @@ is refused, not committed.
 - **certify compares the date system and narrows the calc-settings compare.** A foreign
   `workbookPr@date1904` flip (which shifts every date value by 1462 days, invisible to a
   serial-vs-serial cell diff) is now caught; and the calc-settings compare was narrowed to
-  the value-affecting attributes (`calcMode`, `iterate`) so a benign `calcId` build-stamp
-  or `fullCalcOnLoad` no longer spuriously refuses a faithful edit.
+  the value-affecting attributes (`calcMode`, `iterate`, and — when iterate is on —
+  `iterateCount`/`iterateDelta`, which set a circular reference's converged value) so a
+  benign `calcId` build-stamp or `fullCalcOnLoad` no longer spuriously refuses a faithful
+  edit.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
