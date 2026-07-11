@@ -141,11 +141,20 @@ fn finish_lock(mut f: File, path: String) -> LockGuard {
     LockGuard { path }
 }
 
-/// If the lock file names a pid that is provably not alive, remove it and
-/// report success. Conservative: an unreadable/absent pid, or any pid that
-/// might still be alive, is left in place (returns false → `lock_held`), so a
-/// live holder is never broken. Guards against pid reuse by only ever breaking
-/// a pid confirmed dead, never assuming death.
+/// If the lock file names a pid that is provably not alive, break it and report
+/// success. Conservative: an unreadable/absent pid, or any pid that might still be
+/// alive, is left in place (returns false → `lock_held`), so a live holder is never
+/// broken. Guards against pid reuse by only ever breaking a pid confirmed dead.
+///
+/// The break is done by an ATOMIC RENAME, not a plain remove: for a given stale
+/// lock, at most one racer's `rename` can succeed (the source vanishes for every
+/// other), so two processes cannot both delete it and both then create a fresh one
+/// — the check-then-act race a plain `remove_file` allowed. Combined with the
+/// O_EXCL create in `lock()` (which admits exactly one creator once the file is
+/// gone), at most one process ends up holding the lock. It is safe to break the
+/// exact bytes we observed: while a dead-pid lock file exists, no live process can
+/// have created a lock at that path (O_EXCL create requires it absent), so the
+/// file cannot flip from a dead pid to a live one while it exists.
 fn try_break_stale_lock(path: &str) -> bool {
     let pid: i32 = match std::fs::read_to_string(path) {
         Ok(c) => match c.trim().parse() {
@@ -157,7 +166,18 @@ fn try_break_stale_lock(path: &str) -> bool {
     if process_alive(pid) {
         return false;
     }
-    std::fs::remove_file(path).is_ok()
+    // Atomically claim the break; the rename target is per-pid and overwrites any
+    // leftover from a prior crashed break by the same pid.
+    let claimed = format!("{path}.stale-{}", std::process::id());
+    match std::fs::rename(path, &claimed) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&claimed);
+            true
+        }
+        // Another racer broke it first (source gone): back off and let `lock()`'s
+        // retried O_EXCL create arbitrate.
+        Err(_) => false,
+    }
 }
 
 /// Whether `pid` is a live process. Only decisive on Linux (via `/proc`);
@@ -294,6 +314,13 @@ pub fn chain_status(book_path: &str, current_hash: &str) -> Result<ChainStatus> 
 
 fn append_receipt(book_path: &str, receipt: &Receipt) -> Result<()> {
     let path = journal_path(book_path);
+    // Remove any crash-torn trailing line (no terminating newline) BEFORE
+    // appending. read_entries tolerates such a tail on READ, but appending after
+    // it would concatenate the new record onto the torn bytes, producing a single
+    // newline-terminated — and thus no-longer-torn — corrupt line that read_entries
+    // could never recover. Truncating to the last newline makes the on-disk file
+    // match the in-memory recovered state before we extend it.
+    truncate_torn_tail(&path)?;
     let line = serde_json::to_string(receipt).context("serialize receipt")?;
     let mut f = OpenOptions::new()
         .create(true)
@@ -303,6 +330,35 @@ fn append_receipt(book_path: &str, receipt: &Receipt) -> Result<()> {
     f.write_all(line.as_bytes()).context("append receipt")?;
     f.write_all(b"\n").context("append receipt")?;
     f.sync_all().context("fsync journal")?;
+    Ok(())
+}
+
+/// If the journal exists and does NOT end in a newline, a crash tore its final
+/// append; drop those never-durably-committed trailing bytes (truncate to just
+/// after the last newline, or to empty) so the next append starts on a clean
+/// record boundary. A file that ends in a newline, is empty, or is absent is left
+/// untouched. This is the write-side complement to read_entries' torn-tail rule.
+fn truncate_torn_tail(path: &str) -> Result<()> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e).context("read journal for torn-tail check"),
+    };
+    if bytes.is_empty() || bytes.last() == Some(&b'\n') {
+        return Ok(());
+    }
+    let keep = bytes
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let f = OpenOptions::new()
+        .write(true)
+        .open(path)
+        .context("open journal to truncate torn tail")?;
+    f.set_len(keep as u64)
+        .context("truncate torn journal tail")?;
+    f.sync_all().context("fsync truncated journal")?;
     Ok(())
 }
 
@@ -651,6 +707,52 @@ mod tests {
         assert!(
             read_entries(&book).is_err(),
             "newline-terminated corrupt line must fail (not treated as torn)"
+        );
+    }
+
+    #[test]
+    fn recovery_commit_truncates_torn_tail_so_journal_stays_readable() {
+        // REGRESSION: read_entries recovers a torn tail IN MEMORY, but the next
+        // append must not concatenate onto the torn bytes (which would produce a
+        // newline-terminated — no longer torn — corrupt line that permanently
+        // wedges every future read). append_receipt truncates the torn tail first.
+        let dir = TempDir::new("torn-append");
+        let book = two_receipts(&dir, "m.xlsx");
+        {
+            let mut f = OpenOptions::new()
+                .append(true)
+                .open(journal_path(&book))
+                .unwrap();
+            f.write_all(br#"{"rev":3,"kin"#).unwrap(); // crash-torn, no newline
+        }
+        // A recovery commit at the recovered rev.
+        let rev = next_rev(&book).unwrap();
+        commit(
+            &book,
+            b"v3",
+            rev,
+            "apply",
+            "h2",
+            "h3",
+            json!({}),
+            "t",
+            "a",
+            None,
+            None,
+        )
+        .unwrap();
+        // The journal must STILL be readable — the torn tail was truncated, not
+        // concatenated onto.
+        let entries = read_entries(&book).unwrap();
+        assert_eq!(
+            entries.len(),
+            3,
+            "3 clean receipts after recovery: {entries:?}"
+        );
+        assert_eq!(entries[2]["rev"], json!(rev));
+        assert!(
+            next_rev(&book).is_ok(),
+            "journal remains navigable after recovery"
         );
     }
 

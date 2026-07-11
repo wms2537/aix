@@ -414,6 +414,45 @@ mod exit_codes {
             "normal inspect still succeeds"
         );
     }
+
+    #[test]
+    fn max_cap_override_does_not_fail_open_via_overflow() {
+        // REGRESSION: XLQ_MAX_*_BYTES = u64::MAX made `cap + 1` wrap to 0, so
+        // read_entry_capped's take(0) returned EMPTY parts (and the guard's copy
+        // read nothing — a fail-open). saturating_add fixes it: a real edit that
+        // decompresses every part through read_entry_capped still succeeds.
+        let orig = fixture("refs.xlsx");
+        let dir = std::env::temp_dir().join(format!("xlq-capmax-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let book = dir.join("book.xlsx");
+        std::fs::copy(&orig, &book).unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_xlq"))
+            .args([
+                "restructure",
+                book.to_str().unwrap(),
+                "--sheet",
+                "Sheet1",
+                "--op",
+                "insert-rows",
+                "--at",
+                "2",
+                "--count",
+                "1",
+                "--actor",
+                "t",
+            ])
+            .env("XLQ_MAX_PART_BYTES", "18446744073709551615")
+            .env("XLQ_MAX_TOTAL_BYTES", "18446744073709551615")
+            .output()
+            .expect("spawn xlq");
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "u64::MAX cap must not break a real edit: {}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// The read/recovery verbs over the transactional journal: log, verify, undo,

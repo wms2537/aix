@@ -198,9 +198,10 @@ pub(crate) fn read_entry_capped<R: Read>(
     let reserve = declared_size.min(cap).min(8 << 20) as usize;
     let mut bytes = Vec::with_capacity(reserve);
     // Read one byte PAST the cap so an over-cap entry is detected deterministically,
-    // whatever size it declared.
+    // whatever size it declared. saturating_add so a cap of u64::MAX (e.g. an
+    // XLQ_MAX_*_BYTES override) does not wrap to 0 and fail OPEN.
     let n = entry
-        .take(cap + 1)
+        .take(cap.saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|e| anyhow!("read part {name}: {e}"))? as u64;
     if n > cap {
@@ -255,7 +256,8 @@ pub(crate) fn guard_decompression(path: &str) -> Result<()> {
         }
         let name = entry.name().to_string();
         let cap = part_cap().min(budget);
-        let n = std::io::copy(&mut entry.take(cap + 1), &mut std::io::sink())
+        // saturating_add so a u64::MAX cap does not wrap to 0 and fail OPEN.
+        let n = std::io::copy(&mut entry.take(cap.saturating_add(1)), &mut std::io::sink())
             .map_err(|e| anyhow!("read part {name}: {e}"))?;
         if n > cap {
             bail!(

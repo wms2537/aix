@@ -455,8 +455,45 @@ fn scan_extra_residuals(
                             .into(),
                 });
             }
+            if has_cdata_formula_body(&bytes) {
+                report.residuals.push(Residual {
+                    part: n.clone(),
+                    reason: "cdata_formula_body".into(),
+                    detail: "a formula body is wrapped in CDATA, which the reference-shift \
+                             path does not reassemble — edit refused (fail-closed)"
+                        .into(),
+                });
+            }
         }
     }
+}
+
+/// True if any shiftable formula body (`<f>`, `<formula*>`, or `<definedName>`) in
+/// this part is wrapped in CDATA. The shift paths reassemble a formula only from
+/// `Event::Text` + entity (`Event::GeneralRef`) events; a CDATA body arrives as
+/// `Event::CData`, is NOT reassembled, and would be committed UNSHIFTED with no
+/// residual — a silent-wrong output. We detect it up front and refuse. CDATA in a
+/// formula body does not occur in workbooks real tools produce, so refusing it is
+/// the correct fail-closed choice (never silently wrong on untrusted input).
+fn has_cdata_formula_body(xml: &[u8]) -> bool {
+    let is_formula = |name: &[u8]| is_formula_tag(name) || tag_local_eq(name, b"definedName");
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut depth = 0u32;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if is_formula(e.name().as_ref()) => depth += 1,
+            Ok(Event::End(e)) if is_formula(e.name().as_ref()) => {
+                depth = depth.saturating_sub(1);
+            }
+            Ok(Event::CData(_)) if depth > 0 => return true,
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    false
 }
 
 /// Extract the `name` attribute of every `<definedName ...>` in workbook.xml.
@@ -1737,6 +1774,29 @@ mod tests {
                 .any(|r| r.reason == "table_unsupported"),
             "table must force a residual"
         );
+    }
+
+    #[test]
+    fn detects_cdata_wrapped_formula_body() {
+        // REGRESSION: a CDATA-wrapped formula body arrives as Event::CData, is not
+        // reassembled by the shift path, and would otherwise commit UNSHIFTED with
+        // no residual (silent-wrong). It must be detected so the edit is refused
+        // up front (same residual->refuse wiring as table_part_forces_residual).
+        assert!(has_cdata_formula_body(
+            br#"<worksheet><sheetData><row r="5"><c r="A5"><f><![CDATA[SUM(A1:A5)]]></f></c></row></sheetData></worksheet>"#
+        ));
+        assert!(has_cdata_formula_body(
+            br#"<x><formula><![CDATA[$A$1>0]]></formula></x>"#
+        ));
+        assert!(has_cdata_formula_body(
+            br#"<workbook><definedName name="n"><![CDATA[Sheet1!$A$1]]></definedName></workbook>"#
+        ));
+        // Plain (escaped) formula bodies and CDATA OUTSIDE a formula are fine.
+        assert!(!has_cdata_formula_body(br#"<x><f>SUM(A1:A5)</f></x>"#));
+        assert!(!has_cdata_formula_body(br#"<x><f>IF(A1&gt;0,1,2)</f></x>"#));
+        assert!(!has_cdata_formula_body(
+            br#"<x><is><t><![CDATA[a literal string]]></t></is></x>"#
+        ));
     }
 
     #[test]

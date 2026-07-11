@@ -55,7 +55,10 @@ pub fn run(
         Some(journal::lock(file)?)
     };
 
-    let original = std::fs::read(file).with_context(|| format!("read {file}"))?;
+    // BASENAME only: this error can reach the stdout JSON payload, which must
+    // never carry a full filesystem path.
+    let original =
+        std::fs::read(file).with_context(|| format!("read {}", crate::diff::basename(file)))?;
     let base_hash = crate::hash::sha256_file(file)?;
 
     let (new_bytes, report) = structural::structural_edit(&original, &edit)
@@ -279,6 +282,34 @@ mod tests {
             "move without --dest must be refused: {out}"
         );
         std::fs::remove_file(&f).ok();
+    }
+
+    #[test]
+    fn read_error_carries_basename_only() {
+        // REGRESSION: a missing/unreadable target must fail with the BASENAME only.
+        // This error reaches the stdout JSON payload, which must never carry a full
+        // filesystem path (dry-run takes no lock, so the read is the first failure).
+        let err = run(
+            "/tmp/xlq-secret-restr-dir/private_model.xlsx",
+            "Sheet1",
+            Axis::Row,
+            Op::Insert,
+            5,
+            1,
+            0,
+            true,
+            None,
+        )
+        .expect_err("missing file must fail");
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("private_model.xlsx"),
+            "basename present: {text}"
+        );
+        assert!(
+            !text.contains("xlq-secret-restr-dir"),
+            "directory leaked: {text}"
+        );
     }
 
     #[test]
