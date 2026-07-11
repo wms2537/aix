@@ -206,7 +206,7 @@ mod tests {
 
     /// Committed fixtures, resolved relative to the crate — machine-independent
     /// (works on any checkout of the repo, on any machine).
-    const FIX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../fixtures/structural/");
+    const FIX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/structural/");
 
     fn scratch(name: &str) -> String {
         use std::sync::atomic::{AtomicU64, Ordering};

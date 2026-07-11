@@ -12,12 +12,17 @@
 //!   cargo run --bin xlq -- calc <dir>/payroll.xlsx
 
 use serde_json::Value;
-use std::path::{Path, PathBuf};
 use std::process::Command;
+// Only the fixtures-generation suite (behind the `devtools` feature, which builds
+// the xlq-fixtures binary) uses these.
+#[cfg(feature = "devtools")]
+use std::path::{Path, PathBuf};
+#[cfg(feature = "devtools")]
 use std::sync::OnceLock;
 
 /// Generate fixtures exactly once into a per-run temp directory and capture
 /// the planted-defect manifest that the generator prints on stderr.
+#[cfg(feature = "devtools")]
 fn fixtures_dir() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
@@ -39,6 +44,7 @@ fn fixtures_dir() -> &'static Path {
     })
 }
 
+#[cfg(feature = "devtools")]
 fn fixture(name: &str) -> String {
     fixtures_dir()
         .join(name)
@@ -48,6 +54,7 @@ fn fixture(name: &str) -> String {
 }
 
 /// Run the xlq binary; assert success; return (parsed JSON, raw stdout).
+#[cfg(feature = "devtools")]
 fn xlq(args: &[&str]) -> (Value, String) {
     let out = Command::new(env!("CARGO_BIN_EXE_xlq"))
         .args(args)
@@ -94,6 +101,7 @@ fn failing_command_exits_one_with_json_error_payload_and_no_full_paths() {
     );
 }
 
+#[cfg(feature = "devtools")]
 #[test]
 fn fixtures_generate_all_files_and_defect_manifest() {
     let dir = fixtures_dir();
@@ -127,6 +135,7 @@ fn fixtures_generate_all_files_and_defect_manifest() {
     );
 }
 
+#[cfg(feature = "devtools")]
 #[test]
 fn inspect_reports_functions_and_planted_div0_without_leaking_values() {
     let path = fixture("branch-consolidation.xlsx");
@@ -166,6 +175,7 @@ fn inspect_reports_functions_and_planted_div0_without_leaking_values() {
     }
 }
 
+#[cfg(feature = "devtools")]
 #[test]
 fn inspect_redact_anonymizes_sheet_and_defined_names() {
     let path = fixture("branch-consolidation.xlsx");
@@ -191,6 +201,7 @@ fn inspect_redact_anonymizes_sheet_and_defined_names() {
     );
 }
 
+#[cfg(feature = "devtools")]
 #[test]
 fn diff_of_identical_files_reports_zero_changes() {
     let path = fixture("stock-reconciliation.xlsx");
@@ -204,6 +215,7 @@ fn diff_of_identical_files_reports_zero_changes() {
     assert_eq!(json["summary"]["removed"], 0);
 }
 
+#[cfg(feature = "devtools")]
 #[test]
 fn diff_detects_exactly_one_edited_cell() {
     let original = fixture("claims.xlsx");
@@ -241,6 +253,7 @@ fn diff_detects_exactly_one_edited_cell() {
     assert_eq!(json["summary"]["changed"], 1);
 }
 
+#[cfg(feature = "devtools")]
 #[test]
 fn calc_payroll_reports_coverage_and_zero_recalc_drift() {
     let path = fixture("payroll.xlsx");
@@ -284,7 +297,7 @@ mod exit_codes {
     }
 
     fn fixture(name: &str) -> String {
-        format!("{}/../fixtures/structural/{name}", env!("CARGO_MANIFEST_DIR"))
+        format!("{}/tests/fixtures/structural/{name}", env!("CARGO_MANIFEST_DIR"))
     }
 
     #[test]
@@ -370,7 +383,7 @@ mod journal_verbs {
             .unwrap_or_else(|e| panic!("stdout not json ({e}): {}", String::from_utf8_lossy(&out.stdout)))
     }
     fn fixture(name: &str) -> String {
-        format!("{}/../fixtures/structural/{name}", env!("CARGO_MANIFEST_DIR"))
+        format!("{}/tests/fixtures/structural/{name}", env!("CARGO_MANIFEST_DIR"))
     }
     fn book(tag: &str) -> (std::path::PathBuf, String) {
         let dir = std::env::temp_dir().join(format!("xlq-verbs-{}-{}", tag, std::process::id()));
@@ -530,7 +543,7 @@ mod robustness {
     fn closed_stdout_pipe_does_not_panic() {
         use std::io::Read;
         use std::process::Stdio;
-        let fx = format!("{}/../fixtures/structural/refs.xlsx", env!("CARGO_MANIFEST_DIR"));
+        let fx = format!("{}/tests/fixtures/structural/refs.xlsx", env!("CARGO_MANIFEST_DIR"));
         let mut child = Command::new(env!("CARGO_BIN_EXE_xlq"))
             .args(["inspect", &fx])
             .stdout(Stdio::piped())

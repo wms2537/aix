@@ -1334,7 +1334,7 @@ mod tests {
         // End-to-end regression on the committed pivot+chart fixture: a structural
         // edit must leave every pivot/chart part WELL-FORMED (the event-swallow bug
         // produced unbalanced XML) and the whole workbook must reload.
-        const PIVOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../fixtures/t1/pivot-chart.xlsx");
+        const PIVOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/t1/pivot-chart.xlsx");
         let input = std::fs::read(PIVOT).unwrap();
         let e = edit("Sheet1", Axis::Row, Op::Insert, 2, 1);
         let (out, _report) = structural_edit(&input, &e).unwrap();
@@ -1448,7 +1448,7 @@ mod tests {
     }
 
     /// Committed fixtures, resolved relative to the crate (machine-independent).
-    const FIX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../fixtures/structural/");
+    const FIX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/structural/");
 
     fn unique_tmp(tag: &str) -> String {
         use std::sync::atomic::{AtomicU64, Ordering};

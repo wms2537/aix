@@ -21,7 +21,7 @@
 //!   VBA/XLL UDFs, add-in functions, and called LAMBDA defined names are
 //!   USER DATA and must not leak through the census. A called name is a
 //!   function only if it matches a workbook defined name = user-defined; else
-//!   if it is in the canonical Excel catalog (benchmarks/excel-functions.txt,
+//!   if it is in the canonical Excel catalog (xlq/data/excel-functions.txt,
 //!   embedded at compile time) or the engine recognizes it = function;
 //!   anything else = user-defined callable (tallied in `user_defined`,
 //!   emitted as counts only under redaction).
@@ -219,11 +219,11 @@ pub struct FunctionCensus {
 }
 
 /// Canonical Excel function catalog (uppercase), embedded at compile time
-/// from benchmarks/excel-functions.txt (Microsoft's alphabetical list).
+/// from xlq/data/excel-functions.txt (Microsoft's alphabetical list).
 fn excel_catalog() -> &'static BTreeSet<String> {
     static CATALOG: OnceLock<BTreeSet<String>> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        include_str!("../../benchmarks/excel-functions.txt")
+        include_str!("../data/excel-functions.txt")
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty() && !l.starts_with('#'))

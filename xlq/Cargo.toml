@@ -1,10 +1,28 @@
 [package]
 name = "xlq"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "Agent-safe transactional runtime for Excel workbooks: inspect, diff, and recalculate .xlsx files with receipts. Read-only commands first; typed dry-run writes to follow."
+description = "Agent-safe transactional runtime for Excel workbooks: inspect, diff, recalculate, and surgically edit .xlsx files with receipts, an undo journal, and byte-fidelity guarantees."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/wmhy/xlq"
+repository = "https://github.com/wms2537/aix"
+readme = "README.md"
+keywords = ["xlsx", "excel", "spreadsheet", "diff", "recalc"]
+categories = ["command-line-utilities", "parsing"]
+# Only the files needed to build + test the published crate ship in the package;
+# the dev/bench binaries' sources ride along harmlessly (gated behind `devtools`).
+include = [
+    "src/**/*.rs",
+    "data/excel-functions.txt",
+    "tests/**/*.rs",
+    "tests/fixtures/**",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "NOTICE.md",
+    "Cargo.toml",
+    "Cargo.lock",
+]
 
 [dependencies]
 # Pinned exactly: the "ironcalc 0.7.1" engine/provenance strings emitted by
@@ -24,6 +42,14 @@ quick-xml = "0.41"
 # adds zero new crates — it only makes libc::SIGPIPE/SIG_DFL nameable.
 libc = "0.2"
 
+# The five dev/bench tools are gated behind a non-default `devtools` feature via
+# required-features, so `cargo install` / `cargo publish` ship ONLY the `xlq`
+# binary. The full test suite (including the xlq-fixtures generator) runs under
+# `cargo test --features devtools`; a bare `cargo test` runs unit + direct-fixture
+# tests only. Run a dev tool with e.g. `cargo run --features devtools --bin roundtrip`.
+[features]
+devtools = []
+
 [[bin]]
 name = "xlq"
 path = "src/main.rs"
@@ -31,22 +57,27 @@ path = "src/main.rs"
 [[bin]]
 name = "xlq-fixtures"
 path = "src/bin/xlq_fixtures.rs"
+required-features = ["devtools"]
 
 [[bin]]
 name = "roundtrip"
 path = "src/bin/roundtrip.rs"
+required-features = ["devtools"]
 
 [[bin]]
 name = "coverage-probe"
 path = "src/bin/coverage_probe.rs"
+required-features = ["devtools"]
 
 [[bin]]
 name = "load-only"
 path = "src/bin/load_only.rs"
+required-features = ["devtools"]
 
 [[bin]]
 name = "oracle-compare"
 path = "src/bin/oracle_compare.rs"
+required-features = ["devtools"]
 
 [profile.release]
 lto = true

@@ -896,8 +896,8 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
-    const MACRO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../fixtures/t1/macro.xlsm");
-    const PIVOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../fixtures/t1/pivot-chart.xlsx");
+    const MACRO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/t1/macro.xlsm");
+    const PIVOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/t1/pivot-chart.xlsx");
 
     fn read_fixture(path: &str) -> Vec<u8> {
         std::fs::read(path).unwrap_or_else(|e| panic!("read fixture {path}: {e}"))
