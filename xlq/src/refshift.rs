@@ -85,13 +85,25 @@ pub enum Shift {
     Ref,
 }
 
+/// The last valid 1-based index on an axis: row 1048576, column XFD (16384).
+fn grid_max(axis: Axis) -> u32 {
+    match axis {
+        Axis::Row => 1_048_576,
+        Axis::Col => 16_384,
+    }
+}
+
 /// Shift a single 1-based line index (row number or column number) on the
 /// edit's axis. Returns `Some(new_index)` or `None` if that single line is
-/// consumed by a delete.
+/// consumed by a delete, or (for insert) pushed past the last row/column — an
+/// overflow is #REF!, never a silently out-of-grid reference.
 fn shift_index(pos: u32, edit: &StructuralEdit) -> Option<u32> {
     let (k, n) = (edit.at, edit.count);
     match edit.op {
-        Op::Insert => Some(if pos >= k { pos + n } else { pos }),
+        Op::Insert => {
+            let np = if pos >= k { pos + n } else { pos };
+            (np <= grid_max(edit.axis)).then_some(np)
+        }
         Op::Delete => {
             if pos < k {
                 Some(pos)
@@ -115,7 +127,10 @@ fn shift_span(head: u32, tail: u32, edit: &StructuralEdit) -> Option<(u32, u32)>
             // Independent per-endpoint (C2): reproduces grow/shift/asymmetry.
             let h = if head >= k { head + n } else { head };
             let t = if tail >= k { tail + n } else { tail };
-            Some((h, t))
+            // An endpoint pushed past the last row/column is #REF! — never a silently
+            // out-of-grid reference that recomputes to an error value.
+            let max = grid_max(edit.axis);
+            (h <= max && t <= max).then_some((h, t))
         }
         Op::Delete => {
             let band_end = k + n; // exclusive
@@ -289,6 +304,10 @@ fn fmt_endpoint(col_abs: bool, col: Option<u32>, row_abs: bool, row: Option<u32>
 /// `head:tail` range. Returns the new body, or `#REF!`, or None if unchanged.
 fn shift_body(body: &str, edit: &StructuralEdit) -> Shift {
     if let Some((h, t)) = body.split_once(':') {
+        // Excel/IronCalc accept whitespace around the range colon (`A2 : A8`); trim it so
+        // the endpoints parse and the range shifts (and normalizes to `A3:A9`) — otherwise
+        // parse_endpoint fails on the padded token and the whole range is left stale.
+        let (h, t) = (h.trim(), t.trim());
         let hp = parse_endpoint(h);
         let tp = parse_endpoint(t);
         let (hp, tp) = match (hp, tp) {
@@ -851,16 +870,28 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
     let ident_tail = |end: usize| {
         end < sb.len() && (sb[end].is_ascii_alphabetic() || sb[end] == b'_' || sb[end] == b'(')
     };
-    // range?
-    if sb.get(l1) == Some(&b':') {
-        let (l2, c2, r2) = scan_endpoint(&s[l1 + 1..]);
+    // range? Excel/IronCalc accept whitespace around the range colon (`A2 : A8` is the
+    // range A2:A8), so we must skip it — otherwise the head and tail tokenize as two
+    // independent single cells and shift separately, bypassing shift_span's straddle
+    // residual and delete clamp (a silent value corruption). (A space with NO colon is
+    // the intersection operator, a different construct, and is correctly left alone.)
+    let mut colon = l1;
+    while sb.get(colon) == Some(&b' ') {
+        colon += 1;
+    }
+    if sb.get(colon) == Some(&b':') {
+        let mut tail_start = colon + 1;
+        while sb.get(tail_start) == Some(&b' ') {
+            tail_start += 1;
+        }
+        let (l2, c2, r2) = scan_endpoint(&s[tail_start..]);
         if l2 > 0 {
             // A valid range is one of three KINDS, both endpoints the same kind:
             //   full-cell : A1:B2  (col AND row on both)
             //   whole-col : A:C    (col only on both)   -> shifts under col ops
             //   whole-row : 1:5    (row only on both)   -> shifts under row ops
             // Mixed forms (A1:B, A:B2) are not valid Excel refs.
-            let total = l1 + 1 + l2;
+            let total = tail_start + l2;
             let both_full = (c1 && r1) && (c2 && r2);
             let both_wholecol = (c1 && !r1) && (c2 && !r2);
             let both_wholerow = (!c1 && r1) && (!c2 && r2);
@@ -1607,6 +1638,7 @@ mod tests {
         assert_eq!(shift_body("A6", &move_edit(5, 2, 7)), Shift::Unchanged); // b==a+n
     }
     #[test]
+
     fn move_formula_shifts_single_cells_and_detects_straddle() {
         // the task's worked example: A5→A7, A10 fixed.
         assert_eq!(sf("A5+A10", "Sheet1", &move_edit(5, 2, 9)), "A7+A10");
@@ -1617,6 +1649,28 @@ mod tests {
         // REGRESSION (round-7): a NON-inverting straddle — endpoints stay ordered under σ
         // but the span SIZE changes — was silently enlarged (A4:A6 -> A4:A18). It must #REF!.
         assert!(sf("SUM(A4:A6)", "Sheet1", &move_edit(5, 3, 20)).contains("#REF!"));
+    }
+
+    #[test]
+    fn whitespace_range_and_grid_boundary() {
+        // REGRESSION (round-8): whitespace around the range colon (`A2 : A8`, which
+        // IronCalc parses as A2:A8) tokenized as two independent cells and bypassed the
+        // straddle/clamp logic. It now shifts as a range (normalizing away the spaces)...
+        assert_eq!(
+            sf("SUM(A2 : A8)", "Sheet1", &row_edit(Op::Insert, 3, 1)),
+            "SUM(A2:A9)"
+        );
+        // ...and enters the straddle path: a spaced range that inverts under a move -> #REF!.
+        assert!(sf("SUM(A2 : A8)", "Sheet1", &move_edit(2, 1, 9)).contains("#REF!"));
+        // REGRESSION (round-8): a reference to the LAST row/column overflows to #REF! on
+        // insert, never a silently out-of-grid reference (A1048577 / XFE1).
+        assert!(sf("A1048576", "Sheet1", &row_edit(Op::Insert, 1, 1)).contains("#REF!"));
+        assert!(sf("XFD1", "Sheet1", &col_edit(Op::Insert, 1, 1)).contains("#REF!"));
+        // a normal boundary-adjacent ref still shifts cleanly.
+        assert_eq!(
+            sf("A1048575", "Sheet1", &row_edit(Op::Insert, 1, 1)),
+            "A1048576"
+        );
         // a clean move introduces none.
         assert!(!sf("A5+A10", "Sheet1", &move_edit(5, 2, 9)).contains("#REF!"));
         // string literals and function names are still untouched.

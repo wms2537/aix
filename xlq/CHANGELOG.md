@@ -68,6 +68,12 @@ is refused, not committed.
 - **Worksheet-scoped defined names are shifted in their own scope.** A `localSheetId`
   name with an unqualified refers-to (`$A$8` scoped to the edited sheet) was left stale
   (the shift used an empty host for every name); it now resolves against its scoped sheet.
+- **Whitespace around a range colon is handled.** `SUM(A2 : A8)` (which Excel/IronCalc
+  read as the range `A2:A8`) tokenized as two independent single cells and bypassed the
+  range straddle/clamp logic, silently corrupting the value; it now shifts as a range.
+- **Insert clamps to the grid.** A reference to the last row/column (`A1048576`, `XFD1`)
+  shifted past the grid to an out-of-range reference that recomputed to an error; an
+  overflow is now `#REF!`, mirroring delete.
 - **`certify`'s part check is now a fail-closed allowlist** (was an enumerated
   denylist). Any part outside the known-safe/compared set — worksheets, workbook,
   styles, theme, sharedStrings, calcChain, metadata, media, printer settings, docProps,
@@ -90,6 +96,18 @@ is refused, not committed.
   formatting, data validation, sparklines), OPC part-name resolution, and worksheet
   enumeration are likewise matched by local name / case-insensitively so a rebound
   prefix or re-cased part cannot evade them.
+
+- **Conditional formatting and data validation are COMPARED, not refused on presence.**
+  The earlier fail-closed pass refused certification of any workbook carrying a CF rule or
+  a data-validation dropdown — including xlq's own faithful transform — which made certify
+  unusable on ordinary modern files. Their `sqref`+formula references (and x14 `<extLst>`
+  references) are now compared against xlq's transform: a faithful edit matches, a mangle
+  differs.
+- **certify compares the date system and narrows the calc-settings compare.** A foreign
+  `workbookPr@date1904` flip (which shifts every date value by 1462 days, invisible to a
+  serial-vs-serial cell diff) is now caught; and the calc-settings compare was narrowed to
+  the value-affecting attributes (`calcMode`, `iterate`) so a benign `calcId` build-stamp
+  or `fullCalcOnLoad` no longer spuriously refuses a faithful edit.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

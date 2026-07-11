@@ -751,6 +751,105 @@ fn edited_sheet_body_unshifted_ref(xml: &[u8]) -> Option<String> {
     }
 }
 
+/// The reference SEMANTICS of every conditional-formatting / data-validation element and
+/// every `<extLst>` reference subtree on a sheet, sorted: for legacy CF/DV, its `sqref`
+/// attribute plus its `<formula>`/`<formula1>`/`<formula2>` bodies (logical form); for an
+/// `<extLst>`, the collected `<xm:sqref>`/`<xm:f>` texts (x14 CF/DV, sparklines). These are
+/// the references xlq's transform SHIFTS (edited sheet) or preserves (foreign sheet), so
+/// certify COMPARES them against its transform — a faithful edit matches, a mangle differs
+/// — instead of refusing on their mere PRESENCE, which rejected xlq's own transform of any
+/// workbook carrying a dropdown or CF rule (ubiquitous constructs).
+pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)> {
+    #[derive(PartialEq)]
+    enum Cap {
+        None,
+        Legacy,
+        Ext,
+    }
+    let is_cfdv =
+        |n: &[u8]| tag_local_eq(n, b"conditionalFormatting") || tag_local_eq(n, b"dataValidation");
+    let is_legacy_f = |n: &[u8]| {
+        tag_local_eq(n, b"formula") || tag_local_eq(n, b"formula1") || tag_local_eq(n, b"formula2")
+    };
+    let is_ext_ref = |n: &[u8]| tag_local_eq(n, b"f") || tag_local_eq(n, b"sqref");
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut cfdv: Option<(String, String, Vec<String>)> = None;
+    let mut ext_depth = 0u32;
+    let mut ext_refs: Vec<String> = Vec::new();
+    let mut cap = Cap::None;
+    let mut raw = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let n = e.name();
+                if tag_local_eq(n.as_ref(), b"extLst") {
+                    ext_depth += 1;
+                } else if ext_depth == 0 && is_cfdv(n.as_ref()) {
+                    let kind = String::from_utf8_lossy(local_of(n.as_ref())).into_owned();
+                    let sqref = attr_by_local(&e, b"sqref").unwrap_or_default();
+                    cfdv = Some((kind, sqref, Vec::new()));
+                } else if ext_depth == 0 && cfdv.is_some() && is_legacy_f(n.as_ref()) {
+                    cap = Cap::Legacy;
+                    raw.clear();
+                } else if ext_depth > 0 && is_ext_ref(n.as_ref()) {
+                    cap = Cap::Ext;
+                    raw.clear();
+                }
+            }
+            Ok(Event::Empty(e)) if ext_depth == 0 && is_cfdv(e.name().as_ref()) => {
+                let kind = String::from_utf8_lossy(local_of(e.name().as_ref())).into_owned();
+                let sqref = attr_by_local(&e, b"sqref").unwrap_or_default();
+                out.push((kind, format!("sqref={sqref}")));
+            }
+            Ok(Event::End(e)) => {
+                let n = e.name();
+                if cap != Cap::None && (is_legacy_f(n.as_ref()) || is_ext_ref(n.as_ref())) {
+                    let logical = logical_formula(&raw).unwrap_or_else(|| raw.clone());
+                    match cap {
+                        Cap::Legacy => {
+                            if let Some((_, _, fs)) = cfdv.as_mut() {
+                                fs.push(logical);
+                            }
+                        }
+                        Cap::Ext => ext_refs.push(logical),
+                        Cap::None => {}
+                    }
+                    cap = Cap::None;
+                    raw.clear();
+                }
+                if ext_depth == 0 && is_cfdv(n.as_ref()) {
+                    if let Some((kind, sqref, fs)) = cfdv.take() {
+                        out.push((kind, format!("sqref={sqref}|{}", fs.join("|"))));
+                    }
+                }
+                if tag_local_eq(n.as_ref(), b"extLst") {
+                    ext_depth = ext_depth.saturating_sub(1);
+                    if ext_depth == 0 && !ext_refs.is_empty() {
+                        ext_refs.sort();
+                        out.push(("extLst".into(), ext_refs.join("|")));
+                        ext_refs.clear();
+                    }
+                }
+            }
+            Ok(Event::Text(t)) if cap != Cap::None => push_text_raw(&mut raw, &t),
+            Ok(Event::GeneralRef(r)) if cap != Cap::None => push_ref_raw(&mut raw, &r),
+            Ok(Event::Eof) => break,
+            // Unparseable: emit a sentinel so expected/edited can still differ meaningfully.
+            Err(_) => {
+                out.push(("parse_error".into(), String::new()));
+                break;
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+    out.sort();
+    out
+}
+
 /// True if a FOREIGN worksheet carries a reference to the edited sheet in a body the
 /// foreign-sheet shift path does NOT rewrite, and that this edit would move. The shift
 /// path rewrites only PLAIN `<f>` cell-formula text (shared formulas are expanded to
@@ -3108,6 +3207,27 @@ mod tests {
             String::from_utf8_lossy(&out2).contains(">$A$8<"),
             "Sheet2-scoped name is unaffected by a Sheet1 edit"
         );
+    }
+
+    #[test]
+    fn sheet_ref_construct_semantics_extracts_cf_dv_and_extlst() {
+        // legacy CF: sqref attr + formula body (logical, entity-resolved)
+        assert_eq!(
+            sheet_ref_construct_semantics(br#"<worksheet><conditionalFormatting sqref="A1:A10"><cfRule><formula>$A1&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#),
+            vec![("conditionalFormatting".to_string(), "sqref=A1:A10|$A1>0".to_string())]
+        );
+        // legacy DV: sqref + formula1
+        assert_eq!(
+            sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="list" sqref="B1:B5"><formula1>Sheet2!$A$1:$A$3</formula1></dataValidation></worksheet>"#),
+            vec![("dataValidation".to_string(), "sqref=B1:B5|Sheet2!$A$1:$A$3".to_string())]
+        );
+        // x14 extLst: xm:sqref + xm:f collected (sorted) under "extLst"
+        assert_eq!(
+            sheet_ref_construct_semantics(br#"<worksheet><extLst><ext><x14:conditionalFormatting><x14:cfRule><xm:f>$D$1&gt;0</xm:f></x14:cfRule><xm:sqref>D1:D5</xm:sqref></x14:conditionalFormatting></ext></extLst></worksheet>"#),
+            vec![("extLst".to_string(), "$D$1>0|D1:D5".to_string())]
+        );
+        // a plain sheet (cell formulas only) yields nothing.
+        assert!(sheet_ref_construct_semantics(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#).is_empty());
     }
 
     #[test]

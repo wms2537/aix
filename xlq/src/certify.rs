@@ -182,30 +182,28 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
     // sheet is the first) and the workbook `<calcPr>` (calc mode / iterative calc) both
     // affect computed values and are preserved verbatim by xlq's transform, so a foreign
     // edit that reorders sheets or changes a calc setting must not certify.
-    if sheet_order_and_calcpr(expected) != sheet_order_and_calcpr(edited) {
+    if sheet_order_and_settings(expected) != sheet_order_and_settings(edited) {
         return Some(json!({
             "status": "REFUSED",
             "reason": "workbook_settings_mismatch",
-            "detail": "the sheet order or workbook calc settings differ from xlq's transform \
-                       — a value-affecting workbook property was changed",
+            "detail": "the sheet order, date system, or calc settings differ from xlq's \
+                       transform — a value-affecting workbook property was changed",
         }));
     }
-    // fail closed on SHEET-level reference constructs certify does not compare.
-    // Namespace-, placement- and path-robust: scans every worksheet part (enumerated
-    // through the workbook relationships, so a sheet at a nonstandard path cannot hide)
-    // for the named constructs by LOCAL element name — catching both the legacy
-    // `<conditionalFormatting>` and the namespaced `<x14:conditionalFormatting>` — plus
-    // a generic catch-all for ANY `<extLst>` carrying references (future x14/x15
-    // extensions: slicers, timelines, sparklines, x14 data validation/CF).
-    for wb in [edited, expected] {
-        if let Some(label) = sheet_unverified_construct(wb) {
-            return Some(json!({
-                "status": "REFUSED",
-                "reason": "unverified_reference_part",
-                "detail": format!("{label} may carry references certify does not compare — \
-                                   refused (fail-closed; outside the verified surface)"),
-            }));
-        }
+    // SHEET-level reference constructs — conditional formatting, data validation, and any
+    // `<extLst>` reference subtree (x14 CF/DV, sparklines) — are COMPARED, not refused on
+    // presence. xlq's transform shifts them (edited sheet) or preserves them (foreign
+    // sheet), so a faithful edit's semantics match the transform's and a mangle differs.
+    // (Presence-refusal rejected xlq's own transform of any workbook carrying a dropdown
+    // or CF rule — ubiquitous, and non-value-bearing.) Namespace-/path-robust: every
+    // worksheet is enumerated through the workbook relationships and matched by local name.
+    if sheet_ref_constructs(expected) != sheet_ref_constructs(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "sheet_construct_mismatch",
+            "detail": "a conditional-formatting / data-validation / extension reference differs \
+                       from xlq's transform — it was not shifted faithfully",
+        }));
     }
     // Fail-closed ALLOWLIST over PARTS. certify positionally compares only worksheet cells
     // (diff::snapshot), defined names, and the mergeCell/hyperlink/autoFilter refs above.
@@ -355,25 +353,54 @@ fn rels_targets(bytes: &[u8], sheet_part: &str) -> std::collections::BTreeMap<St
     map
 }
 
-/// The workbook's sheet names IN ORDER plus the `<calcPr>` start tag. Sheet order is
-/// value-affecting (3D-span endpoints, the default first sheet); `<calcPr>` carries the
-/// calculation mode / iterative-calc settings. Both are compared to catch a foreign edit
-/// that reorders sheets or flips a calc setting while leaving cells intact.
-fn sheet_order_and_calcpr(bytes: &[u8]) -> (Vec<String>, String) {
+/// The workbook's sheet names IN ORDER plus the VALUE-affecting workbook settings, sorted.
+/// Sheet order is value-affecting (3D-span endpoints, the default first sheet). Settings
+/// captured: the date epoch (`workbookPr@date1904` — a foreign flip shifts every date value
+/// by 1462 days, invisible to a serial-vs-serial cell diff), the calc mode
+/// (`calcPr@calcMode`), and whether iterative calc is on (`calcPr@iterate`). Each is
+/// NORMALIZED to its semantic default so a foreign tool merely writing out a default value
+/// (or a benign `calcId`/`fullCalcOnLoad`) does not spuriously refuse a faithful edit.
+fn sheet_order_and_settings(bytes: &[u8]) -> (Vec<String>, Vec<(String, String)>) {
     let order: Vec<String> = crate::ooxml::all_sheets(bytes)
         .map(|v| v.into_iter().map(|(n, _)| n).collect())
         .unwrap_or_default();
-    let calcpr = crate::ooxml::read_part(bytes, "xl/workbook.xml")
-        .ok()
-        .and_then(|wb| {
-            let text = String::from_utf8_lossy(&wb).into_owned();
-            let p = text.find("<calcPr")?;
+    let mut settings: Vec<(String, String)> = Vec::new();
+    if let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") {
+        let text = String::from_utf8_lossy(&wb);
+        let start_tag = |elem: &str| -> Option<String> {
+            let p = text.find(elem)?;
             let rest = &text[p..];
             let gt = rest.find('>')?;
             Some(rest[..gt].to_string())
-        })
-        .unwrap_or_default();
-    (order, calcpr)
+        };
+        let truthy = |v: Option<String>| matches!(v.as_deref(), Some("1") | Some("true"));
+        let wbpr = start_tag("<workbookPr").unwrap_or_default();
+        let calcpr = start_tag("<calcPr").unwrap_or_default();
+        settings.push((
+            "date_epoch".into(),
+            if truthy(attr(&wbpr, "date1904")) {
+                "1904"
+            } else {
+                "1900"
+            }
+            .into(),
+        ));
+        settings.push((
+            "calc_mode".into(),
+            attr(&calcpr, "calcMode").unwrap_or_else(|| "auto".into()),
+        ));
+        settings.push((
+            "iterate".into(),
+            if truthy(attr(&calcpr, "iterate")) {
+                "1"
+            } else {
+                "0"
+            }
+            .into(),
+        ));
+    }
+    settings.sort();
+    (order, settings)
 }
 
 /// The relationship-id value of a start tag: a namespace-prefixed `*:id="..."` attribute.
@@ -403,52 +430,29 @@ fn attr(tag: &str, key: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// Fail-closed scan of every worksheet part for a reference-bearing construct certify
-/// does not compare cell-by-cell. Returns the label of the first one found, else None.
-///
-/// Worksheet parts are enumerated through the workbook relationships (`ooxml::all_sheets`),
-/// not the `xl/worksheets/sheetN.xml` path heuristic, so a sheet at a nonstandard path
-/// cannot hide a construct. Detection is by LOCAL element name (prefix-insensitive), so a
-/// rebound namespace prefix cannot either. Two layers:
-///
-/// 1. named constructs — legacy `<conditionalFormatting>`/`<dataValidation>` AND their
-///    namespaced x14 twins (`<x14:conditionalFormatting>`), plus sparklines;
-/// 2. a generic catch-all — any `<extLst>` subtree carrying a formula (`f`) or range
-///    (`sqref`), which is how every current and future x14/x15 reference extension
-///    (slicers, timelines, x14 data validation/CF, sparklines) embeds its references.
-///
-/// An UNREADABLE sheet part fails closed (treated as carrying an unverified construct).
-fn sheet_unverified_construct(bytes: &[u8]) -> Option<&'static str> {
-    let parts: Vec<String> = match crate::ooxml::all_sheets(bytes) {
-        Ok(s) => s.into_iter().map(|(_, part)| part).collect(),
-        // Workbook rels unreadable: certify's own transform load fails earlier and
-        // refuses; nothing to add here.
-        Err(_) => return None,
+/// The reference SEMANTICS of every conditional-formatting / data-validation / extLst
+/// construct across all worksheets, keyed by owning sheet, sorted. Worksheets are
+/// enumerated through the workbook relationships (nonstandard paths included). Compared
+/// between xlq's transform and the foreign edit: a faithful shift matches, a mangle
+/// differs — replacing the old presence-refusal that rejected xlq's own transform of any
+/// workbook with a dropdown or CF rule. An UNREADABLE sheet yields a sentinel so the two
+/// sides differ meaningfully rather than silently comparing equal.
+fn sheet_ref_constructs(bytes: &[u8]) -> Vec<(String, String, String)> {
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return vec![(String::new(), "unreadable_workbook".into(), String::new())];
     };
-    for part in parts {
-        let Ok(xml) = crate::ooxml::read_part(bytes, &part) else {
-            return Some("unreadable_sheet_part");
+    let mut out = Vec::new();
+    for (sheet_name, part_path) in sheets {
+        let Ok(xml) = crate::ooxml::read_part(bytes, &part_path) else {
+            out.push((sheet_name, "unreadable_sheet".into(), String::new()));
+            continue;
         };
-        for (locals, label) in [
-            (&[b"dataValidation".as_slice()][..], "data_validation"),
-            (
-                &[b"conditionalFormatting".as_slice()][..],
-                "conditional_formatting",
-            ),
-            (
-                &[b"sparklineGroup".as_slice(), b"sparkline".as_slice()][..],
-                "sparkline",
-            ),
-        ] {
-            if structural::xml_has_local_element(&xml, locals, true) {
-                return Some(label);
-            }
-        }
-        if structural::sheet_extlst_has_references(&xml) {
-            return Some("extension_reference");
+        for (kind, key) in structural::sheet_ref_construct_semantics(&xml) {
+            out.push((sheet_name.clone(), kind, key));
         }
     }
-    None
+    out.sort();
+    out
 }
 
 #[derive(Default)]
@@ -589,18 +593,37 @@ mod tests {
     }
 
     #[test]
-    fn namespaced_x14_conditional_formatting_is_caught() {
-        // The old substring `<conditionalFormatting` MISSED `<x14:conditionalFormatting>`,
-        // so certify would bless a foreign edit that silently corrupted an x14 CF rule.
-        // Placed on Sheet2 (not the edited sheet) so xlq's own transform is clean and the
-        // NON-CELL gate is the only line of defence.
-        let x14 = r#"<extLst><ext uri="{x}"><x14:conditionalFormatting xmlns:x14="urn:x14"><x14:cfRule type="expression" id="{1}"><xm:f xmlns:xm="urn:xm">$D$1&gt;0</xm:f></x14:cfRule><xm:sqref xmlns:xm="urn:xm">D1:D5</xm:sqref></x14:conditionalFormatting></ext></extLst>"#;
-        let bytes = wb(x14, &[]);
-        assert_eq!(
-            sheet_unverified_construct(&bytes),
-            Some("conditional_formatting"),
-            "namespaced x14 conditional formatting must be caught by the local-name scan"
-        );
+    fn x14_conditional_formatting_is_compared_not_presence_refused() {
+        // x14 CF (and legacy CF/DV) are now COMPARED, not refused on presence — presence
+        // refusal rejected xlq's own transform of any workbook with a CF rule.
+        let x14 = |sqref: &str| {
+            format!(
+                r#"<extLst><ext uri="{{x}}"><x14:conditionalFormatting xmlns:x14="urn:x14"><x14:cfRule type="expression" id="{{1}}"><xm:f xmlns:xm="urn:xm">$D$1&gt;0</xm:f></x14:cfRule><xm:sqref xmlns:xm="urn:xm">{sqref}</xm:sqref></x14:conditionalFormatting></ext></extLst>"#
+            )
+        };
+        let good = wb(&x14("D1:D5"), &[]);
+        let mangled = wb(&x14("Z9:Z99"), &[]);
+        // identical x14 CF -> NO mismatch (must not blanket-refuse)
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // a mangled x14 sqref -> caught as a construct mismatch
+        let refusal = verify_noncell_refs(&good, &mangled).expect("mangled x14 CF must be caught");
+        assert_eq!(refusal["reason"], "sheet_construct_mismatch");
+    }
+
+    #[test]
+    fn legacy_conditional_formatting_is_compared_not_presence_refused() {
+        let cf = |sqref: &str| {
+            format!(
+                r#"<conditionalFormatting sqref="{sqref}"><cfRule type="expression" priority="1"><formula>$A1&gt;0</formula></cfRule></conditionalFormatting>"#
+            )
+        };
+        let good = wb(&cf("A1:A10"), &[]);
+        // A faithful workbook with a CF rule must NOT be refused (the over-refusal fix).
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // A mangled CF sqref is caught.
+        let refusal = verify_noncell_refs(&good, &wb(&cf("A1:A99"), &[]))
+            .expect("mangled CF sqref must be caught");
+        assert_eq!(refusal["reason"], "sheet_construct_mismatch");
     }
 
     #[test]
@@ -681,7 +704,7 @@ mod tests {
     fn a_plain_two_sheet_workbook_has_no_unverified_construct() {
         // Guard against over-refusal: a workbook with no ref-bearing constructs passes.
         let bytes = wb("", &[]);
-        assert_eq!(sheet_unverified_construct(&bytes), None);
+        assert!(sheet_ref_constructs(&bytes).is_empty());
         assert!(verify_noncell_refs(&bytes, &bytes).is_none());
     }
 }
