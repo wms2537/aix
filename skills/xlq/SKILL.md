@@ -1,158 +1,111 @@
 ---
-name: xlq
-description: Safe operations on Excel workbooks with the xlq CLI. Use whenever a task involves an Excel file, .xlsx file, spreadsheet, or workbook — inspecting structure, comparing versions, checking formula health, or preparing an edit. Prefer xlq over openpyxl/pandas scripts for any .xlsx the user cares about.
+name: xlq-excel-edits
+description: Use when reading, diffing, recalculating, or editing existing .xlsx/.xlsm Excel workbooks — changing cells or formulas, inserting/deleting/moving rows or columns, or validating a foreign edit — where formulas, charts, pivots, or number formats must survive intact. Especially when an agent would otherwise reach for openpyxl or pandas and risk silently corrupting the workbook.
 ---
 
-# Operating on Excel workbooks with xlq
+# Editing Excel safely with xlq
 
-xlq is a local CLI (`xlq` binary) for `.xlsx` files. Every command prints a
-JSON report to stdout; logs go to stderr; on failure the exit code is 1 and
-stdout is `{"error": "..."}`. The v0.1 commands (`inspect`, `diff`, `calc`)
-are read-only: they never modify the target file.
+## Overview
 
-Do not edit `.xlsx` files with openpyxl or ad-hoc scripts when xlq is
-available — general-purpose libraries silently strip parts of the file
-structure (VBA, pivot caches, charts) and have corrupted real financial
-models. Until xlq's write path (`apply`) ships, workbook edits should be
-made by the user in Excel, with xlq verifying the result.
+`xlq` is a command-line tool for **agent-safe** operations on `.xlsx`/`.xlsm`
+workbooks. Its one guarantee: **never silently wrong.** An edit it cannot perform
+faithfully is *refused* with a reason — never approximated. Every command prints
+**JSON on stdout**; diagnostics go to stderr. Writes are transactional (receipts +
+undo).
 
-## The safe loop
+The default tool (openpyxl / pandas) rewrites the whole file and, on a real
+workbook, **silently drops charts, pivots, and VBA, mangles number formats, and
+does NOT shift formula references when you insert/delete rows** — corruption you
+won't notice until the numbers are wrong. Use `xlq` whenever those must survive.
 
-Always in this order. Do not skip step 1.
+## The golden rule
 
-### 1. Inspect first — census before content
+**Check the exit code and the JSON `status`/`error`. A refusal is a feature.**
 
+| Exit | Meaning |
+|------|---------|
+| `0` | The operation produced its effect/answer (JSON has the result). |
+| `1` | An operational **refusal or failure** — a `REFUSED`, a residual it can't shift, a verification failure. |
+| `2` | Malformed invocation (bad `--op`, missing args). |
+| `70` | Internal error (rare; JSON `internal_error: true`). |
+
+When `xlq` refuses (exit 1, or a `residuals`/`REFUSED` field), the edit **cannot be
+made without corrupting the workbook.** Report that to the user and stop. **Do NOT
+fall back to openpyxl/pandas to force it through** — that reintroduces exactly the
+silent corruption `xlq` exists to prevent.
+
+## Commands
+
+| Command | Use |
+|---------|-----|
+| `xlq inspect <file>` | Census: sheets, formula/function tallies, error counts, chart/pivot/VBA presence, hash. No cell values. **Run this first.** |
+| `xlq diff <old> <new>` | Cell-level diff of two workbooks (values + formulas). |
+| `xlq calc <file>` | Recompute and report stored-vs-recomputed values. Read-only. |
+| `xlq apply <file> <patch.json>` | Set cell values/formulas surgically (only touched sheet parts change). `--dry-run` predicts; `--schema` prints the patch format. |
+| `xlq restructure <file> --sheet S --op OP --at N [--count K] [--dest D]` | Insert/delete/move rows/columns, shifting every reference. `--dry-run` predicts. |
+| `xlq certify <orig> <edited> --sheet S --op OP --at N …` | Prove a *foreign* edit (e.g. openpyxl output) equals xlq's own faithful transform. |
+| `xlq verify <file>` | Recompute the hash vs the latest receipt + the whole chain — detects out-of-band tampering. |
+| `xlq undo <file>` | Restore the previous committed snapshot (records an `undo` receipt). |
+| `xlq log <file>` | Print the receipt history. |
+
+`OP` ∈ `insert-rows | delete-rows | insert-cols | delete-cols | move-rows`.
+`--at` is **1-based**.
+
+## Core workflows
+
+Always **inspect first**, **dry-run before a real write**, and **verify after**.
+
+### Insert / delete / move rows or columns (references must follow)
+```sh
+xlq inspect book.xlsx                                    # what's in it
+xlq restructure book.xlsx --sheet Sheet1 --op insert-rows --at 5 --count 1 --dry-run
+xlq restructure book.xlsx --sheet Sheet1 --op insert-rows --at 5 --count 1 --actor agent
+xlq verify book.xlsx                                     # exit 0 = intact
 ```
-xlq inspect book.xlsx
+If the dry-run/real run returns `error: residual_unreachable` with a `residuals`
+list, the edit crosses something the shift algebra can't preserve (a shared/array
+formula spanning the cut, a table, a CDATA formula body, a defined-name collision).
+**That refusal is correct** — surface it; do not route around it.
+
+### Change a cell value or formula
+```sh
+xlq apply --schema                                       # the patch JSON format
+# write patch.json: {"base_hash": "<sha256 from inspect>", "ops": [ {"type":"set_cell","sheet":"Sheet1","cell":"B7","value":42} ]}
+xlq apply book.xlsx patch.json --dry-run                 # predicts affected cells + new errors
+xlq apply book.xlsx patch.json --actor agent
 ```
+`base_hash` is the file's current sha256 (from `inspect`); the write refuses on
+mismatch. Values: number/string/bool/null (null clears); a date is
+`{"type":"date","iso":"YYYY-MM-DD"}`. Formulas: `{"type":"set_formula", ... ,"formula":"=A1+1"}`.
 
-Read the census before touching anything else. It tells you, without
-spending context on cell data:
-
-- `sheets[]`: every sheet's name, dimensions, cell/formula counts, and
-  existing error tallies (`{"#N/A": 4}` means 4 cells already show `#N/A` —
-  pre-existing, not something you caused).
-- `functions`: which Excel functions the workbook uses and how often.
-- `user_defined_calls`: calls to VBA/XLL UDFs, add-in functions, or defined
-  names invoked as functions. The engine cannot evaluate these, so their
-  presence forces `coverage.reliable: false`.
-- `ooxml_parts`: whether the file carries VBA (`has_vba`), pivot caches,
-  external links, charts, or comments. If any are true, the file has parts
-  a naive rewrite would destroy — one more reason never to edit it with a
-  script.
-- `file.sha256`: the exact revision you are looking at. Quote it when
-  reporting findings; re-run inspect if time has passed, and treat a changed
-  hash as "someone edited the file — start over from step 1."
-- `coverage`: see the coverage rule below.
-
-`--redact` anonymizes sheet names and omits defined-name and user-defined
-callable names; use it if the user wants a census they can share outside
-their organization.
-
-### 2. Read only what you need
-
-The census is usually enough to answer structural questions (what sheets
-exist, where the errors are, what functions are used). Do not dump whole
-sheets into context. v0.1 has no ranged-read command; when you need actual
-cell contents, get them narrowly — from targeted `diff` output (step 3),
-from `calc`'s changed-cell list (step 4), or by asking the user about a
-specific named cell. Ranged reads are on the xlq roadmap.
-
-### 3. Diff to verify what changed
-
-```
-xlq diff old.xlsx new.xlsx
-```
-
-Use this after any edit (the user's, or your own once `apply` exists) to see
-exactly what changed, and to compare two versions of a workbook. Read the
-`summary` first (`changed`/`added`/`removed`, `by_sheet`), then the
-`changes[]` entries you actually need. Each change gives sheet, A1 cell
-ref, `kind` (`formula`, `value`, `cached_value`, `format`, `added`,
-`removed` — `cached_value` means the formula is intact but its stored result
-differs, e.g. a tool stripped the caches; treat a large `cached_value` count
-as "this file needs a recalc", not as data edits), and old/new
-formula + formatted value + raw stored value. `value` means the raw stored
-value on disk differs (compared exactly, so drift below the display
-precision is caught); `format` means the stored value is identical and only
-its number-format rendering changed — do not report a `format` change as a
-data change.
-
-Two things to know:
-
-- The diff is strictly positional and matches sheets by name. An inserted
-  row shows up as many changed cells — that is expected, not an anomaly.
-  Say so when reporting instead of listing hundreds of "changes."
-- If the report has `"truncated": true`, the `changes[]` list is capped at
-  10,000 entries but the `summary` counts are still the full totals. Report
-  from the summary; never claim the truncated list is everything.
-
-### 4. Calc to check formula health
-
-```
-xlq calc book.xlsx
+### Recover a mistake
+```sh
+xlq undo book.xlsx        # restores the prior snapshot; fails closed if no backup
+xlq log book.xlsx         # see the receipt history
 ```
 
-Report-only recalculation: recomputes every formula and reports cells whose
-stored value (what Excel last saved) disagrees with the recomputed value.
-It never writes the file. Interpreting `changed[]`:
-
-- `"volatile": true` on an entry means the cell's formula calls NOW, TODAY,
-  RAND, RANDBETWEEN, OFFSET, INDIRECT, CELL, or INFO — or depends
-  (transitively) on a cell that does. The difference is expected churn, not
-  a defect. Filter these out before alarming the user.
-- Non-volatile entries are stale caches or engine/Excel disagreement. Both
-  are worth reporting, with `stored`/`recomputed` (formatted, for display),
-  `stored_raw`/`recomputed_raw` (the exact values that were compared), and
-  the `formula`. Values are compared raw, so a change can be real even when
-  the two formatted strings look identical.
-- An empty `changed` list with `coverage.reliable: true` is a clean bill of
-  health worth stating explicitly.
-
-### 5. (Future) Propose a patch, dry-run, then apply
-
-When `xlq apply` ships (v0.2), edits go through a typed patch file carrying
-the `base_hash` from inspect: `xlq apply book.xlsx patch.json --dry-run`
-first, read the predicted cells / new errors / watch-cell deltas, show the
-user, and only then apply for real — which writes an immutable
-`book.rev-N.xlsx` and a receipt. Never edit the file any other way. Until
-then: propose exact changes (sheet, cell, formula) for the user to make in
-Excel, then verify with `diff` and `calc`.
-
-## The coverage rule — read this before trusting any output
-
-Every report has a `coverage` object:
-
-```json
-"coverage": { "engine": "ironcalc 0.7.1", "reliable": false,
-              "unsupported_functions": ["XLOOKUP"], ... }
+### Validate a foreign edit (e.g. something openpyxl produced)
+```sh
+xlq certify original.xlsx edited.xlsx --sheet Sheet1 --op insert-rows --at 5 --count 1
 ```
+`status: CERTIFIED` (exit 0) means the foreign edit equals xlq's proven transform;
+`REFUSED` (exit 1) means it differs (a formula/value/added/removed change) — do not
+trust it.
 
-**If `coverage.reliable` is `false`, stop and tell the user. Never guess.**
+## Common mistakes
 
-It means the workbook uses functions the engine cannot evaluate (listed in
-`unsupported_functions`), calls user-defined functions (`user_defined_calls`
-in inspect, `user_defined_functions` in calc), or needs engine features the
-engine lacks (`unsupported_features`, e.g. legacy CSE array formulas).
-Concretely:
+- **Reaching for openpyxl/pandas to edit an existing workbook.** They silently drop
+  charts/pivots and don't shift formula refs. Use `xlq`.
+- **Treating a refusal as a blocker to work around.** It's the safe answer. Report it.
+- **Skipping the exit-code / JSON check.** Parse stdout; branch on exit code.
+- **Not dry-running, or not verifying after a write.**
+- **Wrong verb:** cell values/formulas → `apply`; row/column insert/delete/move →
+  `restructure`.
 
-- Do not present `calc` results as verification of the workbook's health.
-- Do not infer what an unsupported function "probably returns."
-- Do say, verbatim enough to be useful: which functions are unsupported,
-  that recalculation results for cells depending on them are not
-  trustworthy, and which conclusions (structure, diffs of stored values,
-  error tallies) still hold — those come from the file as stored and do not
-  depend on evaluation.
+## Notes
 
-Structural output (inspect's tallies, diff of stored values) remains valid
-either way; it is value-level claims that `reliable: false` invalidates.
-
-## Quick reference
-
-| Task | Command | Writes file? |
-|---|---|---|
-| Census: sheets, functions, errors, parts, hash | `xlq inspect book.xlsx` | No |
-| Shareable census (names anonymized) | `xlq inspect book.xlsx --redact` | No |
-| What changed between two files | `xlq diff old.xlsx new.xlsx` | No |
-| Formula health / stale values | `xlq calc book.xlsx` | No |
-| Edit via hash-checked patch | `xlq apply` — v0.2, not yet available | Rev file + atomic swap |
+- Reads never modify the file. A real write creates `<file>.xlq.jsonl` (journal) and
+  `<file>.rev-N.xlsx` (backups) alongside it — that's normal and enables undo/verify.
+- Decompression is bounded against zip bombs (override with `XLQ_MAX_PART_BYTES` /
+  `XLQ_MAX_TOTAL_BYTES` only if a legitimate workbook is refused as too large).
+- `xlq` is not for building a workbook from scratch — it edits existing ones.
