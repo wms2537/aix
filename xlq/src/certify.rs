@@ -178,6 +178,18 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        transform — a structural reference was not shifted faithfully",
         }));
     }
+    // Sheet ORDER (3D references `Sheet1:Sheet3!` depend on tab order, and the default
+    // sheet is the first) and the workbook `<calcPr>` (calc mode / iterative calc) both
+    // affect computed values and are preserved verbatim by xlq's transform, so a foreign
+    // edit that reorders sheets or changes a calc setting must not certify.
+    if sheet_order_and_calcpr(expected) != sheet_order_and_calcpr(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "workbook_settings_mismatch",
+            "detail": "the sheet order or workbook calc settings differ from xlq's transform \
+                       — a value-affecting workbook property was changed",
+        }));
+    }
     // fail closed on SHEET-level reference constructs certify does not compare.
     // Namespace-, placement- and path-robust: scans every worksheet part (enumerated
     // through the workbook relationships, so a sheet at a nonstandard path cannot hide)
@@ -301,7 +313,7 @@ fn structural_ref_attrs(bytes: &[u8]) -> Vec<(String, String, String)> {
                     // URL swap — would otherwise leave (sheet, elem, ref) unchanged and certify.
                     let key = if elem == "hyperlink" {
                         let location = attr(tag, "location").unwrap_or_default();
-                        let target = attr(tag, "r:id")
+                        let target = attr_relid(tag)
                             .and_then(|id| rels.get(&id).cloned())
                             .unwrap_or_default();
                         format!("ref={r}|loc={location}|tgt={target}")
@@ -341,6 +353,41 @@ fn rels_targets(bytes: &[u8], sheet_part: &str) -> std::collections::BTreeMap<St
         rest = &rest[gt..];
     }
     map
+}
+
+/// The workbook's sheet names IN ORDER plus the `<calcPr>` start tag. Sheet order is
+/// value-affecting (3D-span endpoints, the default first sheet); `<calcPr>` carries the
+/// calculation mode / iterative-calc settings. Both are compared to catch a foreign edit
+/// that reorders sheets or flips a calc setting while leaving cells intact.
+fn sheet_order_and_calcpr(bytes: &[u8]) -> (Vec<String>, String) {
+    let order: Vec<String> = crate::ooxml::all_sheets(bytes)
+        .map(|v| v.into_iter().map(|(n, _)| n).collect())
+        .unwrap_or_default();
+    let calcpr = crate::ooxml::read_part(bytes, "xl/workbook.xml")
+        .ok()
+        .and_then(|wb| {
+            let text = String::from_utf8_lossy(&wb).into_owned();
+            let p = text.find("<calcPr")?;
+            let rest = &text[p..];
+            let gt = rest.find('>')?;
+            Some(rest[..gt].to_string())
+        })
+        .unwrap_or_default();
+    (order, calcpr)
+}
+
+/// The relationship-id value of a start tag: a namespace-prefixed `*:id="..."` attribute.
+/// The relationships-namespace prefix is arbitrary (`r:id`, `x:id`, `r2:id`), so we match
+/// by LOCAL name — a literal `r:id` lookup let a rebound prefix hide a hyperlink's target.
+fn attr_relid(tag: &str) -> Option<String> {
+    let i = tag.find(":id=")? + ":id=".len();
+    let q = *tag.as_bytes().get(i)?;
+    if q != b'"' && q != b'\'' {
+        return None;
+    }
+    let rest = &tag[i + 1..];
+    let end = rest.find(q as char)?;
+    Some(rest[..end].to_string())
 }
 
 /// Value of attribute `key` in a start tag (quote-agnostic).
@@ -586,6 +633,21 @@ mod tests {
         let refusal = verify_noncell_refs(&bytes, &bytes).expect("table must refuse");
         assert_eq!(refusal["status"], "REFUSED");
         assert_eq!(refusal["reason"], "unverified_reference_part");
+    }
+
+    #[test]
+    fn attr_relid_is_namespace_prefix_insensitive() {
+        // REGRESSION: a literal "r:id" lookup let a rebound prefix (x:id) hide a hyperlink's
+        // external target — a phishing-URL swap that certified. Match by local name instead.
+        assert_eq!(
+            attr_relid(r#"<hyperlink ref="A1" r:id="rId5"/"#).as_deref(),
+            Some("rId5")
+        );
+        assert_eq!(
+            attr_relid(r#"<hyperlink ref="A1" x:id="rId9"/"#).as_deref(),
+            Some("rId9")
+        );
+        assert_eq!(attr_relid(r#"<hyperlink ref="A1"/"#), None);
     }
 
     #[test]

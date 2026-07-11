@@ -139,15 +139,17 @@ fn shift_span(head: u32, tail: u32, edit: &StructuralEdit) -> Option<(u32, u32)>
         }
         Op::Move => {
             // Both endpoints map under σ. σ is monotone WITHIN each contiguous
-            // region but reorders regions, so a range whose endpoints land out of
-            // order (h' > t') STRADDLES the move boundary and cannot be a shifted
-            // rectangle. We return None (→ #REF!) for that case; the command layer
-            // detects it as a `move_straddles_range` residual and refuses BEFORE
-            // committing, so a straddle is never silently emitted. Non-straddle
-            // ranges (h' <= t') are the shifted rectangle [h', t'].
+            // region but reorders regions, so a range that STRADDLES the move
+            // boundary cannot be a shifted rectangle. A straddle can leave the
+            // endpoints in order (h' <= t') yet SPREAD them apart — enlarging the
+            // range (e.g. A4:A6 → A4:A18) and silently changing every dependent
+            // value. So a Move range is a valid rectangle ONLY if it moves rigidly:
+            // endpoints stay ordered AND the span size is preserved. Otherwise we
+            // return None (→ #REF!); the command layer detects it as a
+            // `move_straddles_range` residual and refuses BEFORE committing.
             let h = move_row_sigma(head, k, n, edit.dest);
             let t = move_row_sigma(tail, k, n, edit.dest);
-            if h <= t {
+            if h <= t && t - h == tail - head {
                 Some((h, t))
             } else {
                 None
@@ -1612,6 +1614,9 @@ mod tests {
         assert_eq!(sf("A6+A3", "Sheet1", &move_edit(6, 1, 3)), "A3+A4");
         // a straddling range introduces a NEW #REF! (the residual-gate signal).
         assert!(sf("SUM(A4:A6)", "Sheet1", &move_edit(6, 1, 3)).contains("#REF!"));
+        // REGRESSION (round-7): a NON-inverting straddle — endpoints stay ordered under σ
+        // but the span SIZE changes — was silently enlarged (A4:A6 -> A4:A18). It must #REF!.
+        assert!(sf("SUM(A4:A6)", "Sheet1", &move_edit(5, 3, 20)).contains("#REF!"));
         // a clean move introduces none.
         assert!(!sf("A5+A10", "Sheet1", &move_edit(5, 2, 9)).contains("#REF!"));
         // string literals and function names are still untouched.

@@ -58,6 +58,8 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
         .ok_or_else(|| anyhow!("no sheet named {}", edit.sheet))?;
     let part_sheet: BTreeMap<String, String> =
         sheets.iter().map(|(n, p)| (p.clone(), n.clone())).collect();
+    // Sheet names in workbook order — a definedName's `localSheetId` is a 0-based index here.
+    let sheet_names: Vec<String> = sheets.iter().map(|(n, _)| n.clone()).collect();
 
     let mut archive =
         zip::ZipArchive::new(Cursor::new(input)).map_err(|e| anyhow!("open zip: {e}"))?;
@@ -148,7 +150,7 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
                 }
             }
         } else if name == "xl/workbook.xml" {
-            let (out, n, r, qrisk) = shift_text_in_element(&bytes, b"definedName", edit, "")?;
+            let (out, n, r, qrisk) = shift_defined_names(&bytes, edit, &sheet_names)?;
             bytes = out;
             report.refs_shifted += n;
             report.ref_errors += r;
@@ -2335,6 +2337,91 @@ fn shift_text_in_element(
     ))
 }
 
+/// Shift the refers-to body of every `<definedName>` in workbook.xml, scoping unqualified
+/// references to the name's OWN sheet. A worksheet-scoped name (`localSheetId="N"`) resolves
+/// its unqualified references against the Nth sheet (0-based, workbook order), so a scoped
+/// name like `$A$8` on the edited sheet is shifted — the generic path used host="" for every
+/// name, which never matched the edited sheet and left scoped unqualified names stale. A
+/// global name (no localSheetId) uses no host; its refers-to must be qualified.
+fn shift_defined_names(
+    src: &[u8],
+    edit: &StructuralEdit,
+    sheet_names: &[String],
+) -> Result<(Vec<u8>, u32, u32, bool)> {
+    let mut reader = Reader::from_reader(src);
+    reader.config_mut().expand_empty_elements = false;
+    let mut writer = Writer::new(Cursor::new(Vec::new()));
+    let mut buf = Vec::new();
+    let mut in_dn = false;
+    let mut host = String::new();
+    let mut qualifier_risk = false;
+    let mut f_raw = String::new();
+    let (mut shifted, mut errs) = (0u32, 0u32);
+    loop {
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| anyhow!("xml: {e}"))?;
+        match ev {
+            Event::Eof => break,
+            Event::Start(e) if tag_local_eq(e.name().as_ref(), b"definedName") => {
+                in_dn = true;
+                host = attr_by_local(&e, b"localSheetId")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .and_then(|i| sheet_names.get(i).cloned())
+                    .unwrap_or_default();
+                f_raw.clear();
+                writer
+                    .write_event(Event::Start(e.into_owned()))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
+            }
+            Event::End(e) if tag_local_eq(e.name().as_ref(), b"definedName") => {
+                if in_dn {
+                    let raw = std::mem::take(&mut f_raw);
+                    let out_ev = match logical_formula(&raw) {
+                        Some(logical) if !refshift::has_unquoted_non_ascii_qualifier(&logical) => {
+                            let (nf, n) = refshift::shift_formula(&logical, &host, edit);
+                            shifted += n;
+                            errs += nf.matches("#REF!").count() as u32;
+                            if nf == logical {
+                                Event::Text(BytesText::from_escaped(raw))
+                            } else {
+                                Event::Text(BytesText::from_escaped(text_escape(&nf)))
+                            }
+                        }
+                        Some(_) => {
+                            qualifier_risk = true;
+                            Event::Text(BytesText::from_escaped(raw))
+                        }
+                        None => Event::Text(BytesText::from_escaped(raw)),
+                    };
+                    writer
+                        .write_event(out_ev)
+                        .map_err(|e| anyhow!("xml write: {e}"))?;
+                }
+                in_dn = false;
+                host.clear();
+                writer
+                    .write_event(Event::End(e.into_owned()))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
+            }
+            Event::Text(t) if in_dn => push_text_raw(&mut f_raw, &t),
+            Event::GeneralRef(r) if in_dn => push_ref_raw(&mut f_raw, &r),
+            other => {
+                writer
+                    .write_event(other.into_owned())
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
+            }
+        }
+        buf.clear();
+    }
+    Ok((
+        writer.into_inner().into_inner(),
+        shifted,
+        errs,
+        qualifier_risk,
+    ))
+}
+
 /// The local part of a (possibly namespace-prefixed) XML name: `x:table` -> `table`.
 fn local_of(name: &[u8]) -> &[u8] {
     match name.iter().rposition(|&b| b == b':') {
@@ -2986,6 +3073,40 @@ mod tests {
         assert!(
             s.contains(r#"min="3""#),
             "row edit must not touch <col>: {s}"
+        );
+    }
+
+    #[test]
+    fn scoped_defined_name_with_unqualified_body_shifts() {
+        let names = vec!["Sheet1".to_string(), "Sheet2".to_string()];
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
+        // A Sheet1-scoped name (localSheetId=0) with an UNqualified body resolves against
+        // Sheet1, so it shifts; a global name's qualified body also shifts.
+        let (out, _n, _r, _q) = shift_defined_names(
+            br#"<workbook><definedNames><definedName name="L" localSheetId="0">$A$8</definedName><definedName name="G">Sheet1!$A$8</definedName></definedNames></workbook>"#,
+            &e,
+            &names,
+        )
+        .unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            s.contains(">$A$9<"),
+            "scoped unqualified body $A$8->$A$9: {s}"
+        );
+        assert!(
+            s.contains("Sheet1!$A$9"),
+            "global qualified body shifts: {s}"
+        );
+        // A name scoped to a DIFFERENT sheet must NOT shift its unqualified body.
+        let (out2, _n, _r, _q) = shift_defined_names(
+            br#"<workbook><definedNames><definedName name="L2" localSheetId="1">$A$8</definedName></definedNames></workbook>"#,
+            &e,
+            &names,
+        )
+        .unwrap();
+        assert!(
+            String::from_utf8_lossy(&out2).contains(">$A$8<"),
+            "Sheet2-scoped name is unaffected by a Sheet1 edit"
         );
     }
 

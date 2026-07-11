@@ -61,6 +61,13 @@ is refused, not committed.
 - **Pivot caches fail closed:** a pivot source other than a `<worksheetSource>` (e.g. a
   consolidation `<rangeSet ref sheet>`) that names the edited sheet is refused rather
   than committed with a stale grid range.
+- **move-rows no longer silently enlarges a straddling range.** A range whose endpoints
+  stayed ordered under the move permutation but whose *size* changed (a non-inverting
+  straddle, e.g. `SUM(A4:A6)` → `SUM(A4:A18)`) was committed with wrong recomputed values;
+  the move now requires the span to move rigidly or it fails closed (`#REF!` → residual).
+- **Worksheet-scoped defined names are shifted in their own scope.** A `localSheetId`
+  name with an unqualified refers-to (`$A$8` scoped to the edited sheet) was left stale
+  (the shift used an empty host for every name); it now resolves against its scoped sheet.
 - **`certify`'s part check is now a fail-closed allowlist** (was an enumerated
   denylist). Any part outside the known-safe/compared set — worksheets, workbook,
   styles, theme, sharedStrings, calcChain, metadata, media, printer settings, docProps,
@@ -68,12 +75,13 @@ is refused, not committed.
   form controls, volatile dependencies, query tables, slicer/timeline caches,
   connections, customXml) in one rule instead of chasing each construct.
 - **`certify` now compares more of each reference's semantics:** a hyperlink's
-  destination (internal `location` and external `r:id`→relationship Target — catching an
-  in-workbook mispoint or a phishing-URL swap), the owning **sheet** of every
-  mergeCell/hyperlink/autoFilter (catching a cross-sheet relocation), and a defined
-  name's **scope** (`localSheetId`, catching a re-scope). A foreign cross-sheet ref/sqref
-  attribute (e.g. a consolidation `<dataRef ref="Sheet!…">`) is likewise refused by the
-  restructure scan.
+  destination (internal `location` and external `r:id`→relationship Target, resolved
+  namespace-prefix-insensitively — catching an in-workbook mispoint or a phishing-URL
+  swap), the owning **sheet** of every mergeCell/hyperlink/autoFilter (catching a
+  cross-sheet relocation), a defined name's **scope** (`localSheetId`, catching a
+  re-scope), and the workbook's **sheet order and `<calcPr>`** (both value-affecting). A
+  foreign cross-sheet ref/sqref attribute (e.g. a consolidation `<dataRef ref="Sheet!…">`)
+  is likewise refused by the restructure scan.
 - **Namespace-blind parsers fixed.** `certify`'s defined-name comparison and the
   defined-name/cell collision check used a `<definedName` substring that missed a
   namespace-prefixed `<x:definedName>` the shifter *does* rewrite (a false
