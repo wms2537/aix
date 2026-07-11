@@ -108,6 +108,20 @@ is refused, not committed.
   enumeration are likewise matched by local name / case-insensitively so a rebound
   prefix or re-cased part cannot evade them.
 
+- **The VBA macro binary is compared byte-for-byte.** `xl/vbaProject.bin` was allowlisted
+  as safe but never diffed, so a foreign edit that injected or swapped the auto-executing
+  macro (arbitrary code) was certified — a security laundering. Its bytes and presence are
+  now compared; a structural edit never alters executable code.
+- **Sheet/workbook protection is compared.** Stripping or weakening a password-backed
+  `<sheetProtection>`/`<workbookProtection>`/`<protectedRange>` (a security control the
+  transform preserves) was certified; its attributes are now compared.
+- **Charts and drawings are COMPARED, not refused on presence.** certify refused *any*
+  workbook containing a chart or image — including xlq's own transform — while restructure
+  accepts and shifts chart data references. Chart `<f>` data ranges and drawing cell
+  anchors are now compared semantically instead.
+- **move-rows no longer over-refuses an invariant range.** A range that fully contains the
+  moved block (so the move only permutes rows within it and the cell set is unchanged) was
+  refused as a straddle; it is now recognized as value-preserving and left unchanged.
 - **Conditional formatting and data validation are COMPARED, not refused on presence.**
   The earlier fail-closed pass refused certification of any workbook carrying a CF rule or
   a data-validation dropdown — including xlq's own faithful transform — which made certify

@@ -168,6 +168,17 @@ fn shift_span(head: u32, tail: u32, edit: &StructuralEdit) -> Option<(u32, u32)>
             // endpoints stay ordered AND the span size is preserved. Otherwise we
             // return None (→ #REF!); the command layer detects it as a
             // `move_straddles_range` residual and refuses BEFORE committing.
+            //
+            // FIRST, the invariant case: a range that fully CONTAINS the moved block AND its
+            // destination only permutes its rows internally — the cell SET is unchanged, so
+            // the range stays [head, tail]. The endpoint-size check alone would refuse it
+            // (a displaced endpoint breaks the size relation) even though it is value-safe.
+            let block_end = k + n - 1;
+            let contains_move =
+                head <= k && block_end <= tail && edit.dest >= head && edit.dest <= tail + 1;
+            if contains_move {
+                return Some((head, tail));
+            }
             let h = move_row_sigma(head, k, n, edit.dest);
             let t = move_row_sigma(tail, k, n, edit.dest);
             if h <= t && t - h == tail - head {
@@ -1655,6 +1666,16 @@ mod tests {
         // REGRESSION (round-7): a NON-inverting straddle — endpoints stay ordered under σ
         // but the span SIZE changes — was silently enlarged (A4:A6 -> A4:A18). It must #REF!.
         assert!(sf("SUM(A4:A6)", "Sheet1", &move_edit(5, 3, 20)).contains("#REF!"));
+        // REGRESSION (round-10): a range that fully CONTAINS the moved block (and its dest)
+        // only permutes rows internally — the SET is invariant, so it must NOT be refused.
+        assert_eq!(
+            sf("SUM(A1:A10)", "Sheet1", &move_edit(1, 1, 3)),
+            "SUM(A1:A10)"
+        );
+        assert_eq!(
+            sf("SUM(A1:A10)", "Sheet1", &move_edit(10, 1, 3)),
+            "SUM(A1:A10)"
+        );
     }
 
     #[test]
@@ -1666,8 +1687,9 @@ mod tests {
             sf("SUM(A2 : A8)", "Sheet1", &row_edit(Op::Insert, 3, 1)),
             "SUM(A2:A9)"
         );
-        // ...and enters the straddle path: a spaced range that inverts under a move -> #REF!.
-        assert!(sf("SUM(A2 : A8)", "Sheet1", &move_edit(2, 1, 9)).contains("#REF!"));
+        // ...and enters the straddle path: a spaced range whose interior block is moved OUT
+        // of the range (a genuine straddle) -> #REF!.
+        assert!(sf("SUM(A2 : A8)", "Sheet1", &move_edit(5, 1, 20)).contains("#REF!"));
         // REGRESSION (round-8): a reference to the LAST row/column overflows to #REF! on
         // insert, never a silently out-of-grid reference (A1048577 / XFE1).
         assert!(sf("A1048576", "Sheet1", &row_edit(Op::Insert, 1, 1)).contains("#REF!"));

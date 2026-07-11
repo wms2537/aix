@@ -858,6 +858,90 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
     out
 }
 
+/// For each element whose LOCAL name is in `wanted`, its sorted attributes as a stable
+/// string, paired with the local name; sorted. Certify compares this between its transform
+/// and a foreign edit for verbatim-preserved elements the cell diff never sees — e.g.
+/// `<sheetProtection>`/`<protectedRange>`/`<workbookProtection>` (stripping or weakening a
+/// password control is a SECURITY change). Attribute values are entity-normalized and the
+/// attribute order is normalized, so a cosmetic re-serialization does not false-refuse.
+pub(crate) fn element_attr_semantics(xml: &[u8], wanted: &[&[u8]]) -> Vec<(String, String)> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if wanted.iter().any(|w| tag_local_eq(e.name().as_ref(), w)) =>
+            {
+                let local = String::from_utf8_lossy(local_of(e.name().as_ref())).into_owned();
+                let mut attrs: Vec<String> = e
+                    .attributes()
+                    .flatten()
+                    .map(|a| {
+                        let k = String::from_utf8_lossy(local_of(a.key.as_ref())).into_owned();
+                        let v = a
+                            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                            .map(|c| c.into_owned())
+                            .unwrap_or_default();
+                        format!("{k}={v}")
+                    })
+                    .collect();
+                attrs.sort();
+                out.push((local, attrs.join(" ")));
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => {
+                out.push(("parse_error".into(), String::new()));
+                break;
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+    out.sort();
+    out
+}
+
+/// The logical text of every element whose LOCAL name is in `locals`, sorted. Certify uses
+/// this to compare a chart part's `<f>` data-range references (which the transform shifts)
+/// and a drawing part's `<col>`/`<row>` cell-anchor coordinates against its transform,
+/// instead of refusing every workbook that contains a chart or image.
+pub(crate) fn element_text_semantics(xml: &[u8], locals: &[&[u8]]) -> Vec<String> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut cap = false;
+    let mut raw = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if locals.iter().any(|l| tag_local_eq(e.name().as_ref(), l)) => {
+                cap = true;
+                raw.clear();
+            }
+            Ok(Event::End(e))
+                if cap && locals.iter().any(|l| tag_local_eq(e.name().as_ref(), l)) =>
+            {
+                out.push(logical_formula(&raw).unwrap_or_else(|| raw.clone()));
+                cap = false;
+                raw.clear();
+            }
+            Ok(Event::Text(t)) if cap => push_text_raw(&mut raw, &t),
+            Ok(Event::GeneralRef(r)) if cap => push_ref_raw(&mut raw, &r),
+            Ok(Event::Eof) => break,
+            Err(_) => {
+                out.push("parse_error".into());
+                break;
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+    out.sort();
+    out
+}
+
 /// True if a FOREIGN worksheet carries a reference to the edited sheet in a body the
 /// foreign-sheet shift path does NOT rewrite, and that this edit would move. The shift
 /// path rewrites only PLAIN `<f>` cell-formula text (shared formulas are expanded to

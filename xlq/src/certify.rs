@@ -205,6 +205,39 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        from xlq's transform — it was not shifted faithfully",
         }));
     }
+    // CHART data references (which the transform shifts) and DRAWING cell anchors are
+    // COMPARED, not refused on presence — refusing them rejected xlq's own transform of any
+    // charted or logo-bearing workbook. A faithful edit's chart refs / anchors match the
+    // transform's; a mangle differs.
+    if chart_drawing_refs(expected) != chart_drawing_refs(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "chart_drawing_mismatch",
+            "detail": "a chart data reference or drawing anchor differs from xlq's transform",
+        }));
+    }
+    // The VBA macro binary is executable code the transform preserves verbatim. The cell
+    // diff never sees it, so a foreign edit that injects or swaps it (arbitrary macro code)
+    // would otherwise be certified — a security laundering. Compare the bytes and presence.
+    if vba_parts(expected) != vba_parts(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "vba_project_mismatch",
+            "detail": "the VBA macro project was added, removed, or changed — refused (a \
+                       structural edit never alters executable code)",
+        }));
+    }
+    // Sheet/workbook PROTECTION (a password/hash-backed security control the transform
+    // preserves verbatim). Stripping or weakening it is a security change the cell diff
+    // cannot see; compare the protection elements' attributes across every sheet + workbook.
+    if protection_semantics(expected) != protection_semantics(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "protection_mismatch",
+            "detail": "sheet or workbook protection differs from xlq's transform — a security \
+                       control was stripped or weakened",
+        }));
+    }
     // Fail-closed ALLOWLIST over PARTS. certify positionally compares only worksheet cells
     // (diff::snapshot), defined names, and the mergeCell/hyperlink/autoFilter refs above.
     // Any OTHER part can carry a cell reference that comparison never sees — charts,
@@ -264,7 +297,72 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
         || low.starts_with("docprops/")              // document metadata
         || low.starts_with("xl/media/")              // embedded images
         || low.starts_with("xl/printersettings/")    // opaque binary print settings
-        || low.starts_with("xl/vbaproject") // macro binary (code, not a shiftable ref)
+        || low.starts_with("xl/charts/")             // chart data refs — compared semantically
+        || low.starts_with("xl/drawings/")           // drawing anchors — compared semantically
+        || low.starts_with("xl/vbaproject") // macro binary — byte-compared for a swap
+}
+
+/// Chart data references (`<f>`) and drawing cell anchors (`<col>`/`<row>`) across ALL
+/// chart/drawing parts, as two sorted lists (keyed by neither part name nor sheet, so a
+/// foreign tool renumbering parts does not false-refuse). The transform shifts chart refs
+/// and preserves drawing anchors, so a faithful edit matches and a mangle differs.
+fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
+    let names = structural::archive_names(bytes).unwrap_or_default();
+    let mut charts = Vec::new();
+    let mut drawings = Vec::new();
+    for n in &names {
+        let low = n.to_ascii_lowercase();
+        if low.starts_with("xl/charts/") && low.ends_with(".xml") {
+            if let Ok(x) = crate::ooxml::read_part(bytes, n) {
+                charts.extend(structural::element_text_semantics(&x, &[b"f"]));
+            }
+        } else if low.starts_with("xl/drawings/") && low.ends_with(".xml") {
+            if let Ok(x) = crate::ooxml::read_part(bytes, n) {
+                drawings.extend(structural::element_text_semantics(&x, &[b"col", b"row"]));
+            }
+        }
+    }
+    charts.sort();
+    drawings.sort();
+    (charts, drawings)
+}
+
+/// The bytes of every `xl/vbaProject*` part (macro binary + signature), keyed by name,
+/// sorted. Compared so a foreign inject/swap of executable macro code cannot be certified.
+fn vba_parts(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+    let names = structural::archive_names(bytes).unwrap_or_default();
+    let mut out: Vec<(String, Vec<u8>)> = names
+        .into_iter()
+        .filter(|n| n.to_ascii_lowercase().starts_with("xl/vbaproject"))
+        .filter_map(|n| crate::ooxml::read_part(bytes, &n).ok().map(|b| (n, b)))
+        .collect();
+    out.sort();
+    out
+}
+
+/// `<sheetProtection>`/`<protectedRange>` (worksheets) and `<workbookProtection>`
+/// (workbook), keyed by sheet name, as sorted attribute strings — so stripping or weakening
+/// a password-backed protection control (invisible to the cell diff) is caught.
+fn protection_semantics(bytes: &[u8]) -> Vec<(String, String, String)> {
+    let mut out = Vec::new();
+    if let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") {
+        for (elem, attrs) in structural::element_attr_semantics(&wb, &[b"workbookProtection"]) {
+            out.push(("(workbook)".to_string(), elem, attrs));
+        }
+    }
+    if let Ok(sheets) = crate::ooxml::all_sheets(bytes) {
+        for (sheet_name, part) in sheets {
+            if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
+                for (elem, attrs) in
+                    structural::element_attr_semantics(&x, &[b"sheetProtection", b"protectedRange"])
+                {
+                    out.push((sheet_name.clone(), elem, attrs));
+                }
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 /// (name, refers-to) for every defined name in workbook.xml, sorted. Delegates to the
@@ -632,18 +730,47 @@ mod tests {
     }
 
     #[test]
-    fn nonchart_drawing_part_is_refused_by_verify_noncell_refs() {
-        // A drawing part carries cell-anchored geometry certify does not compare.
-        let bytes = wb(
-            "",
-            &[(
+    fn drawing_anchor_is_compared_not_presence_refused() {
+        // A drawing's cell anchor is COMPARED (not refused on presence) — refusing it
+        // rejected xlq's own transform of any workbook with a chart or image.
+        let draw = |row: &str| {
+            (
                 "xl/drawings/drawing1.xml",
-                r#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:row>1</xdr:row></xdr:from></xdr:oneCellAnchor></xdr:wsDr>"#,
-            )],
-        );
-        let refusal = verify_noncell_refs(&bytes, &bytes).expect("drawing must refuse");
-        assert_eq!(refusal["status"], "REFUSED");
-        assert_eq!(refusal["reason"], "unverified_reference_part");
+                format!(
+                    r#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:row>{row}</xdr:row></xdr:from></xdr:oneCellAnchor></xdr:wsDr>"#
+                ),
+            )
+        };
+        let (n, g) = draw("1");
+        let good = wb("", &[(n, g.as_str())]);
+        // identical drawing -> NOT refused
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // a mangled anchor row -> caught
+        let (n2, m) = draw("99");
+        let refusal = verify_noncell_refs(&good, &wb("", &[(n2, m.as_str())]))
+            .expect("mangled drawing anchor must be caught");
+        assert_eq!(refusal["reason"], "chart_drawing_mismatch");
+    }
+
+    #[test]
+    fn chart_data_ref_is_compared_not_presence_refused() {
+        let chart = |rng: &str| {
+            (
+                "xl/charts/chart1.xml",
+                format!(
+                    r#"<c:chartSpace xmlns:c="urn:c"><c:ser><c:val><c:numRef><c:f>Sheet2!{rng}</c:f></c:numRef></c:val></c:ser></c:chartSpace>"#
+                ),
+            )
+        };
+        let (n, g) = chart("$B$1:$B$10");
+        let good = wb("", &[(n, g.as_str())]);
+        // identical chart -> NOT refused (over-refusal fix)
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // a mangled chart data range -> caught
+        let (n2, m) = chart("$Z$1:$Z$99");
+        let refusal = verify_noncell_refs(&good, &wb("", &[(n2, m.as_str())]))
+            .expect("mangled chart data ref must be caught");
+        assert_eq!(refusal["reason"], "chart_drawing_mismatch");
     }
 
     #[test]
