@@ -39,7 +39,7 @@
 use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 
 // Single-sourced from the vendored engine (base/src/constants.rs) so a receipt
@@ -178,27 +178,57 @@ fn process_alive(pid: i32) -> bool {
     }
 }
 
-/// Last journal entry as raw JSON (tolerant of extra/missing fields so marker
-/// lines and future schema additions never break rev/hash extraction). None
-/// when the journal is absent or holds no non-blank line.
-fn last_entry(book_path: &str) -> Result<Option<serde_json::Value>> {
+/// All journal receipts as raw JSON, in order (tolerant of extra/missing fields
+/// so marker lines and future schema additions never break rev/hash extraction).
+///
+/// Crash-recovery discipline: `append_receipt` always writes a record then `\n`
+/// then fsync, so a durably-committed line ALWAYS ends in a newline. A single
+/// crash-torn TRAILING line — identifiable because the file does not end in a
+/// newline — was never durably committed and is dropped. Any OTHER unparseable
+/// line (an interior line, or a newline-terminated final line) signals real
+/// corruption and fails loudly (`journal_corrupt`) rather than silently skipping
+/// records. This is the single source of truth for reading the journal, shared by
+/// the write path (`last_entry`) and the `log`/`verify`/`undo` read verbs, so a
+/// crash-recovered journal reads identically across all of them.
+pub(crate) fn read_entries(book_path: &str) -> Result<Vec<serde_json::Value>> {
     let path = journal_path(book_path);
-    let mut file = match File::open(&path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e).context("open journal"),
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e).context("read journal"),
     };
-    let mut text = String::new();
-    file.read_to_string(&mut text).context("read journal")?;
-    let last = text.lines().rev().find(|l| !l.trim().is_empty());
-    match last {
-        None => Ok(None),
-        Some(line) => {
-            let v: serde_json::Value =
-                serde_json::from_str(line).context("parse journal entry")?;
-            Ok(Some(v))
+    let has_trailing_newline = text.ends_with('\n');
+    let lines: Vec<&str> = text.lines().collect();
+    let last_nonblank = match lines.iter().rposition(|l| !l.trim().is_empty()) {
+        Some(i) => i,
+        None => return Ok(Vec::new()),
+    };
+    let mut out = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<serde_json::Value>(line) {
+            Ok(v) => out.push(v),
+            Err(e) => {
+                // Only a non-newline-terminated FINAL line is a legitimately torn
+                // (never-durably-committed) append; drop it. Everything else is
+                // real corruption — fail closed.
+                if i == last_nonblank && !has_trailing_newline {
+                    break;
+                }
+                return Err(e).context("journal_corrupt: interior journal line failed to parse");
+            }
         }
     }
+    Ok(out)
+}
+
+/// Last journal entry as raw JSON, or None when the journal is absent or holds
+/// no valid (non-torn) receipt. Torn-tail/interior-corruption discipline is in
+/// [`read_entries`].
+fn last_entry(book_path: &str) -> Result<Option<serde_json::Value>> {
+    Ok(read_entries(book_path)?.pop())
 }
 
 /// Highest N among existing `<book>.rev-N.xlsx` files (0 if none). Consulted so
@@ -510,6 +540,68 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0]["rev"], json!(1));
         assert_eq!(lines[0]["result_hash"], json!("hash0"));
+    }
+
+    // Helper: two clean receipts, then whatever the test appends.
+    fn two_receipts(dir: &TempDir, tag: &str) -> String {
+        let book = dir.book(tag);
+        std::fs::write(&book, b"orig").unwrap();
+        commit(&book, b"v1", 1, "apply", "b0", "h1", json!({}), "t", "a", None, None).unwrap();
+        commit(&book, b"v2", 2, "apply", "h1", "h2", json!({}), "t", "a", None, None).unwrap();
+        book
+    }
+
+    #[test]
+    fn torn_trailing_line_is_dropped_and_recovers() {
+        // A crash mid-append leaves a partial final line with NO trailing newline
+        // (append_receipt always writes record + '\n' + fsync). That record was
+        // never durably committed, so it must be dropped and the journal recovers
+        // — not wedge every future mutation on a hard parse error.
+        let dir = TempDir::new("torn");
+        let book = two_receipts(&dir, "m.xlsx");
+        {
+            let mut f = OpenOptions::new().append(true).open(journal_path(&book)).unwrap();
+            f.write_all(br#"{"rev":3,"kin"#).unwrap(); // torn: no trailing newline
+        }
+        assert_eq!(read_entries(&book).unwrap().len(), 2, "torn tail dropped");
+        assert_eq!(chain_status(&book, "h2").unwrap(), ChainStatus::Ok);
+        let rev = next_rev(&book).unwrap();
+        assert_eq!(rev, 3, "numbering continues from the recovered head");
+        let r = commit(&book, b"v3", rev, "apply", "h2", "h3", json!({}), "t", "a", None, None)
+            .unwrap();
+        assert_eq!(r.rev, 3, "a fresh commit at the recovered rev succeeds");
+    }
+
+    #[test]
+    fn interior_corruption_fails_loudly() {
+        // A newline-terminated but unparseable INTERIOR line is real corruption,
+        // not a torn append — fail closed, never silently skip to a later line.
+        let dir = TempDir::new("interior");
+        let book = two_receipts(&dir, "m.xlsx");
+        let text = std::fs::read_to_string(journal_path(&book)).unwrap();
+        let mut lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
+        lines[0] = "{BROKEN".to_string(); // corrupt the FIRST line, keep newline-terminated
+        std::fs::write(journal_path(&book), lines.join("\n") + "\n").unwrap();
+        let err = format!("{:#}", read_entries(&book).unwrap_err());
+        assert!(err.contains("journal_corrupt"), "interior corruption must fail loudly: {err}");
+        assert!(next_rev(&book).is_err(), "next_rev must not silently use a later line");
+    }
+
+    #[test]
+    fn complete_but_corrupt_tail_fails_loudly() {
+        // A corrupt FINAL line that DOES end in a newline was durably written and
+        // therefore must parse — the newline sentinel distinguishes it from a torn
+        // append (which lacks the newline). Fail closed.
+        let dir = TempDir::new("badtail");
+        let book = two_receipts(&dir, "m.xlsx");
+        {
+            let mut f = OpenOptions::new().append(true).open(journal_path(&book)).unwrap();
+            f.write_all(b"{durably-corrupt}\n").unwrap();
+        }
+        assert!(
+            read_entries(&book).is_err(),
+            "newline-terminated corrupt line must fail (not treated as torn)"
+        );
     }
 
     #[test]
