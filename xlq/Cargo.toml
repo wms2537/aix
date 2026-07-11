@@ -25,11 +25,14 @@ include = [
 ]
 
 [dependencies]
-# Pinned exactly: the "ironcalc 0.7.1" engine/provenance strings emitted by
-# inspect/calc (and recorded in receipts) must match the linked engine. A
-# caret requirement would let `cargo update` silently falsify them. Bump the
-# pin and those constants together (xlq/src/calc.rs ENGINE, xlq/src/inspect.rs).
-ironcalc = "=0.7.1"
+# Vendored, locally-hardened engine (see vendor/PATCHES.md), consumed as the
+# renamed publishable package `xlq-ironcalc` via the multiple-locations pattern:
+# the local ../vendor path is used for dev builds; `version = "=0.7.1"` of
+# xlq-ironcalc from crates.io is used when THIS crate is published (cargo strips
+# the path on publish). The local alias stays `ironcalc`, so `use ironcalc::…` and
+# the ENGINE_PROVENANCE const are unchanged. Pinned exactly so the engine/
+# provenance strings can never be silently falsified by `cargo update`.
+ironcalc = { package = "xlq-ironcalc", path = "../vendor/upstream/xlsx", version = "=0.7.1" }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -83,6 +86,7 @@ required-features = ["devtools"]
 lto = true
 strip = true
 
-[patch.crates-io]
-ironcalc = { path = "../vendor/upstream/xlsx" }
-ironcalc_base = { path = "../vendor/upstream/base" }
+# No [patch.crates-io] is needed: the engine dependency above names the vendored
+# fork directly (package + local path + version), so it resolves from ../vendor
+# for dev builds and from crates.io (the published xlq-ironcalc) when this crate
+# is published. See PUBLISHING.md.

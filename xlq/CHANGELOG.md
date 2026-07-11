@@ -49,13 +49,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tests.
 - Added crate metadata (README, keywords, categories, license/notice copies).
 
-### Known limitation
-- **crates.io publish is not yet wired up.** `xlq` links a *vendored master* build
-  of IronCalc (provenance `e50ccea8`) that differs from the published `ironcalc
-  0.7.1`, resolved via a `[patch.crates-io]` path to `../vendor`. A real publish
-  requires publishing the patched engine as a renamed fork (`cargo publish` strips
-  `[patch]` and would otherwise link the wrong engine). Until then, install from a
-  repository checkout with `cargo install --path xlq`.
+### Publishing
+- The engine dependency is now wired for crates.io: the vendored IronCalc fork is
+  consumed as renamed publishable packages (`xlq-ironcalc`, `xlq-ironcalc-base`,
+  lib names unchanged) via the multiple-locations `path` + `version` pattern, so
+  no `[patch.crates-io]` is needed and a published `xlq` links the correct engine.
+  `cargo publish --dry-run` is green for the leaf `xlq-ironcalc-base`. Publishing
+  the three crates (a permanent, account-scoped action of republishing a
+  third-party engine fork) is left to the maintainer — see `PUBLISHING.md` for the
+  exact bottom-up sequence. Local dev/install is unchanged (resolves from
+  `../vendor`).
 
 ## [0.1.0]
 

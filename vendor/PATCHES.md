@@ -40,3 +40,24 @@ resolves to the parent `aix` repo, so the hash genuinely cannot be build-derived
 **On any engine bump, update the hash/tag in `base/src/constants.rs` (one place)**;
 the version segment updates itself from `base/Cargo.toml`. The base-crate test
 `engine_provenance_tracks_crate_version` pins the exact output.
+
+## 3. Publishable-fork package rename (distribution)
+
+`base/Cargo.toml` and `xlsx/Cargo.toml` `[package] name` were renamed so the fork
+can be published to crates.io without colliding with upstream IronCalc:
+
+| Was | Now (`[package] name`) | `[lib] name` (unchanged) |
+|-----|------------------------|--------------------------|
+| `ironcalc_base` | `xlq-ironcalc-base` | `ironcalc_base` |
+| `ironcalc` | `xlq-ironcalc` | `ironcalc` |
+
+Both crates gained an explicit `[lib] name = …` so the LIBRARY name stays the same
+— all `use ironcalc::…` / `use ironcalc_base::…` and the `ENGINE_PROVENANCE` const
+are unaffected. `xlsx`'s dependency on the base crate now names the renamed package
+(`ironcalc_base = { package = "xlq-ironcalc-base", path = "../base", version = "0.7" }`),
+and `xlq/Cargo.toml` consumes the engine as
+`ironcalc = { package = "xlq-ironcalc", path = "../vendor/upstream/xlsx", version = "=0.7.1" }`
+— the multiple-locations pattern (local `path` for dev, crates.io `version` for a
+published build), which let the old `[patch.crates-io]` section be removed. `authors`
+retain the original IronCalc author (attribution) plus the xlq authors; `repository`
+points at the fork. See `PUBLISHING.md` for the publish sequence.

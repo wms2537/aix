@@ -559,40 +559,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ironcalc"
-version = "0.7.1"
-dependencies = [
- "bitcode",
- "chrono",
- "ironcalc_base",
- "itertools",
- "roxmltree",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "zip 0.6.6",
-]
-
-[[package]]
-name = "ironcalc_base"
-version = "0.7.1"
-dependencies = [
- "bitcode",
- "chrono",
- "chrono-tz",
- "csv",
- "js-sys",
- "rand",
- "regex",
- "regex-lite",
- "roxmltree",
- "ryu",
- "serde",
- "statrs",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1218,13 +1184,47 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
- "ironcalc",
  "libc",
  "quick-xml",
  "serde",
  "serde_json",
  "sha2",
+ "xlq-ironcalc",
  "zip 2.4.2",
+]
+
+[[package]]
+name = "xlq-ironcalc"
+version = "0.7.1"
+dependencies = [
+ "bitcode",
+ "chrono",
+ "itertools",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "xlq-ironcalc-base",
+ "zip 0.6.6",
+]
+
+[[package]]
+name = "xlq-ironcalc-base"
+version = "0.7.1"
+dependencies = [
+ "bitcode",
+ "chrono",
+ "chrono-tz",
+ "csv",
+ "js-sys",
+ "rand",
+ "regex",
+ "regex-lite",
+ "roxmltree",
+ "ryu",
+ "serde",
+ "statrs",
+ "wasm-bindgen",
 ]
 
 [[package]]

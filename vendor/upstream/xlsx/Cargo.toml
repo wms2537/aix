@@ -1,11 +1,14 @@
 [package]
-name = "ironcalc"
+# Renamed for crates.io publication as a vendored, locally-hardened FORK of
+# ironcalc (see vendor/PATCHES.md). The [lib] name below stays `ironcalc` so all
+# `use ironcalc::…` in xlq is unchanged.
+name = "xlq-ironcalc"
 version = "0.7.1"
-authors = ["Nicolás Hatcher <nicolas@theuniverse.today>"]
+authors = ["Nicolás Hatcher <nicolas@theuniverse.today>", "the xlq authors"]
 edition = "2021"
 homepage = "https://www.ironcalc.com"
-repository = "https://github.com/ironcalc/ironcalc/"
-description = "The democratization of spreadsheets"
+repository = "https://github.com/wms2537/aix"
+description = "Vendored, locally-hardened fork of ironcalc (the IronCalc spreadsheet engine) used by xlq"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 
@@ -17,10 +20,11 @@ roxmltree = "0.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
-# Uses `../base` when used locally, and uses
-# the inicated version from crates.io when published.
+# Uses `../base` locally, and the renamed published fork from crates.io when
+# published (multiple-locations pattern). The local package alias stays
+# `ironcalc_base` so this crate's `use ironcalc_base::…` is unchanged.
 # https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#multiple-locations
-ironcalc_base = { path = "../base", version = "0.7" }
+ironcalc_base = { package = "xlq-ironcalc-base", path = "../base", version = "0.7" }
 itertools = "0.12"
 chrono = "0.4"
 bitcode = "0.6.8"
