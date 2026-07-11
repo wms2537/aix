@@ -33,6 +33,16 @@ use quick_xml::writer::Writer;
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Write};
 
+/// Compare an XML element/attribute name to a target LOCAL name, ignoring any
+/// namespace prefix (`x:sheet`/`sheet` both match `b"sheet"`).
+pub(crate) fn local_name_eq(name: &[u8], local: &[u8]) -> bool {
+    let n = match name.iter().rposition(|&b| b == b':') {
+        Some(i) => &name[i + 1..],
+        None => name,
+    };
+    n == local
+}
+
 /// One cell to write into a sheet part. `formula` None = literal value cell;
 /// Some = formula cell whose cached <v> is `value`.
 #[derive(Debug, Clone)]
@@ -217,8 +227,24 @@ pub(crate) fn read_entry_capped<R: Read>(
 pub(crate) fn read_part(input: &[u8], name: &str) -> Result<Vec<u8>> {
     let mut archive =
         zip::ZipArchive::new(Cursor::new(input)).map_err(|e| anyhow!("open workbook zip: {e}"))?;
+    // OPC part names compare CASE-INSENSITIVELY (ECMA-376 Part 2), but zip by_name is
+    // case-sensitive. Prefer an exact hit; otherwise fall back to a case-insensitive
+    // match so a re-cased entry (e.g. Sheet1.XML.rels) cannot hide a part from the
+    // fidelity/residual scans — which would fail OPEN.
+    let resolved = if archive.file_names().any(|n| n == name) {
+        name.to_string()
+    } else {
+        match archive
+            .file_names()
+            .find(|n| n.eq_ignore_ascii_case(name))
+            .map(|n| n.to_string())
+        {
+            Some(n) => n,
+            None => return Err(anyhow!("missing part {name}")),
+        }
+    };
     let file = archive
-        .by_name(name)
+        .by_name(&resolved)
         .map_err(|_| anyhow!("missing part {name}"))?;
     let sz = file.size();
     // Single named part: a fresh per-part budget is correct here.
@@ -297,19 +323,23 @@ pub(crate) fn all_sheets(input: &[u8]) -> Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     loop {
         match reader.read_event_into(&mut buf)? {
-            Event::Empty(e) | Event::Start(e) if e.name().as_ref() == b"sheet" => {
+            // Namespace-aware: match the `sheet` element and the relationship-id
+            // attribute by LOCAL name. The relationships-namespace prefix is arbitrary
+            // (`r:id`, `r2:id`, …), so keying on the literal `r:id` let a prefix rebind
+            // hide a sheet. Local name "id" uniquely identifies the rel id — `sheetId`
+            // has local name "sheetId", not "id".
+            Event::Empty(e) | Event::Start(e) if local_name_eq(e.name().as_ref(), b"sheet") => {
                 let mut nm: Option<String> = None;
                 let mut rid: Option<String> = None;
                 for a in e.attributes().flatten() {
-                    match a.key.as_ref() {
-                        b"name" => {
-                            nm = a
-                                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
-                                .ok()
-                                .map(|c| c.into_owned())
-                        }
-                        b"r:id" => rid = Some(String::from_utf8_lossy(&a.value).into_owned()),
-                        _ => {}
+                    let key = a.key.as_ref();
+                    if local_name_eq(key, b"name") {
+                        nm = a
+                            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                            .ok()
+                            .map(|c| c.into_owned());
+                    } else if local_name_eq(key, b"id") {
+                        rid = Some(String::from_utf8_lossy(&a.value).into_owned());
                     }
                 }
                 if let (Some(n), Some(r)) = (nm, rid) {

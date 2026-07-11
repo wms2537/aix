@@ -31,6 +31,64 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The receipt journal recovers a single crash-torn trailing line and fails loudly
   on interior corruption (previously a torn tail wedged every future write).
 
+### Reference-completeness (fail-closed hardening)
+Adversarial review found the structural edit and `certify` under-covered several
+reference-bearing constructs — leaving a stale reference or falsely certifying a
+foreign edit. The residual scan and `certify`'s compare surface were reworked to be
+**fail-closed by default**: a reference the engine cannot prove it shifts faithfully
+is refused, not committed.
+- **Foreign cross-references now use the shift algebra as the oracle, not a substring
+  scan.** The old gate matched the edited sheet's name by raw, case-sensitive,
+  still-escaped substring, so a foreign sheet's formula referencing the edited sheet
+  via an entity-encoded qualifier (`Data&#33;A5`), a case variant (`SHEET1!`), or a
+  3D span whose first endpoint is the edited sheet (`Sheet1:Sheet3!`) was left
+  **silently unshifted**. Both the shift gate and the cross-reference residual guard
+  now delegate to σ (`shift_formula`), which is case-insensitive, quote/apostrophe- and
+  entity-aware, and 3D-span-correct.
+- A foreign **array formula** (`<f t="array">`) referencing the edited sheet — which
+  the shift path cannot rewrite — is now refused instead of committed stale.
+- The edited sheet's body is scanned fail-closed for coordinate-bearing constructs the
+  engine copies verbatim: `<protectedRange sqref>` (a security reference),
+  `<scenario><inputCells r>`, `<dataConsolidate><dataRef ref>`, `<ignoredError sqref>`,
+  and `<sortState ref>` now refuse rather than leave a stale coordinate.
+- A foreign **shared-formula dependent** can cross the edit boundary even when its
+  master does not; the foreign-sheet gate now runs over shared-*expanded* formulas so
+  every dependent's real reference is shifted.
+- **`<col>` column definitions are now shifted on column edits** (they were copied
+  verbatim, leaving the wrong column hidden/styled), clamped to the last column
+  (XFD/16384), with an emptied `<cols>` container omitted rather than left
+  schema-invalid.
+- **Pivot caches fail closed:** a pivot source other than a `<worksheetSource>` (e.g. a
+  consolidation `<rangeSet ref sheet>`) that names the edited sheet is refused rather
+  than committed with a stale grid range.
+- **`certify`'s part check is now a fail-closed allowlist** (was an enumerated
+  denylist). Any part outside the known-safe/compared set — worksheets, workbook,
+  styles, theme, sharedStrings, calcChain, metadata, media, printer settings, docProps,
+  vbaProject, packaging — is refused, closing the long tail (tables, drawings, comments,
+  form controls, volatile dependencies, query tables, slicer/timeline caches,
+  connections, customXml) in one rule instead of chasing each construct.
+- **`certify` now compares more of each reference's semantics:** a hyperlink's
+  destination (internal `location` and external `r:id`→relationship Target — catching an
+  in-workbook mispoint or a phishing-URL swap), the owning **sheet** of every
+  mergeCell/hyperlink/autoFilter (catching a cross-sheet relocation), and a defined
+  name's **scope** (`localSheetId`, catching a re-scope). A foreign cross-sheet ref/sqref
+  attribute (e.g. a consolidation `<dataRef ref="Sheet!…">`) is likewise refused by the
+  restructure scan.
+- **Namespace-blind parsers fixed.** `certify`'s defined-name comparison and the
+  defined-name/cell collision check used a `<definedName` substring that missed a
+  namespace-prefixed `<x:definedName>` the shifter *does* rewrite (a false
+  certification and a missed collision). Both now use one namespace-aware,
+  entity-resolving parser. `certify`'s sheet-construct scan (x14 conditional
+  formatting, data validation, sparklines), OPC part-name resolution, and worksheet
+  enumeration are likewise matched by local name / case-insensitively so a rebound
+  prefix or re-cased part cannot evade them.
+
+The compare surface certify extracts per worksheet remains an enumerated *semantic*
+surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
+completeness over non-cell references is asserted, not proven — the honesty caveat the
+accompanying paper states in its scope section. The whole-part boundary, however, is now
+fail-closed.
+
 ### Robustness
 - A panic in any command becomes a machine-readable JSON error (exit 70) with a
   path-safe, basename-only source location, instead of a raw multi-line dump.

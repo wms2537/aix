@@ -178,13 +178,15 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        transform — a structural reference was not shifted faithfully",
         }));
     }
-    // fail closed on SHEET-level reference constructs certify does not compare
-    for (needle, label) in [
-        ("<dataValidation", "data_validation"),
-        ("<conditionalFormatting", "conditional_formatting"),
-        ("sparkline", "sparkline"),
-    ] {
-        if sheets_contain(edited, needle) || sheets_contain(expected, needle) {
+    // fail closed on SHEET-level reference constructs certify does not compare.
+    // Namespace-, placement- and path-robust: scans every worksheet part (enumerated
+    // through the workbook relationships, so a sheet at a nonstandard path cannot hide)
+    // for the named constructs by LOCAL element name — catching both the legacy
+    // `<conditionalFormatting>` and the namespaced `<x14:conditionalFormatting>` — plus
+    // a generic catch-all for ANY `<extLst>` carrying references (future x14/x15
+    // extensions: slicers, timelines, sparklines, x14 data validation/CF).
+    for wb in [edited, expected] {
+        if let Some(label) = sheet_unverified_construct(wb) {
             return Some(json!({
                 "status": "REFUSED",
                 "reason": "unverified_reference_part",
@@ -193,79 +195,120 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
             }));
         }
     }
-    // fail closed on whole reference-bearing PARTS certify does not compare
-    for (prefix, label) in [
-        ("xl/charts/", "chart"),
-        ("xl/pivotTables/", "pivot_table"),
-        ("xl/pivotCache/", "pivot_cache"),
-        ("xl/externalLinks/", "external_link"),
-    ] {
-        let present = |b: &[u8]| {
-            structural::archive_names(b)
-                .map(|ns| ns.iter().any(|n| n.starts_with(prefix)))
-                .unwrap_or(false)
+    // Fail-closed ALLOWLIST over PARTS. certify positionally compares only worksheet cells
+    // (diff::snapshot), defined names, and the mergeCell/hyperlink/autoFilter refs above.
+    // Any OTHER part can carry a cell reference that comparison never sees — charts,
+    // drawings, tables, pivots, external links, comments, form controls, but also the
+    // long tail (volatileDependencies, queryTables, metadata/richData, slicerCaches,
+    // timelineCaches, connections, customXml, …). Rather than enumerate that open-ended
+    // DENYLIST (its incompleteness was a real false-certification), we enumerate the
+    // KNOWN-SAFE set — parts certify compares, or that carry no shiftable coordinate — and
+    // refuse everything else. A foreign tool that mangles or drops a reference-bearing part
+    // while shifting cells can no longer be certified.
+    for wb in [edited, expected] {
+        let Ok(names) = structural::archive_names(wb) else {
+            continue;
         };
-        if present(edited) || present(expected) {
-            return Some(json!({
-                "status": "REFUSED",
-                "reason": "unverified_reference_part",
-                "detail": format!("{label} references are not compared — refused (fail-closed; \
-                                   outside the verified surface)"),
-            }));
+        let sheet_parts: BTreeSet<String> = crate::ooxml::all_sheets(wb)
+            .map(|v| v.into_iter().map(|(_, p)| p).collect())
+            .unwrap_or_default();
+        for n in &names {
+            if !part_is_certify_safe(n, &sheet_parts) {
+                return Some(json!({
+                    "status": "REFUSED",
+                    "reason": "unverified_reference_part",
+                    "detail": format!("part `{n}` is outside certify's verified/known-safe \
+                                       surface — it may carry a reference the cell diff does not \
+                                       compare; refused (fail-closed)"),
+                }));
+            }
         }
     }
     None
 }
 
-/// (name, refers-to) for every defined name in workbook.xml, sorted.
-fn defined_names(bytes: &[u8]) -> Vec<(String, String)> {
+/// Is `name` a part certify either COMPARES or that provably carries no shiftable cell
+/// coordinate? Everything else is refused (fail-closed allowlist). OPC part names are
+/// case-insensitive, so the match is case-folded.
+fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
+    // Worksheet parts (resolved through the workbook rels — covers nonstandard paths) are
+    // compared cell-by-cell plus the sheet-construct scan.
+    if sheet_parts.contains(name) {
+        return true;
+    }
+    let low = name.to_ascii_lowercase();
+    // Zip directory entries are not parts.
+    if low.ends_with('/') {
+        return true;
+    }
+    low == "[content_types].xml"
+        || low.ends_with(".rels")                    // packaging relationships
+        || (low.starts_with("xl/worksheets/") && low.ends_with(".xml")) // worksheets (fallback if rels unreadable)
+        || low == "xl/workbook.xml"                  // compared (defined names, sheets)
+        || low == "xl/sharedstrings.xml"             // string pool (compared via cells)
+        || low == "xl/styles.xml"                    // number formats (format diffs are benign)
+        || low == "xl/calcchain.xml"                 // rebuildable calc order, no semantic ref
+        || low == "xl/metadata.xml"                  // dynamic-array/rich-value metadata: index-
+                                                     // linked to cells (cm/vm), no shiftable coord
+        || low.starts_with("xl/theme/")              // colors/fonts
+        || low.starts_with("docprops/")              // document metadata
+        || low.starts_with("xl/media/")              // embedded images
+        || low.starts_with("xl/printersettings/")    // opaque binary print settings
+        || low.starts_with("xl/vbaproject") // macro binary (code, not a shiftable ref)
+}
+
+/// (name, refers-to) for every defined name in workbook.xml, sorted. Delegates to the
+/// shared namespace-aware, entity-resolving parser so it sees exactly what the shifter
+/// rewrites — a prefixed `<x:definedName>` included. A raw-substring scan (the old code)
+/// was blind to the prefixed form, so a foreign edit that left a prefixed defined name
+/// stale compared equal to xlq's shifted transform — a false certification.
+fn defined_names(bytes: &[u8]) -> Vec<(String, String, String)> {
     let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") else {
         return Vec::new();
     };
-    let text = String::from_utf8_lossy(&wb);
-    let mut out = Vec::new();
-    let mut rest: &str = &text;
-    while let Some(p) = rest.find("<definedName") {
-        rest = &rest[p..];
-        let Some(gt) = rest.find('>') else { break };
-        let tag = &rest[..gt];
-        let name = attr(tag, "name").unwrap_or_default();
-        let after = &rest[gt + 1..];
-        let refers = after
-            .find("</definedName>")
-            .map(|e| &after[..e])
-            .unwrap_or("");
-        out.push((name, refers.to_string()));
-        rest = after;
-    }
-    out.sort();
-    out
+    structural::defined_names(&wb)
 }
 
-/// (element, ref) for every mergeCell/hyperlink/autoFilter across all sheets, sorted
-/// — the semantic structural references the transform shifts. Part names are excluded
-/// (robust to a foreign tool renumbering sheet parts); the multiset is compared.
-fn structural_ref_attrs(bytes: &[u8]) -> Vec<(String, String)> {
-    let Ok(names) = structural::archive_names(bytes) else {
+/// (sheet-name, element, ref) for every mergeCell/hyperlink/autoFilter, sorted — the
+/// semantic structural references the transform shifts. The owning sheet's NAME is part
+/// of the key (resolved via the workbook relationships, robust to a foreign tool
+/// renumbering sheet PARTS) so that RELOCATING a reference to a different sheet — which
+/// leaves the cross-sheet multiset unchanged — is still detected as a divergence.
+fn structural_ref_attrs(bytes: &[u8]) -> Vec<(String, String, String)> {
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
         return Vec::new();
     };
     let mut out = Vec::new();
-    for n in names {
-        if !(n.starts_with("xl/worksheets/sheet") && n.ends_with(".xml")) {
-            continue;
-        }
-        let Ok(part) = crate::ooxml::read_part(bytes, &n) else {
+    for (sheet_name, part_path) in sheets {
+        let Ok(part) = crate::ooxml::read_part(bytes, &part_path) else {
             continue;
         };
         let text = String::from_utf8_lossy(&part);
+        // Per-sheet relationship targets, to resolve an external hyperlink's r:id -> URL.
+        let rels = rels_targets(bytes, &part_path);
         for elem in ["mergeCell", "hyperlink", "autoFilter"] {
             let open = format!("<{elem}");
             let mut rest: &str = &text;
             while let Some(p) = rest.find(&open) {
                 rest = &rest[p..];
                 let Some(gt) = rest.find('>') else { break };
-                if let Some(r) = attr(&rest[..gt], "ref") {
-                    out.push((elem.to_string(), r));
+                let tag = &rest[..gt];
+                if let Some(r) = attr(tag, "ref") {
+                    // For a hyperlink, the DESTINATION is also part of the semantic identity
+                    // and is preserved verbatim by xlq's transform: the internal `location`
+                    // (in-workbook jump) and the external `r:id` -> rels Target (the URL). A
+                    // foreign edit that retargets either — an internal mispoint or a phishing
+                    // URL swap — would otherwise leave (sheet, elem, ref) unchanged and certify.
+                    let key = if elem == "hyperlink" {
+                        let location = attr(tag, "location").unwrap_or_default();
+                        let target = attr(tag, "r:id")
+                            .and_then(|id| rels.get(&id).cloned())
+                            .unwrap_or_default();
+                        format!("ref={r}|loc={location}|tgt={target}")
+                    } else {
+                        format!("ref={r}")
+                    };
+                    out.push((sheet_name.clone(), elem.to_string(), key));
                 }
                 rest = &rest[gt..];
             }
@@ -273,6 +316,31 @@ fn structural_ref_attrs(bytes: &[u8]) -> Vec<(String, String)> {
     }
     out.sort();
     out
+}
+
+/// (relationship-Id -> Target) for the relationships part of `sheet_part`. Used to resolve
+/// an external hyperlink's `r:id` to its URL so a foreign Target repoint is detected.
+fn rels_targets(bytes: &[u8], sheet_part: &str) -> std::collections::BTreeMap<String, String> {
+    let mut map = std::collections::BTreeMap::new();
+    let Some((dir, file)) = sheet_part.rsplit_once('/') else {
+        return map;
+    };
+    let rels_part = format!("{dir}/_rels/{file}.rels");
+    let Ok(part) = crate::ooxml::read_part(bytes, &rels_part) else {
+        return map;
+    };
+    let text = String::from_utf8_lossy(&part);
+    let mut rest: &str = &text;
+    while let Some(p) = rest.find("<Relationship ") {
+        rest = &rest[p..];
+        let Some(gt) = rest.find('>') else { break };
+        let tag = &rest[..gt];
+        if let (Some(id), Some(target)) = (attr(tag, "Id"), attr(tag, "Target")) {
+            map.insert(id, target);
+        }
+        rest = &rest[gt..];
+    }
+    map
 }
 
 /// Value of attribute `key` in a start tag (quote-agnostic).
@@ -288,21 +356,52 @@ fn attr(tag: &str, key: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// True if any worksheet part contains `needle`.
-fn sheets_contain(bytes: &[u8], needle: &str) -> bool {
-    let Ok(names) = structural::archive_names(bytes) else {
-        return false;
+/// Fail-closed scan of every worksheet part for a reference-bearing construct certify
+/// does not compare cell-by-cell. Returns the label of the first one found, else None.
+///
+/// Worksheet parts are enumerated through the workbook relationships (`ooxml::all_sheets`),
+/// not the `xl/worksheets/sheetN.xml` path heuristic, so a sheet at a nonstandard path
+/// cannot hide a construct. Detection is by LOCAL element name (prefix-insensitive), so a
+/// rebound namespace prefix cannot either. Two layers:
+///
+/// 1. named constructs — legacy `<conditionalFormatting>`/`<dataValidation>` AND their
+///    namespaced x14 twins (`<x14:conditionalFormatting>`), plus sparklines;
+/// 2. a generic catch-all — any `<extLst>` subtree carrying a formula (`f`) or range
+///    (`sqref`), which is how every current and future x14/x15 reference extension
+///    (slicers, timelines, x14 data validation/CF, sparklines) embeds its references.
+///
+/// An UNREADABLE sheet part fails closed (treated as carrying an unverified construct).
+fn sheet_unverified_construct(bytes: &[u8]) -> Option<&'static str> {
+    let parts: Vec<String> = match crate::ooxml::all_sheets(bytes) {
+        Ok(s) => s.into_iter().map(|(_, part)| part).collect(),
+        // Workbook rels unreadable: certify's own transform load fails earlier and
+        // refuses; nothing to add here.
+        Err(_) => return None,
     };
-    for n in names {
-        if n.starts_with("xl/worksheets/sheet") && n.ends_with(".xml") {
-            if let Ok(part) = crate::ooxml::read_part(bytes, &n) {
-                if String::from_utf8_lossy(&part).contains(needle) {
-                    return true;
-                }
+    for part in parts {
+        let Ok(xml) = crate::ooxml::read_part(bytes, &part) else {
+            return Some("unreadable_sheet_part");
+        };
+        for (locals, label) in [
+            (&[b"dataValidation".as_slice()][..], "data_validation"),
+            (
+                &[b"conditionalFormatting".as_slice()][..],
+                "conditional_formatting",
+            ),
+            (
+                &[b"sparklineGroup".as_slice(), b"sparkline".as_slice()][..],
+                "sparkline",
+            ),
+        ] {
+            if structural::xml_has_local_element(&xml, locals, true) {
+                return Some(label);
             }
         }
+        if structural::sheet_extlst_has_references(&xml) {
+            return Some("extension_reference");
+        }
     }
-    false
+    None
 }
 
 #[derive(Default)]
@@ -383,4 +482,144 @@ fn load_from_bytes(bytes: &[u8], near: &str) -> Result<ironcalc::base::Model<'st
     let loaded = ironcalc::import::load_from_xlsx(&tmp_str, "en", "UTC", "en");
     let _ = std::fs::remove_file(&tmp);
     loaded.map_err(|e| anyhow!("{e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Cursor, Write};
+
+    /// Minimal 2-sheet workbook. `sheet2_extra` is appended inside Sheet2's
+    /// `<worksheet>` (before `</worksheet>`); `extra_parts` adds arbitrary parts.
+    fn wb(sheet2_extra: &str, extra_parts: &[(&str, &str)]) -> Vec<u8> {
+        let ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        let pkg = "http://schemas.openxmlformats.org/package/2006/relationships";
+        let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let o = zip::write::SimpleFileOptions::default();
+        let mut put = |name: &str, body: &str| {
+            z.start_file(name, o).unwrap();
+            z.write_all(body.as_bytes()).unwrap();
+        };
+        put(
+            "[Content_Types].xml",
+            r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>"#,
+        );
+        put(
+            "_rels/.rels",
+            &format!(
+                r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/officeDocument" Target="xl/workbook.xml"/></Relationships>"#
+            ),
+        );
+        put(
+            "xl/workbook.xml",
+            &format!(
+                r#"<?xml version="1.0"?><workbook xmlns="{ns}" xmlns:r="{r}"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/><sheet name="Sheet2" sheetId="2" r:id="rId2"/></sheets></workbook>"#
+            ),
+        );
+        put(
+            "xl/_rels/workbook.xml.rels",
+            &format!(
+                r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="{r}/worksheet" Target="worksheets/sheet2.xml"/></Relationships>"#
+            ),
+        );
+        put(
+            "xl/worksheets/sheet1.xml",
+            &format!(
+                r#"<?xml version="1.0"?><worksheet xmlns="{ns}"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>"#
+            ),
+        );
+        put(
+            "xl/worksheets/sheet2.xml",
+            &format!(
+                r#"<?xml version="1.0"?><worksheet xmlns="{ns}"><sheetData/>{sheet2_extra}</worksheet>"#
+            ),
+        );
+        for (n, b) in extra_parts {
+            put(n, b);
+        }
+        z.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn namespaced_x14_conditional_formatting_is_caught() {
+        // The old substring `<conditionalFormatting` MISSED `<x14:conditionalFormatting>`,
+        // so certify would bless a foreign edit that silently corrupted an x14 CF rule.
+        // Placed on Sheet2 (not the edited sheet) so xlq's own transform is clean and the
+        // NON-CELL gate is the only line of defence.
+        let x14 = r#"<extLst><ext uri="{x}"><x14:conditionalFormatting xmlns:x14="urn:x14"><x14:cfRule type="expression" id="{1}"><xm:f xmlns:xm="urn:xm">$D$1&gt;0</xm:f></x14:cfRule><xm:sqref xmlns:xm="urn:xm">D1:D5</xm:sqref></x14:conditionalFormatting></ext></extLst>"#;
+        let bytes = wb(x14, &[]);
+        assert_eq!(
+            sheet_unverified_construct(&bytes),
+            Some("conditional_formatting"),
+            "namespaced x14 conditional formatting must be caught by the local-name scan"
+        );
+    }
+
+    #[test]
+    fn nonchart_drawing_part_is_refused_by_verify_noncell_refs() {
+        // A drawing part carries cell-anchored geometry certify does not compare.
+        let bytes = wb(
+            "",
+            &[(
+                "xl/drawings/drawing1.xml",
+                r#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:row>1</xdr:row></xdr:from></xdr:oneCellAnchor></xdr:wsDr>"#,
+            )],
+        );
+        let refusal = verify_noncell_refs(&bytes, &bytes).expect("drawing must refuse");
+        assert_eq!(refusal["status"], "REFUSED");
+        assert_eq!(refusal["reason"], "unverified_reference_part");
+    }
+
+    #[test]
+    fn table_part_is_refused_by_verify_noncell_refs() {
+        // A table part carries `ref` + value-bearing `calculatedColumnFormula` certify does
+        // not positionally compare — a foreign tool that drops/mangles it while shifting
+        // cells must not be certified.
+        let bytes = wb(
+            "",
+            &[(
+                "xl/tables/table1.xml",
+                r#"<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="T1" displayName="T1" ref="A1:B2"><tableColumns count="1"><tableColumn id="1" name="A"/></tableColumns></table>"#,
+            )],
+        );
+        let refusal = verify_noncell_refs(&bytes, &bytes).expect("table must refuse");
+        assert_eq!(refusal["status"], "REFUSED");
+        assert_eq!(refusal["reason"], "unverified_reference_part");
+    }
+
+    #[test]
+    fn structural_ref_attrs_captures_hyperlink_destination() {
+        // The hyperlink's DESTINATION (internal location + external r:id->Target) must be in
+        // the comparison key, so a foreign retarget (mispoint / phishing URL) is caught.
+        let bytes = wb(
+            r#"<hyperlinks><hyperlink ref="A1" location="Sheet2!C3"/><hyperlink xmlns:r="urn:r" ref="A2" r:id="rIdH"/></hyperlinks>"#,
+            &[(
+                "xl/worksheets/_rels/sheet2.xml.rels",
+                r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdH" Type="x/hyperlink" Target="https://good.example.com/safe" TargetMode="External"/></Relationships>"#,
+            )],
+        );
+        let keys: Vec<String> = structural_ref_attrs(&bytes)
+            .into_iter()
+            .filter(|(_, e, _)| e == "hyperlink")
+            .map(|(_, _, k)| k)
+            .collect();
+        assert!(
+            keys.iter().any(|k| k.contains("loc=Sheet2!C3")),
+            "internal location captured: {keys:?}"
+        );
+        assert!(
+            keys.iter()
+                .any(|k| k.contains("tgt=https://good.example.com/safe")),
+            "external target captured: {keys:?}"
+        );
+    }
+
+    #[test]
+    fn a_plain_two_sheet_workbook_has_no_unverified_construct() {
+        // Guard against over-refusal: a workbook with no ref-bearing constructs passes.
+        let bytes = wb("", &[]);
+        assert_eq!(sheet_unverified_construct(&bytes), None);
+        assert!(verify_noncell_refs(&bytes, &bytes).is_none());
+    }
 }

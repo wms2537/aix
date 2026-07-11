@@ -22,7 +22,7 @@ use anyhow::{anyhow, Result};
 use quick_xml::events::{BytesRef, BytesStart, BytesText, Event};
 use quick_xml::reader::Reader;
 use quick_xml::writer::Writer;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Cursor, Write};
 
 #[derive(Debug, Default, Clone)]
@@ -74,7 +74,13 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
     // (b) A 3D span not anchored on the edited sheet may cover it as an interior
     //     tab, which we cannot verify. Both are reported as residuals so the
     //     command layer declines the edit — preserving "never silently wrong".
-    scan_extra_residuals(&archive_names(input)?, input, edit, &mut report);
+    scan_extra_residuals(
+        &archive_names(input)?,
+        input,
+        edit,
+        &edited_part,
+        &mut report,
+    );
 
     // One decompression budget across the whole workbook. The declared
     // uncompressed size is attacker-controlled; read_entry_capped bounds BOTH the
@@ -114,11 +120,19 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
             bytes = rewrite_edited_sheet(&expanded, edit, &name, &mut report)?;
         } else if name.starts_with("xl/worksheets/sheet") && name.ends_with(".xml") {
             // Only touch a foreign sheet if it cross-references the edited sheet.
-            // Sheets that do not are byte-identical — and a shared formula there
-            // must NOT trigger a spurious refusal.
-            if references_sheet(&bytes, &edit.sheet) {
+            // Sheets that do not stay byte-identical (unexpanded) — a shared formula
+            // there must NOT trigger a spurious change.
+            //
+            // Expand shared formulas BEFORE the gate: a shared-formula DEPENDENT carries
+            // its own position-offset reference, so its cross-reference to the edited sheet
+            // can cross the edit boundary even when the MASTER body does not. Gating on the
+            // master body alone would leave those dependents silently stale. Over the
+            // EXPLICIT (expanded) formulas the σ oracle sees each dependent's real
+            // reference. The gate is the sound σ oracle (not a substring scan), so an
+            // entity/case/3D-span-encoded cross-ref cannot slip past either.
+            let expanded = expand_shared_in_sheet(&bytes)?;
+            if foreign_sheet_needs_shift(&expanded, edit) {
                 let host = part_sheet.get(&name).cloned().unwrap_or_default();
-                let expanded = expand_shared_in_sheet(&bytes)?;
                 let (out, n, r, qrisk) = shift_text_in_element(&expanded, b"f", edit, &host)?;
                 bytes = out;
                 report.refs_shifted += n;
@@ -164,10 +178,20 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
         } else if (name.starts_with("xl/pivotCache/") || name.starts_with("xl/pivotTables/"))
             && name.ends_with(".xml")
         {
-            let (out, n, r) = rewrite_pivot(&bytes, edit)?;
+            let (out, n, r, unhandled) = rewrite_pivot(&bytes, edit)?;
             bytes = out;
             report.refs_shifted += n;
             report.ref_errors += r;
+            if unhandled {
+                report.residuals.push(Residual {
+                    part: name.clone(),
+                    reason: "pivot_source_unsupported".into(),
+                    detail: "a pivot cache source other than a worksheetSource (e.g. a \
+                             consolidation rangeSet) references the edited sheet; its grid range \
+                             is not shifted — edit refused (fail-closed)"
+                        .into(),
+                });
+            }
         }
         let touched = name != edited_part && bytes != before;
         if touched {
@@ -221,6 +245,24 @@ fn parse_cell_rc(r: &str) -> Option<(u32, u32)> {
     let col = refshift::col_to_num(&r[..i])?;
     let row: u32 = r[i..].parse().ok()?;
     Some((col, row))
+}
+
+/// True if `v` is (or contains) a worksheet coordinate: a single cell, a colon range,
+/// or a sheet-qualified reference — tolerant of `$` anchors. Used to decide whether an
+/// element's `r` attribute is a real cell reference the shift engine would need to move.
+/// Broader than `parse_cell_rc` on purpose (fail-closed): `$A$8`, `A8:B9`, `Sheet2!A8`.
+fn looks_like_cell_or_range(v: &str) -> bool {
+    let v = v.trim();
+    if v.is_empty() {
+        return false;
+    }
+    // A sheet qualifier makes it a reference regardless of the endpoint spelling.
+    if v.contains('!') {
+        return true;
+    }
+    // Otherwise every colon-separated endpoint (with `$` anchors stripped) must be a cell.
+    v.split(':')
+        .all(|part| parse_cell_rc(&part.replace('$', "")).is_some())
 }
 
 /// Materialize shared-formula groups into explicit per-cell formulas so σ can
@@ -338,11 +380,60 @@ fn expand_shared_in_sheet(src: &[u8]) -> Result<Vec<u8>> {
     Ok(writer.into_inner().into_inner())
 }
 
-/// Does this part reference `sheet` by a qualified reference (`Sheet!` or
-/// `'Sheet'!`)? Used to decide whether a foreign sheet needs σ at all.
-fn references_sheet(bytes: &[u8], sheet: &str) -> bool {
-    let text = String::from_utf8_lossy(bytes);
-    text.contains(&format!("{}!", sheet)) || text.contains(&format!("'{}'!", sheet))
+/// True if the proven shift algebra σ would CHANGE `logical` for this edit — i.e. the
+/// formula carries a reference qualified to the edited sheet that this edit moves.
+///
+/// This is the sound oracle that replaces every substring "does it name the edited
+/// sheet?" test: it delegates ALL sheet-name precision to σ itself — case-insensitivity
+/// (`eq_sheet`), quoted/apostrophe-escaped names, and 3D-span endpoints (`Sheet1:Sheet3!`)
+/// — so no substring/case/entity/span evasion is possible. A raw substring pre-filter over
+/// still-escaped XML is unsound for a "never silently wrong" guarantee.
+///
+/// The host is a phantom sheet name (a NUL, which no real sheet name can be), so an
+/// UNqualified reference — which belongs to the formula's own foreign sheet, never the
+/// edited one — is never spuriously counted; only a reference explicitly qualified to the
+/// edited sheet does.
+fn formula_would_shift(logical: &str, edit: &StructuralEdit) -> bool {
+    let (shifted, _n) = refshift::shift_formula(logical, "\u{0}", edit);
+    shifted != logical
+}
+
+/// Sound replacement for the old substring `references_sheet` gate: does any `<f>` body in
+/// this foreign worksheet carry a reference σ would actually shift for THIS edit? Each body
+/// is reassembled across Text + `GeneralRef` (resolving XML entities via `logical_formula`)
+/// before the σ oracle runs, so an entity-encoded qualifier (`Data&#33;A5`), a case variant
+/// (`SHEET1!`), or a 3D span whose first endpoint is the edited sheet (`Sheet1:Sheet3!`) can
+/// no longer hide a live cross-reference. Fail closed on a parse error.
+fn foreign_sheet_needs_shift(bytes: &[u8], edit: &StructuralEdit) -> bool {
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut in_f = false;
+    let mut raw = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
+                in_f = true;
+                raw.clear();
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
+                if in_f {
+                    match logical_formula(&raw) {
+                        Some(logical) if formula_would_shift(&logical, edit) => return true,
+                        _ => {}
+                    }
+                    in_f = false;
+                }
+            }
+            Ok(Event::Text(t)) if in_f => push_text_raw(&mut raw, &t),
+            Ok(Event::GeneralRef(r)) if in_f => push_ref_raw(&mut raw, &r),
+            Ok(Event::Eof) => return false,
+            // Unparseable: fail closed by attempting the shift (which is itself fail-closed).
+            Err(_) => return true,
+            _ => {}
+        }
+        buf.clear();
+    }
 }
 
 fn cell_pos(e: &BytesStart) -> Option<(u32, u32)> {
@@ -355,6 +446,11 @@ fn is_shared_f(e: &BytesStart) -> bool {
     e.attributes()
         .flatten()
         .any(|a| a.key.as_ref() == b"t" && a.value.as_ref() == b"shared")
+}
+fn is_array_f(e: &BytesStart) -> bool {
+    e.attributes()
+        .flatten()
+        .any(|a| a.key.as_ref() == b"t" && a.value.as_ref() == b"array")
 }
 fn has_ref_f(e: &BytesStart) -> bool {
     e.attributes().flatten().any(|a| a.key.as_ref() == b"ref")
@@ -397,21 +493,659 @@ pub(crate) fn archive_names(input: &[u8]) -> Result<Vec<String>> {
 /// Populate residuals for constructs the current implementation cannot safely
 /// shift: table parts (unsupported extent/structured refs) and 3D spans not
 /// anchored on the edited sheet (interior-tab shift is unverifiable).
+/// Value of `name="…"` (or `'…'`) in a raw XML tag fragment.
+/// Resolve an OOXML relationship `Target` against the directory of the part that
+/// declares it: base `xl/worksheets` + `../tables/table1.xml` -> `xl/tables/table1.xml`.
+/// A leading `/` means package-rooted.
+fn resolve_rel_target(base_dir: &str, target: &str) -> Option<String> {
+    if let Some(abs) = target.strip_prefix('/') {
+        return Some(abs.to_string());
+    }
+    let mut segs: Vec<&str> = base_dir.split('/').filter(|s| !s.is_empty()).collect();
+    for part in target.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                segs.pop()?;
+            }
+            s => segs.push(s),
+        }
+    }
+    Some(segs.join("/"))
+}
+
+/// A start-tag attribute value matched by LOCAL name (namespace-prefix-insensitive),
+/// with XML entities resolved — a raw read would let `location="Sheet1&#33;A11"`
+/// (`!` written as `&#33;`) evade a `!`/name scan.
+fn attr_by_local(e: &BytesStart, local: &[u8]) -> Option<String> {
+    e.attributes()
+        .flatten()
+        .find(|a| tag_local_eq(a.key.as_ref(), local))
+        .map(|a| {
+            a.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .map(|c| c.into_owned())
+                .unwrap_or_else(|_| String::from_utf8_lossy(&a.value).into_owned())
+        })
+}
+
+/// Whether any element in `xml` has the given LOCAL name (namespace-prefix- and
+/// encoding-insensitive — a substring scan would miss `<x:tableParts>` etc.).
+/// `unreadable` is returned when the part cannot be parsed (fail-closed callers).
+pub(crate) fn xml_has_local_element(xml: &[u8], locals: &[&[u8]], unreadable: bool) -> bool {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                if locals.iter().any(|l| tag_local_eq(e.name().as_ref(), l)) {
+                    return true;
+                }
+            }
+            Ok(Event::Eof) => return false,
+            Err(_) => return unreadable,
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
+/// Table part paths declared by one `.rels` part, resolved against the directory of
+/// the part that OWNS those relationships. Namespace-aware: matches the `Relationship`
+/// element by local name and reads `Type`/`Target` by local name, so a prefixed
+/// `<pr:Relationship>` cannot slip a table past the scan.
+fn table_targets_in_rels(input: &[u8], rels_part: &str) -> Vec<String> {
+    let base_dir = match rels_part.split_once("/_rels/") {
+        Some((d, _)) => d,
+        None => return Vec::new(),
+    };
+    let bytes = match crate::ooxml::read_part(input, rels_part) {
+        Ok(b) => b,
+        Err(_) => return Vec::new(), // no rels part => nothing declared here
+    };
+    let mut reader = Reader::from_reader(bytes.as_slice());
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if tag_local_eq(e.name().as_ref(), b"Relationship") =>
+            {
+                let is_table = attr_by_local(&e, b"Type")
+                    .map(|t| t.ends_with("/table"))
+                    .unwrap_or(false);
+                if is_table {
+                    if let Some(t) = attr_by_local(&e, b"Target") {
+                        if let Some(p) = resolve_rel_target(base_dir, &t) {
+                            out.push(p);
+                        }
+                    }
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
+/// Zip part paths of the structured tables attached to `sheet_part`. Only these
+/// tables have an extent expressed in the EDITED sheet's coordinates.
+fn tables_attached_to(input: &[u8], sheet_part: &str) -> Vec<String> {
+    let (dir, file) = match sheet_part.rsplit_once('/') {
+        Some(x) => x,
+        None => return Vec::new(),
+    };
+    table_targets_in_rels(input, &format!("{dir}/_rels/{file}.rels"))
+}
+
+/// The sheet-qualifier of a hyperlink `location` (`Sheet1!A11` -> `Sheet1`,
+/// `'My Sheet'!A1` -> `My Sheet`), or None for a bare local ref (`A11`).
+fn location_sheet(location: &str) -> Option<String> {
+    let (qual, _cell) = location.rsplit_once('!')?;
+    let q = qual.trim();
+    let q = q
+        .strip_prefix('\'')
+        .and_then(|s| s.strip_suffix('\''))
+        .unwrap_or(q);
+    Some(q.replace("''", "'"))
+}
+
+/// The edited sheet's coordinate-bearing ATTACHMENTS (drawings, comments, pivot
+/// tables, form controls, …) live in that sheet's coordinates but are copied
+/// byte-for-byte — never shifted. Only coordinate-free attachments (external-URL
+/// hyperlinks, printer settings) and tables (handled by the dedicated table guard)
+/// are safe. Fail-closed WHITELIST: returns the Type of the first attachment that is
+/// NOT safe, so an unrecognized (future) attachment type refuses by default rather
+/// than being silently left stale. `None` = every attachment is safe.
+fn edited_sheet_bad_attachment(input: &[u8], sheet_part: &str) -> Option<String> {
+    const SAFE: &[&str] = &["/hyperlink", "/printerSettings", "/table"];
+    let (dir, file) = sheet_part.rsplit_once('/')?;
+    let rels_part = format!("{dir}/_rels/{file}.rels");
+    let bytes = crate::ooxml::read_part(input, &rels_part).ok()?;
+    let mut reader = Reader::from_reader(bytes.as_slice());
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if tag_local_eq(e.name().as_ref(), b"Relationship") =>
+            {
+                if let Some(ty) = attr_by_local(&e, b"Type") {
+                    if !SAFE.iter().any(|s| ty.ends_with(s)) {
+                        // Report the trailing path segment of the type as a label.
+                        return Some(ty.rsplit('/').next().unwrap_or(&ty).to_string());
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            // A present-but-unparseable rels part fails CLOSED: we cannot enumerate
+            // its relationships, so we cannot prove there is no unshiftable attachment.
+            Err(_) => return Some("unparseable_rels".into()),
+            _ => {}
+        }
+        buf.clear();
+    }
+    None
+}
+
+/// True if a worksheet carries value-bearing EXTENSION content inside `<extLst>` —
+/// x14 conditional formatting (`<xm:f>`/`<xm:sqref>`) or sparklines — which the base
+/// reference-shift never processes. Detected by an element with local name `f`,
+/// `sqref`, `sparkline`, or `sparklineGroup` nested inside an `extLst` subtree
+/// (namespace-prefix-agnostic; scoped to extLst so it never matches ordinary `<f>`).
+pub(crate) fn sheet_extlst_has_references(xml: &[u8]) -> bool {
+    // A reference-bearing extension element, by local name (prefix-agnostic).
+    let is_ref = |n: &[u8]| {
+        tag_local_eq(n, b"f")
+            || tag_local_eq(n, b"sqref")
+            || tag_local_eq(n, b"sparkline")
+            || tag_local_eq(n, b"sparklineGroup")
+    };
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut ext_depth = 0u32;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            // Start and Empty must recognize the SAME element set, else a self-closing
+            // `<x14:sparklineGroup/>` would slip past.
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"extLst") => {
+                ext_depth += 1;
+            }
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if ext_depth > 0 && is_ref(e.name().as_ref()) =>
+            {
+                return true;
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"extLst") => {
+                ext_depth = ext_depth.saturating_sub(1);
+            }
+            Ok(Event::Eof) => return false,
+            Err(_) => return true, // unparseable -> fail closed
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
+/// Fail-closed scan of the EDITED worksheet body for a coordinate-bearing construct the
+/// shift engine copies verbatim instead of shifting. `transform_tag` shifts `ref`/`sqref`
+/// only for the `has_ref_attr` set (mergeCell/hyperlink/CF/DV/dimension/selection/pane/
+/// autoFilter) and shifts `r` only on cells — every OTHER element on the edited sheet that
+/// carries a `ref`/`sqref`, or a cell-shaped `r`, is emitted STALE. That covers, among
+/// others: `<protectedRange sqref>` (which cells are locked — a SECURITY reference),
+/// `<scenario><inputCells r>` (Scenario Manager's write target), `<dataConsolidate><dataRef
+/// ref>`, `<ignoredError sqref>`, and `<sortState ref>` (an autoFilter's applied-sort
+/// extent). Per the fail-closed-by-default whitelist we refuse rather than commit any of
+/// them stale. Returns the offending element's local name, else `None`. Fail-closed on a
+/// parse error. (Cells/rows are handled by the row/cell path; formula tags by the formula
+/// path; pure view-state `pane topLeftCell`/`selection activeCell`/`sheetView topLeftCell`
+/// carries no `ref`/`sqref` and no `r`, so it is correctly not flagged.)
+fn edited_sheet_body_unshifted_ref(xml: &[u8]) -> Option<String> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    loop {
+        let ev = reader.read_event_into(&mut buf);
+        match ev {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let name = e.name();
+                let full = name.as_ref();
+                let local = local_of(full);
+                // Handled elsewhere: cells/rows (row/cell path), formulas (formula path).
+                if local == b"c" || local == b"row" || is_formula_tag(full) {
+                    buf.clear();
+                    continue;
+                }
+                // `ref`/`sqref` is shifted ONLY for the has_ref_attr elements; on anything
+                // else (or a namespace-prefixed variant the engine does not recognize) it is
+                // left stale.
+                let has_ref_or_sqref = e.attributes().flatten().any(|a| {
+                    let k = local_of(a.key.as_ref());
+                    k == b"ref" || k == b"sqref"
+                });
+                if has_ref_or_sqref && !has_ref_attr(full) {
+                    return Some(String::from_utf8_lossy(local).into_owned());
+                }
+                // A cell/range-shaped `r` on a NON-cell element (e.g. `<inputCells r>`,
+                // `<cellWatch r>`) is never shifted — only `<c r>` is. Tolerant of `$`
+                // anchors and ranges so `$A$8` / `A8:B9` cannot slip through.
+                let cell_shaped_r = e.attributes().flatten().any(|a| {
+                    local_of(a.key.as_ref()) == b"r"
+                        && looks_like_cell_or_range(&String::from_utf8_lossy(&a.value))
+                });
+                if cell_shaped_r {
+                    return Some(String::from_utf8_lossy(local).into_owned());
+                }
+            }
+            Ok(Event::Eof) => return None,
+            Err(_) => return Some("unparseable_sheet".into()),
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
+/// True if a FOREIGN worksheet carries a reference to the edited sheet in a body the
+/// foreign-sheet shift path does NOT rewrite, and that this edit would move. The shift
+/// path rewrites only PLAIN `<f>` cell-formula text (shared formulas are expanded to
+/// plain `<f>` first); it does not touch:
+///   - a `<formula>`/`<formula1>`/`<formula2>` body (conditional formatting / data
+///     validation),
+///   - an `<extLst>` formula (x14 CF/DV, sparklines),
+///   - an ARRAY `<f>` (`t="array"`) — `shift_text_in_element` skips these, so an array
+///     formula's cross-reference is left stale.
+///
+/// Each such body is reassembled across Text + `GeneralRef` (resolving XML entities) and
+/// tested with the σ oracle `formula_would_shift`, NOT a substring match — so a reference
+/// qualified to the edited sheet via a case variant, a quoted/apostrophe name, an
+/// entity-encoded qualifier, or a 3D span whose first endpoint is the edited sheet
+/// (`Sheet1:Sheet3!`) is caught. Fail-closed on parse error.
+/// True if a FOREIGN worksheet carries a `ref`/`sqref` ATTRIBUTE (on any element — e.g. a
+/// dataConsolidate `<dataRef ref="Sheet1!..">`) that is QUALIFIED to the edited sheet and
+/// that this edit would shift. The transform rewrites ref/sqref only on the edited sheet's
+/// own `has_ref_attr` elements, so such a cross-sheet attribute is otherwise left stale.
+/// Unqualified refs (local to the foreign sheet) are never flagged — the σ oracle's phantom
+/// host means only a reference explicitly naming the edited sheet counts.
+fn foreign_sheet_ref_attr_crosses(xml: &[u8], edit: &StructuralEdit) -> bool {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                for key in [b"ref".as_slice(), b"sqref".as_slice()] {
+                    if let Some(v) = attr_by_local(&e, key) {
+                        // ref/sqref may be space-separated; test each token via the oracle.
+                        if v.split_whitespace()
+                            .any(|tok| formula_would_shift(tok, edit))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            Ok(Event::Eof) => return false,
+            Err(_) => return true, // unparseable -> fail closed
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
+fn foreign_sheet_cross_ref_unshifted(xml: &[u8], edit: &StructuralEdit) -> bool {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    // Track when we are inside a body the foreign shift does NOT rewrite.
+    let mut capture_depth = 0u32;
+    let mut ext_depth = 0u32;
+    let mut raw = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let name = e.name();
+                if tag_local_eq(name.as_ref(), b"extLst") {
+                    ext_depth += 1;
+                }
+                let is_f = tag_local_eq(name.as_ref(), b"f");
+                // A plain/shared `<f>` IS shifted (shared via expansion) → not captured.
+                // A non-`<f>` formula tag, anything under `<extLst>`, or an ARRAY `<f>`
+                // is NOT shifted → capture and test.
+                let unshifted_body = (is_formula_tag(name.as_ref()) && !is_f)
+                    || ext_depth > 0
+                    || (is_f && is_array_f(&e));
+                if unshifted_body {
+                    capture_depth += 1;
+                    raw.clear();
+                }
+            }
+            Ok(Event::End(e)) => {
+                let name = e.name();
+                if capture_depth > 0 {
+                    capture_depth -= 1;
+                    let body = logical_formula(&raw).unwrap_or_else(|| raw.clone());
+                    if formula_would_shift(&body, edit) {
+                        return true;
+                    }
+                    raw.clear();
+                }
+                if tag_local_eq(name.as_ref(), b"extLst") {
+                    ext_depth = ext_depth.saturating_sub(1);
+                }
+            }
+            Ok(Event::Text(t)) if capture_depth > 0 => push_text_raw(&mut raw, &t),
+            Ok(Event::GeneralRef(r)) if capture_depth > 0 => push_ref_raw(&mut raw, &r),
+            Ok(Event::Eof) => return false,
+            Err(_) => return true,
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
+/// True if a worksheet part carries an INTERNAL hyperlink (`<hyperlink location=…>`,
+/// an in-workbook cell/range target) whose target is INVALIDATED by editing
+/// `edited_sheet`. The shift engine rewrites only a hyperlink's `ref`, never its
+/// `location`, so such a link would silently mispoint after a row/column edit. A
+/// hyperlink is a hazard when it is ON the edited sheet (its local `location` moves)
+/// or its `location` explicitly targets the edited sheet by name. External (URL)
+/// hyperlinks use `r:id`, have no `location`, and are never flagged. Namespace-aware;
+/// an unparseable sheet part fails closed.
+fn sheet_hyperlink_hazard(xml: &[u8], edited_sheet: &str, is_edited_sheet: bool) -> bool {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if tag_local_eq(e.name().as_ref(), b"hyperlink") =>
+            {
+                if let Some(loc) = attr_by_local(&e, b"location") {
+                    let hazard = match location_sheet(&loc) {
+                        // Qualified target: a hazard iff it names the edited sheet.
+                        Some(s) => s.eq_ignore_ascii_case(edited_sheet),
+                        // Bare local target: a hazard iff this hyperlink is ON the
+                        // edited sheet (the local cell it points at will move).
+                        None => is_edited_sheet,
+                    };
+                    if hazard {
+                        return true;
+                    }
+                }
+            }
+            Ok(Event::Eof) => return false,
+            Err(_) => return true,
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
+/// Does this table part carry its own formula? `calculatedColumnFormula` and
+/// `totalsRowFormula` can hold a CROSS-SHEET reference, and we never rewrite table
+/// parts — so such a table is refused even when it sits on an unrelated sheet.
+/// Namespace-aware (a prefixed `<x:calculatedColumnFormula>` must not evade this);
+/// an unparseable table part fails closed (treated as carrying a formula -> refuse).
+fn table_part_has_formula(xml: &[u8]) -> bool {
+    xml_has_local_element(
+        xml,
+        &[b"calculatedColumnFormula", b"totalsRowFormula"],
+        true,
+    )
+}
+
+/// Does the sheet's OWN xml declare structured tables (`<tableParts>`)? This is the
+/// authoritative, relationship-independent signal that a table's extent lives in this
+/// sheet's coordinates. Consulted so a sheet whose `.rels` part is missing or
+/// unreadable cannot slip a table past the scan (fail closed: unreadable => assume
+/// tables). Namespace-aware.
+fn sheet_declares_tables(input: &[u8], sheet_part: &str) -> bool {
+    match crate::ooxml::read_part(input, sheet_part) {
+        Ok(b) => xml_has_local_element(&b, &[b"tableParts"], true),
+        Err(_) => true,
+    }
+}
+
+/// The `name` / `displayName` of every structured table in the package. A structured
+/// reference in a formula is spelled `<name>[…]`, so these are the tokens the shift
+/// algebra must not mangle.
+fn table_display_names(input: &[u8], table_parts: &BTreeSet<String>) -> Vec<String> {
+    let mut names = Vec::new();
+    for t in table_parts {
+        let bytes = match crate::ooxml::read_part(input, t) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let mut reader = Reader::from_reader(bytes.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                    if tag_local_eq(e.name().as_ref(), b"table") =>
+                {
+                    for key in [b"name".as_ref(), b"displayName".as_ref()] {
+                        if let Some(v) = attr_by_local(&e, key) {
+                            if !v.is_empty() {
+                                names.push(v);
+                            }
+                        }
+                    }
+                    break;
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+    }
+    names
+}
+
+/// True if any formula body in `xml` uses a structured reference to one of `names`
+/// (`Name[…]`). The reference-shift algebra tokenizes the specifier inside `[…]` and
+/// can mangle a column name that looks like an A1 ref (e.g. `Table1[Q4]` -> `[Q5]`),
+/// so a workbook that uses structured references is refused. Namespace-aware over the
+/// formula elements; an unparseable formula part fails closed (-> refuse).
+fn part_uses_structured_ref(xml: &[u8], names: &[String]) -> bool {
+    if names.is_empty() {
+        return false;
+    }
+    let needles: Vec<String> = names
+        .iter()
+        .map(|n| format!("{}[", n.to_lowercase()))
+        .collect();
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut depth = 0u32;
+    // Accumulate the RAW (still-escaped) body across Text + GeneralRef exactly as the
+    // shift path does, then resolve entities — otherwise `Table1&#91;Q4]` (a `[`
+    // written as a numeric char-ref -> a GeneralRef event) would drop the bracket and
+    // evade the `Name[` scan.
+    let mut raw = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if is_formula_tag(e.name().as_ref()) => depth += 1,
+            Ok(Event::End(e)) if is_formula_tag(e.name().as_ref()) => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    // Fail closed: an entity we cannot resolve could hide a structured
+                    // reference — refuse.
+                    let logical = match logical_formula(&raw) {
+                        Some(s) => s,
+                        None => return true,
+                    };
+                    let hay = logical.to_lowercase();
+                    if needles.iter().any(|p| hay.contains(p.as_str())) {
+                        return true;
+                    }
+                    raw.clear();
+                }
+            }
+            Ok(Event::Text(t)) if depth > 0 => push_text_raw(&mut raw, &t),
+            Ok(Event::GeneralRef(r)) if depth > 0 => push_ref_raw(&mut raw, &r),
+            Ok(Event::Eof) => return false,
+            Err(_) => return true,
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
+/// Every table part in the package: the conventional `xl/tables/*.xml` path UNIONED
+/// with the targets of EVERY table relationship declared anywhere in the package. A
+/// crafted file can put the sheet and/or the table part at a non-conventional path;
+/// scanning all `.rels` means the formula scan below can never miss one.
+fn all_table_parts(input: &[u8], names: &[String]) -> BTreeSet<String> {
+    let mut out: BTreeSet<String> = names
+        .iter()
+        .filter(|n| n.starts_with("xl/tables/") && n.ends_with(".xml"))
+        .cloned()
+        .collect();
+    for n in names {
+        if n.contains("/_rels/") && n.ends_with(".rels") {
+            for t in table_targets_in_rels(input, n) {
+                out.insert(t);
+            }
+        }
+    }
+    out
+}
+
 fn scan_extra_residuals(
     names: &[String],
     input: &[u8],
     edit: &StructuralEdit,
+    edited_part: &str,
     report: &mut StructuralReport,
 ) {
-    for n in names {
-        if n.starts_with("xl/tables/") && n.ends_with(".xml") {
+    // (0a) NON-STANDARD WORKSHEET PATHS. The main shift loop keys foreign-sheet
+    // handling on the path pattern `xl/worksheets/sheet*.xml`; a worksheet part at
+    // any other path (fully legal OOXML — the part is resolved via workbook.xml.rels)
+    // is copied byte-for-byte and its cross-sheet references left stale, and the
+    // formula scans below (which use the same pattern) skip it. Rather than shift by
+    // path (a change to the certified engine), refuse a workbook with any worksheet at
+    // a non-conventional path. Real producers always use `sheetN.xml`.
+    if let Ok(sheets) = crate::ooxml::all_sheets(input) {
+        for (name, part) in &sheets {
+            let conventional = part
+                .strip_prefix("xl/worksheets/sheet")
+                .and_then(|s| s.strip_suffix(".xml"))
+                .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));
+            if !conventional {
+                report.residuals.push(Residual {
+                    part: part.clone(),
+                    reason: "nonstandard_sheet_path".into(),
+                    detail: format!(
+                        "worksheet '{name}' is at a non-conventional part path ('{part}'); the \
+                         shift engine keys on xl/worksheets/sheetN.xml — edit refused (fail-closed)"
+                    ),
+                });
+            }
+        }
+    }
+
+    // (0b) COORDINATE-BEARING ATTACHMENTS ON THE EDITED SHEET (fail-closed whitelist).
+    // Drawings/images, cell comments (+ legacy VML), pivot tables, form/OLE controls,
+    // timelines, slicers … live in the edited sheet's coordinates but are copied
+    // byte-for-byte, never shifted, so they detach after the edit. Only external-URL
+    // hyperlinks and printer settings are coordinate-free-safe (tables are handled by
+    // the dedicated guard below). Anything else — including a future, unrecognized
+    // attachment type — refuses.
+    if let Some(bad) = edited_sheet_bad_attachment(input, edited_part) {
+        report.residuals.push(Residual {
+            part: edited_part.to_string(),
+            reason: "unshiftable_sheet_attachment".into(),
+            detail: format!(
+                "the edited sheet has a '{bad}' attachment whose coordinates we do not shift \
+                 (drawings/comments/pivots/controls are copied verbatim) — edit refused (fail-closed)"
+            ),
+        });
+    }
+
+    // (0c) EXTERNAL LINKS. A cross-workbook reference (xl/externalLinks/*) that points
+    // into the edited grid cannot be verified; mirror certify and fail closed.
+    if names
+        .iter()
+        .any(|n| n.starts_with("xl/externalLinks/") && n.ends_with(".xml"))
+    {
+        report.residuals.push(Residual {
+            part: "xl/externalLinks".into(),
+            reason: "external_links_unsupported".into(),
+            detail: "the workbook has external (cross-workbook) links that we do not shift — \
+                     edit refused (fail-closed)"
+                .into(),
+        });
+    }
+
+    // (a) Structured tables carry an extent (`ref` / `autoFilter`) we do not rewrite.
+    // But a table is endangered by THIS edit only if either:
+    //   - it is attached to the EDITED sheet (its extent lives in that sheet's
+    //     coordinates and would have to shift), or
+    //   - it carries its own formula (`calculatedColumnFormula` / `totalsRowFormula`),
+    //     which may hold a CROSS-SHEET reference; we never rewrite table parts, so we
+    //     cannot prove such a formula is unaffected — refuse conservatively.
+    // A plain table on an unrelated sheet is genuinely untouched by a row/column edit
+    // elsewhere (its coordinates are sheet-local, and the part is copied byte-for-byte).
+    // Refusing those was a FALSE refusal that made xlq decline workbooks it handles
+    // correctly.
+    let edited_tables = tables_attached_to(input, edited_part);
+    // The edited sheet OWNS a table if its rels resolve one OR its own xml declares
+    // <tableParts> — the latter is authoritative and closes the fail-open where a
+    // missing/unreadable .rels part would otherwise hide the table from this scan.
+    if !edited_tables.is_empty() || sheet_declares_tables(input, edited_part) {
+        if edited_tables.is_empty() {
             report.residuals.push(Residual {
-                part: n.clone(),
+                part: edited_part.to_string(),
                 reason: "table_unsupported".into(),
-                detail: "structured table extent/refs are not shifted; edit refused".into(),
+                detail: "the edited sheet declares a structured table whose extent/refs we \
+                         do not shift; edit refused"
+                    .into(),
+            });
+        }
+        for t in &edited_tables {
+            report.residuals.push(Residual {
+                part: t.clone(),
+                reason: "table_unsupported".into(),
+                detail: "a structured table on the edited sheet has an extent/refs we do not \
+                         shift; edit refused"
+                    .into(),
             });
         }
     }
+    let table_parts = all_table_parts(input, names);
+    for t in &table_parts {
+        if edited_tables.contains(t) {
+            continue; // already refused above
+        }
+        // Fail closed: a table part we cannot read is a table we cannot clear.
+        let refuse = match crate::ooxml::read_part(input, t) {
+            Ok(bytes) => table_part_has_formula(&bytes),
+            Err(_) => true,
+        };
+        if refuse {
+            report.residuals.push(Residual {
+                part: t.clone(),
+                reason: "table_formula_unsupported".into(),
+                detail: "a structured table carries its own formula (calculated column / \
+                         totals row), which may reference the edited sheet and is not \
+                         rewritten; edit refused"
+                    .into(),
+            });
+        }
+    }
+    // (c) STRUCTURED REFERENCES (`Table1[Col]`) in any formula: the shift algebra
+    // tokenizes the specifier inside `[…]` and can mangle a column name that looks
+    // like an A1 ref (`Table1[Q4]` -> `[Q5]`), silently breaking the reference. The
+    // old refuse-any-table rule masked this; now that a plain table on an unrelated
+    // sheet is allowed, we must refuse a workbook whose formulas actually use a
+    // structured reference. Scanned across all formula-bearing parts below.
+    let table_names = table_display_names(input, &table_parts);
     // DEFINED-NAME ALIASING: a defined name spelled like a grid-valid cell (e.g.
     // `FY2021` = col FY, row 2021) is indistinguishable from a reference to the
     // shift tokenizer, so a formula using it would be silently mis-shifted AND the
@@ -419,8 +1153,7 @@ fn scan_extra_residuals(
     // certified⇒correct could be false on a real workbook. Decidable from the
     // names table the file already carries: detect it and REFUSE (fail closed).
     if let Ok(bytes) = crate::ooxml::read_part(input, "xl/workbook.xml") {
-        let text = String::from_utf8_lossy(&bytes);
-        for name in defined_name_names(&text) {
+        for (name, _scope, _refers) in defined_names(&bytes) {
             if refshift::looks_like_cell_ref(&name) {
                 report.residuals.push(Residual {
                     part: "xl/workbook.xml".into(),
@@ -464,6 +1197,95 @@ fn scan_extra_residuals(
                         .into(),
                 });
             }
+            if part_uses_structured_ref(&bytes, &table_names) {
+                report.residuals.push(Residual {
+                    part: n.clone(),
+                    reason: "structured_reference_unsupported".into(),
+                    detail: "a formula uses a structured table reference (Table[Column]); the \
+                             shift algebra can mangle the specifier inside [] — edit refused \
+                             (fail-closed)"
+                        .into(),
+                });
+            }
+            // INTERNAL HYPERLINKS whose target the edit invalidates: the shift engine
+            // rewrites a hyperlink's `ref` but never its `location`, so an in-workbook
+            // link that points at (or sits on) the edited sheet would silently mispoint.
+            if n.starts_with("xl/worksheets/")
+                && sheet_hyperlink_hazard(&bytes, &edit.sheet, n == edited_part)
+            {
+                report.residuals.push(Residual {
+                    part: n.clone(),
+                    reason: "internal_hyperlink_unsupported".into(),
+                    detail: "an internal hyperlink's location targets the edited sheet and is \
+                             not shifted; it would mispoint after the edit — edit refused \
+                             (fail-closed)"
+                        .into(),
+                });
+            }
+            // EXTENSION-LIST value content on the EDITED sheet: x14 conditional
+            // formatting (<xm:f>/<xm:sqref>) and sparklines carry edited-sheet
+            // coordinates the base shift never processes.
+            if n == edited_part && sheet_extlst_has_references(&bytes) {
+                report.residuals.push(Residual {
+                    part: n.clone(),
+                    reason: "extension_construct_unsupported".into(),
+                    detail: "the edited sheet has an extension-list construct (x14 conditional \
+                             formatting or sparklines) whose references we do not shift — edit \
+                             refused (fail-closed)"
+                        .into(),
+                });
+            }
+            // EDITED-SHEET BODY constructs the shift engine copies verbatim (it shifts
+            // ref/sqref only for the has_ref_attr set and `r` only on cells): a
+            // <protectedRange sqref> (security), <inputCells r> (scenario write target),
+            // <dataRef ref>, <ignoredError sqref>, <sortState ref>, … would be left stale.
+            if n == edited_part {
+                if let Some(elem) = edited_sheet_body_unshifted_ref(&bytes) {
+                    report.residuals.push(Residual {
+                        part: n.clone(),
+                        reason: "unshiftable_body_reference".into(),
+                        detail: format!(
+                            "the edited sheet carries a <{elem}> whose cell reference the shift \
+                             engine does not rewrite; it would be left stale — edit refused \
+                             (fail-closed)"
+                        ),
+                    });
+                }
+            }
+            // FOREIGN-SHEET references to the edited sheet in a construct the foreign
+            // shift does not rewrite (only <f> is shifted there): a conditional-format
+            // or data-validation formula, or an extLst formula, that names the edited
+            // sheet is left stale. (On the edited sheet these ARE shifted.)
+            if n != edited_part
+                && n.starts_with("xl/worksheets/")
+                && foreign_sheet_cross_ref_unshifted(&bytes, edit)
+            {
+                report.residuals.push(Residual {
+                    part: n.clone(),
+                    reason: "cross_sheet_reference_unsupported".into(),
+                    detail:
+                        "a foreign sheet references the edited sheet from a conditional-format \
+                             / data-validation / extension formula the shift does not rewrite — \
+                             edit refused (fail-closed)"
+                            .into(),
+                });
+            }
+            // FOREIGN-SHEET ref/sqref ATTRIBUTE qualified to the edited sheet (e.g. a
+            // dataConsolidate <dataRef ref="Sheet1!..">): the transform shifts ref/sqref only
+            // on the edited sheet's own has_ref_attr elements, so this is left stale.
+            if n != edited_part
+                && n.starts_with("xl/worksheets/")
+                && foreign_sheet_ref_attr_crosses(&bytes, edit)
+            {
+                report.residuals.push(Residual {
+                    part: n.clone(),
+                    reason: "cross_sheet_reference_unsupported".into(),
+                    detail: "a foreign sheet has a ref/sqref attribute qualified to the edited \
+                             sheet (e.g. a consolidation dataRef) that is not shifted — edit \
+                             refused (fail-closed)"
+                        .into(),
+                });
+            }
         }
     }
 }
@@ -496,29 +1318,54 @@ fn has_cdata_formula_body(xml: &[u8]) -> bool {
     false
 }
 
-/// Extract the `name` attribute of every `<definedName ...>` in workbook.xml.
-fn defined_name_names(workbook_xml: &str) -> Vec<String> {
+/// (name, scope, refers-to) for every `<definedName>` in workbook.xml, sorted. `scope` is
+/// the `localSheetId` (empty string for a workbook-global name) — Excel resolves a name by
+/// its scope, so a foreign edit that RE-SCOPES a name (or swaps two same-named names'
+/// scopes) is a semantic change certify must catch; comparing (name, refers-to) alone
+/// missed it. Namespace-prefix-insensitive (matches a prefixed `<x:definedName>` too) and
+/// entity-resolving on the `name` attribute and the refers-to body — mirroring the shifter,
+/// which rewrites defined names via `tag_local_eq`. The old raw-substring scan was blind to
+/// a prefixed `<x:definedName>`: it hid such a name from the collision check AND (in
+/// certify) let a stale prefixed defined name compare equal to xlq's shifted one.
+pub(crate) fn defined_names(workbook_xml: &[u8]) -> Vec<(String, String, String)> {
+    let mut reader = Reader::from_reader(workbook_xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
     let mut out = Vec::new();
-    let mut rest = workbook_xml;
-    while let Some(p) = rest.find("<definedName") {
-        rest = &rest[p..];
-        let tag_end = match rest.find('>') {
-            Some(e) => e,
-            None => break,
-        };
-        let tag = &rest[..tag_end];
-        if let Some(np) = tag.find("name=") {
-            let after = &tag[np + 5..];
-            if let Some(q) = after.chars().next() {
-                if q == '"' || q == '\'' {
-                    if let Some(end) = after[1..].find(q) {
-                        out.push(after[1..1 + end].to_string());
-                    }
-                }
+    let mut cur_name: Option<String> = None;
+    let mut cur_scope = String::new();
+    let mut body = String::new();
+    let scope_of = |e: &BytesStart| attr_by_local(e, b"localSheetId").unwrap_or_default();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"definedName") => {
+                cur_name = Some(attr_by_local(&e, b"name").unwrap_or_default());
+                cur_scope = scope_of(&e);
+                body.clear();
             }
+            Ok(Event::Empty(e)) if tag_local_eq(e.name().as_ref(), b"definedName") => {
+                // Self-closing: a name with an empty refers-to body.
+                out.push((
+                    attr_by_local(&e, b"name").unwrap_or_default(),
+                    scope_of(&e),
+                    String::new(),
+                ));
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"definedName") => {
+                if let Some(name) = cur_name.take() {
+                    let refers = logical_formula(&body).unwrap_or_else(|| body.clone());
+                    out.push((name, std::mem::take(&mut cur_scope), refers));
+                }
+                body.clear();
+            }
+            Ok(Event::Text(t)) if cur_name.is_some() => push_text_raw(&mut body, &t),
+            Ok(Event::GeneralRef(r)) if cur_name.is_some() => push_ref_raw(&mut body, &r),
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
         }
-        rest = &rest[tag_end..];
+        buf.clear();
     }
+    out.sort();
     out
 }
 
@@ -645,6 +1492,7 @@ fn rewrite_edited_sheet(
     let mut buf = Vec::new();
     let sheet = edit.sheet.clone();
     let row_axis = edit.axis == Axis::Row;
+    let col_axis = edit.axis == Axis::Col;
     let mut inserted = false;
     let mut in_f = false;
     let mut f_residual = false;
@@ -674,6 +1522,40 @@ fn rewrite_edited_sheet(
                     continue;
                 }
                 writer.write_event(Event::Empty(shift_row_tag(&e, edit)))?;
+            }
+
+            // Column definitions (`<cols><col min max width/hidden/style>…</cols>`) on a
+            // COLUMN-axis edit: each `<col>`'s min/max are column indices in the sheet's
+            // coordinates and must shift with the columns they format, or a stale `<col>`
+            // would hide/style the wrong column. A `<col>` whose whole range is deleted is
+            // dropped. The container is buffered so that if EVERY `<col>` is dropped we omit
+            // `<cols>` entirely — an empty `<cols></cols>` is schema-invalid.
+            Event::Start(e) if col_axis && tag_local_eq(e.name().as_ref(), b"cols") => {
+                let cols_start = e.into_owned();
+                let mut survivors: Vec<BytesStart<'static>> = Vec::new();
+                loop {
+                    match reader.read_event_into(&mut buf)? {
+                        Event::Empty(c) | Event::Start(c)
+                            if tag_local_eq(c.name().as_ref(), b"col") =>
+                        {
+                            if let Some(tag) = shift_col_tag(&c, edit) {
+                                survivors.push(tag);
+                            }
+                        }
+                        Event::End(c) if tag_local_eq(c.name().as_ref(), b"cols") => break,
+                        Event::Eof => break,
+                        _ => {} // stray whitespace/comment inside <cols>
+                    }
+                }
+                if !survivors.is_empty() {
+                    writer.write_event(Event::Start(cols_start))?;
+                    for s in survivors {
+                        writer.write_event(Event::Empty(s))?;
+                    }
+                    writer.write_event(Event::End(quick_xml::events::BytesEnd::new("cols")))?;
+                }
+                buf.clear();
+                continue;
             }
 
             Event::Start(e) => {
@@ -1072,6 +1954,79 @@ fn shift_row_tag(e: &BytesStart, edit: &StructuralEdit) -> BytesStart<'static> {
     set_attrs(e, &repl)
 }
 
+/// Shift a `<col>`'s inclusive column-index range `[min, max]` under a COLUMN-axis edit.
+/// Returns the new `(min, max)`, or `None` if the whole range falls inside a deletion (the
+/// `<col>` element is then dropped). Insert extends a straddling range to cover the inserted
+/// columns (Excel's inherit-left behavior); delete clamps each endpoint to the surviving
+/// coordinate space. Move is rows-only, so it never reaches a `<col>`; treated as identity.
+fn shift_col_range(min: u32, max: u32, edit: &StructuralEdit) -> Option<(u32, u32)> {
+    const MAX_COL: u32 = 16384; // XFD, the last column that exists
+    match edit.op {
+        Op::Insert => {
+            let m = if min >= edit.at {
+                min + edit.count
+            } else {
+                min
+            };
+            let x = if max >= edit.at {
+                max + edit.count
+            } else {
+                max
+            };
+            // Columns pushed past the sheet's last column no longer exist: drop a range
+            // whose start overflows, clamp a range whose end overflows.
+            if m > MAX_COL {
+                None
+            } else {
+                Some((m, x.min(MAX_COL)))
+            }
+        }
+        Op::Delete => {
+            let del_lo = edit.at;
+            let del_hi = edit.at + edit.count - 1; // inclusive
+            let clamp = |c: u32| -> Option<u32> {
+                if c < del_lo {
+                    Some(c)
+                } else if c > del_hi {
+                    Some(c - edit.count)
+                } else {
+                    None // inside the deleted span
+                }
+            };
+            match (clamp(min), clamp(max)) {
+                (Some(m), Some(x)) => Some((m, x)),
+                // min deleted, max survives above: surviving range starts at the first
+                // column after the deletion, renumbered to del_lo.
+                (None, Some(x)) => Some((del_lo, x)),
+                // max deleted, min survives below: surviving range ends just before it.
+                (Some(m), None) => Some((m, del_lo.saturating_sub(1))),
+                // both endpoints inside the deleted span: the whole <col> is gone.
+                (None, None) => None,
+            }
+        }
+        Op::Move => Some((min, max)),
+    }
+}
+
+/// Rewrite a `<col>`'s `min`/`max` under a column-axis edit. `None` = drop (range deleted).
+fn shift_col_tag(e: &BytesStart, edit: &StructuralEdit) -> Option<BytesStart<'static>> {
+    let min = attr_u32(e, b"min");
+    let max = attr_u32(e, b"max");
+    let (Some(min), Some(max)) = (min, max) else {
+        // Malformed <col> (missing min/max): leave verbatim rather than guess.
+        return Some(e.to_owned());
+    };
+    let (nm, nx) = shift_col_range(min, max, edit)?;
+    let mut repl: Vec<(&[u8], String)> = Vec::new();
+    if nm != min {
+        repl.push((b"min", nm.to_string()));
+    }
+    if nx != max {
+        repl.push((b"max", nx.to_string()));
+    }
+    Some(set_attrs(e, &repl))
+}
+
 fn shift_cell_tag(e: &BytesStart, edit: &StructuralEdit) -> BytesStart<'static> {
     let mut repl: Vec<(&[u8], String)> = Vec::new();
     if let Some(a) = e.attributes().flatten().find(|a| a.key.as_ref() == b"r") {
@@ -1209,12 +2164,17 @@ fn shift_line(pos: u32, edit: &StructuralEdit) -> Option<u32> {
 // foreign parts
 // ---------------------------------------------------------------------------
 
-fn rewrite_pivot(src: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, u32, u32)> {
+fn rewrite_pivot(src: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, u32, u32, bool)> {
     let mut reader = Reader::from_reader(src);
     reader.config_mut().expand_empty_elements = false;
     let mut writer = Writer::new(Cursor::new(Vec::new()));
     let mut buf = Vec::new();
     let (mut shifted, mut errs) = (0u32, 0u32);
+    // Fail-closed: rewrite_pivot shifts ONLY a <worksheetSource>. Any OTHER pivot element
+    // that references the edited sheet (a `sheet` attr equal to it — e.g. a consolidation
+    // `<rangeSet ref sheet>`) carries a grid coordinate we do not shift, so we flag it and
+    // the caller refuses rather than committing it stale.
+    let mut unhandled_edited_ref = false;
     // Shift the `ref`/`sheet` attributes of a <worksheetSource> in place. Emitted
     // in the SAME event shape it arrived in (Empty stays self-closing; Start stays
     // a Start whose children the loop copies through) — the previous code read and
@@ -1262,6 +2222,16 @@ fn rewrite_pivot(src: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, u32, u32
                     .map_err(|e| anyhow!("pivot write: {e}"))?;
             }
             other => {
+                // A non-worksheetSource element (e.g. a consolidation `<rangeSet ref sheet>`)
+                // naming the edited sheet carries a grid `ref` we do not shift -> refuse.
+                if let Event::Start(e) | Event::Empty(e) = &other {
+                    if e.attributes().flatten().any(|a| {
+                        a.key.as_ref() == b"sheet"
+                            && String::from_utf8_lossy(&a.value).eq_ignore_ascii_case(&edit.sheet)
+                    }) {
+                        unhandled_edited_ref = true;
+                    }
+                }
                 writer
                     .write_event(other.into_owned())
                     .map_err(|e| anyhow!("pivot write: {e}"))?;
@@ -1269,7 +2239,12 @@ fn rewrite_pivot(src: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, u32, u32
         }
         buf.clear();
     }
-    Ok((writer.into_inner().into_inner(), shifted, errs))
+    Ok((
+        writer.into_inner().into_inner(),
+        shifted,
+        errs,
+        unhandled_edited_ref,
+    ))
 }
 
 /// For every <TAG>text</TAG> (namespace-insensitive local match), run
@@ -1360,12 +2335,16 @@ fn shift_text_in_element(
     ))
 }
 
-fn tag_local_eq(name: &[u8], local: &[u8]) -> bool {
-    let n = match name.iter().rposition(|&b| b == b':') {
+/// The local part of a (possibly namespace-prefixed) XML name: `x:table` -> `table`.
+fn local_of(name: &[u8]) -> &[u8] {
+    match name.iter().rposition(|&b| b == b':') {
         Some(i) => &name[i + 1..],
         None => name,
-    };
-    n == local
+    }
+}
+
+fn tag_local_eq(name: &[u8], local: &[u8]) -> bool {
+    local_of(name) == local
 }
 
 #[cfg(test)]
@@ -1384,6 +2363,14 @@ mod tests {
             dest: 0,
         }
     }
+    /// A minimal worksheet xml carrying the given trailing element(s) after
+    /// </sheetData> (e.g. a <tableParts> block) — for the table-detection tests.
+    fn sd_worksheet(trailer: &str) -> String {
+        format!(
+            r#"<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/>{trailer}</worksheet>"#
+        )
+    }
+
     fn move_edit(sheet: &str, at: u32, count: u32, dest: u32) -> StructuralEdit {
         StructuralEdit {
             axis: Axis::Row,
@@ -1420,7 +2407,7 @@ mod tests {
         // the ref must shift under an insert on the source sheet.
         let xml = br#"<pivotCacheDefinition><cacheSource type="worksheet"><worksheetSource ref="A1:B5" sheet="S"/></cacheSource><cacheFields count="2"/></pivotCacheDefinition>"#;
         let e = edit("S", Axis::Row, Op::Insert, 2, 1);
-        let (out, n, r) = rewrite_pivot(xml, &e).unwrap();
+        let (out, n, r, _unhandled) = rewrite_pivot(xml, &e).unwrap();
         let s = String::from_utf8_lossy(&out);
         assert!(s.contains("<cacheFields"), "following sibling dropped: {s}");
         assert!(s.contains(r#"ref="A1:B6""#), "ref not shifted: {s}");
@@ -1489,7 +2476,7 @@ mod tests {
         // must stay a Start (children copied through), not be forced to Empty.
         let xml = br#"<worksheetSource ref="A1:B5" sheet="S"><child/></worksheetSource>"#;
         let e = edit("S", Axis::Row, Op::Insert, 2, 1);
-        let (out, _n, _r) = rewrite_pivot(xml, &e).unwrap();
+        let (out, _n, _r, _u) = rewrite_pivot(xml, &e).unwrap();
         let s = String::from_utf8_lossy(&out);
         assert!(s.contains("<child/>"), "child dropped: {s}");
         assert!(s.contains("</worksheetSource>"), "not closed: {s}");
@@ -1773,6 +2760,609 @@ mod tests {
                 .iter()
                 .any(|r| r.reason == "table_unsupported"),
             "table must force a residual"
+        );
+    }
+
+    #[test]
+    fn table_on_an_unrelated_sheet_does_not_block_the_edit() {
+        // REGRESSION (false refusal): pivot-chart.xlsx has a structured Table on the
+        // sheet "Table" (xl/worksheets/sheet5.xml). Editing a DIFFERENT sheet cannot
+        // move that table's extent — its coordinates are sheet-local and the part is
+        // copied byte-for-byte — so refusing the edit was wrong. It must now proceed.
+        let input = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/t1/pivot-chart.xlsx"
+        ))
+        .unwrap();
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
+        let (_out, report) = structural_edit(&input, &e).unwrap();
+        // The TABLE (on sheet5) must not force a residual — that was the false refusal.
+        assert!(
+            !report
+                .residuals
+                .iter()
+                .any(|r| r.reason.starts_with("table_")),
+            "a table on an unrelated sheet must not force a residual: {:?}",
+            report.residuals
+        );
+        // (Sheet1 of this fixture separately owns a comment + drawing, so the edit is
+        // still refused for `unshiftable_sheet_attachment` — a CORRECT refusal that the
+        // crude table rule used to mask; see the guard tests below.)
+    }
+
+    #[test]
+    fn comment_on_the_edited_sheet_is_refused() {
+        // REGRESSION (round-2 review): a comment anchored to the edited sheet is not
+        // shifted, so the note would detach; the fail-closed attachment whitelist
+        // refuses it. pivot-chart's Sheet1 owns a comment (and a drawing).
+        let input = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/t1/pivot-chart.xlsx"
+        ))
+        .unwrap();
+        assert!(edited_sheet_bad_attachment(&input, "xl/worksheets/sheet1.xml").is_some());
+        let (_o, report) =
+            structural_edit(&input, &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)).unwrap();
+        assert!(
+            report
+                .residuals
+                .iter()
+                .any(|r| r.reason == "unshiftable_sheet_attachment"),
+            "an unshiftable attachment on the edited sheet must force a residual: {:?}",
+            report.residuals
+        );
+        // A sheet with NO rels part has no attachments -> not flagged (refs.xlsx Sheet1).
+        let plain = std::fs::read(format!("{FIX}refs.xlsx")).unwrap();
+        assert!(edited_sheet_bad_attachment(&plain, "xl/worksheets/sheet1.xml").is_none());
+    }
+
+    #[test]
+    fn edited_sheet_attachment_whitelist_is_prefix_insensitive_and_fails_closed() {
+        use std::io::Write;
+        // Build a tiny zip carrying only one sheet's .rels part.
+        let with_rels = |rels: &[u8]| {
+            let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let opts = zip::write::SimpleFileOptions::default();
+            z.start_file("xl/worksheets/_rels/sheet1.xml.rels", opts)
+                .unwrap();
+            z.write_all(rels).unwrap();
+            z.finish().unwrap().into_inner()
+        };
+        let rel = |ty: &str| {
+            format!(
+                r#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r1" Type="{ty}" Target="../x"/></Relationships>"#
+            ).into_bytes()
+        };
+        let base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        // SAFE types produce no residual.
+        for ty in [
+            format!("{base}/hyperlink"),
+            format!("{base}/printerSettings"),
+            format!("{base}/table"),
+        ] {
+            let z = with_rels(&rel(&ty));
+            assert!(
+                edited_sheet_bad_attachment(&z, "xl/worksheets/sheet1.xml").is_none(),
+                "safe attachment {ty} must not be flagged"
+            );
+        }
+        // A coordinate-bearing attachment (drawing/comments/control) is flagged by its label.
+        let z = with_rels(&rel(&format!("{base}/drawing")));
+        assert_eq!(
+            edited_sheet_bad_attachment(&z, "xl/worksheets/sheet1.xml").as_deref(),
+            Some("drawing")
+        );
+        // An UNKNOWN (future) attachment type refuses by default — the fail-closed whitelist.
+        let z = with_rels(&rel("http://example.com/some/future/thing"));
+        assert!(edited_sheet_bad_attachment(&z, "xl/worksheets/sheet1.xml").is_some());
+        // A present-but-MALFORMED rels part fails CLOSED (cannot enumerate -> refuse).
+        let z = with_rels(b"<Relationships><not well formed");
+        assert_eq!(
+            edited_sheet_bad_attachment(&z, "xl/worksheets/sheet1.xml").as_deref(),
+            Some("unparseable_rels")
+        );
+    }
+
+    #[test]
+    fn extlst_reference_detector_matches_x14_and_sparklines_only() {
+        // x14 conditional formatting inside <extLst> (namespaced <xm:f>/<xm:sqref>).
+        assert!(sheet_extlst_has_references(
+            br#"<worksheet><extLst><ext><x14:conditionalFormatting xmlns:x14="urn:x14"><x14:cfRule><xm:f>$A$5&gt;0</xm:f></x14:cfRule><xm:sqref>A5:A9</xm:sqref></x14:conditionalFormatting></ext></extLst></worksheet>"#
+        ));
+        // Sparklines inside <extLst>.
+        assert!(sheet_extlst_has_references(
+            br#"<worksheet><extLst><ext><x14:sparklineGroups><x14:sparklineGroup/></x14:sparklineGroups></ext></extLst></worksheet>"#
+        ));
+        // An <extLst> WITHOUT references (a benign extension) is not flagged.
+        assert!(!sheet_extlst_has_references(
+            br#"<worksheet><extLst><ext uri="{x}"><foo:bar xmlns:foo="urn:foo"><foo:color rgb="FF0000"/></foo:bar></ext></extLst></worksheet>"#
+        ));
+        // An `f`/`sqref` OUTSIDE any extLst (an ordinary cell formula) is not flagged.
+        assert!(!sheet_extlst_has_references(
+            br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#
+        ));
+    }
+
+    #[test]
+    fn foreign_cross_ref_uses_the_shift_oracle_not_substrings() {
+        // Insert at row 1 so every row reference on the edited sheet shifts.
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 1, 1);
+        let hit = |xml: &[u8]| foreign_sheet_cross_ref_unshifted(xml, &e);
+
+        // A foreign CF <formula> naming the edited sheet is unshifted by the base engine.
+        assert!(hit(br#"<worksheet><conditionalFormatting sqref="D1"><cfRule><formula>Sheet1!$A$11&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#));
+        // Data-validation <formula1>.
+        assert!(hit(br#"<worksheet><dataValidation sqref="E1"><formula1>Sheet1!$B$1</formula1></dataValidation></worksheet>"#));
+        // extLst <xm:f>.
+        assert!(hit(
+            br#"<worksheet><extLst><ext><xm:f>Sheet1!$A$1</xm:f></ext></extLst></worksheet>"#
+        ));
+        // ARRAY <f> — shift_text_in_element SKIPS these, so a cross-ref is left stale.
+        assert!(hit(br#"<worksheet><sheetData><row r="1"><c r="A1"><f t="array" ref="A1:B2">SUM(Sheet1!A1)</f></c></row></sheetData></worksheet>"#));
+
+        // --- evasions the old substring predicate missed, now caught by the σ oracle ---
+        // 3D span whose FIRST endpoint is the edited sheet ("Sheet1:" not "Sheet1!").
+        assert!(hit(br#"<worksheet><conditionalFormatting sqref="D1"><cfRule><formula>SUM(Sheet1:Sheet3!$A$1)&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#));
+        // Case-variant qualifier.
+        assert!(hit(br#"<worksheet><dataValidation sqref="E1"><formula1>SHEET1!$A$1</formula1></dataValidation></worksheet>"#));
+        // Entity-encoded `!` (a GeneralRef) reassembled before the oracle.
+        assert!(hit(br#"<worksheet><dataValidation sqref="E1"><formula1>Sheet1&#33;$A$1</formula1></dataValidation></worksheet>"#));
+
+        // --- must NOT flag (no over-refusal) ---
+        // A plain cell <f> IS shifted by the base engine -> not a residual hazard.
+        assert!(!hit(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>Sheet1!A11</f></c></row></sheetData></worksheet>"#));
+        // A CF body naming a DIFFERENT sheet.
+        assert!(!hit(br#"<worksheet><conditionalFormatting sqref="D1"><cfRule><formula>Sheet2!$A$1&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#));
+        // A CF body naming a look-alike sheet (Sheet10, not Sheet1).
+        assert!(!hit(br#"<worksheet><conditionalFormatting sqref="D1"><cfRule><formula>Sheet10!$A$1&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#));
+    }
+
+    #[test]
+    fn foreign_shared_dependent_crossing_boundary_is_detected() {
+        // Sheet2 shared master B1 = Sheet1!A1 (relative cell part); dependent B6 therefore
+        // means Sheet1!A6. Inserting at Sheet1 row 5 does NOT move the master's A1 (row 1)
+        // but DOES move the dependent's A6 -> A7. Gating on the master body alone would miss
+        // it, so we expand first and gate over the explicit dependents.
+        let sheet = br#"<worksheet><sheetData><row r="1"><c r="B1"><f t="shared" ref="B1:B10" si="9">Sheet1!A1</f></c></row><row r="6"><c r="B6"><f t="shared" si="9"/></c></row></sheetData></worksheet>"#;
+        let expanded = expand_shared_in_sheet(sheet).unwrap();
+        let s = String::from_utf8_lossy(&expanded);
+        assert!(
+            s.contains("Sheet1!A6"),
+            "expand must offset the dependent to Sheet1!A6: {s}"
+        );
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
+        assert!(
+            foreign_sheet_needs_shift(&expanded, &e),
+            "the dependent Sheet1!A6 crosses the insert at row 5 and must be detected"
+        );
+        // The master alone (row 1) would NOT trip the gate — proving the regression path.
+        let master_only = br#"<worksheet><sheetData><row r="1"><c r="B1"><f>Sheet1!A1</f></c></row></sheetData></worksheet>"#;
+        assert!(!foreign_sheet_needs_shift(master_only, &e));
+    }
+
+    #[test]
+    fn cols_shift_on_column_edits_and_empty_container_is_dropped() {
+        // insert-cols shifts min/max (3 -> 4)
+        let e = edit("Sheet1", Axis::Col, Op::Insert, 1, 1);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(
+            br#"<worksheet><cols><col min="3" max="3" hidden="1"/></cols><sheetData/></worksheet>"#,
+            &e,
+            "s",
+            &mut report,
+        )
+        .unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            s.contains(r#"min="4""#) && s.contains(r#"max="4""#),
+            "col min/max must shift 3->4: {s}"
+        );
+        // delete-cols removing the only col must OMIT the (now-empty, schema-invalid) <cols>
+        let e = edit("Sheet1", Axis::Col, Op::Delete, 3, 1);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(
+            br#"<worksheet><cols><col min="3" max="3" hidden="1"/></cols><sheetData><row r="1"><c r="A1"/></row></sheetData></worksheet>"#,
+            &e,
+            "s",
+            &mut report,
+        )
+        .unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            !s.contains("<cols"),
+            "empty <cols> must be omitted entirely: {s}"
+        );
+        // A row-axis edit must leave <cols> untouched (columns don't move on a row edit).
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 1, 1);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(
+            br#"<worksheet><cols><col min="3" max="3" hidden="1"/></cols><sheetData/></worksheet>"#,
+            &e,
+            "s",
+            &mut report,
+        )
+        .unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            s.contains(r#"min="3""#),
+            "row edit must not touch <col>: {s}"
+        );
+    }
+
+    #[test]
+    fn foreign_ref_attr_crosses_detects_cross_sheet_dataref() {
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 2, 1);
+        // a foreign dataConsolidate dataRef qualified to the edited sheet -> crosses
+        assert!(foreign_sheet_ref_attr_crosses(
+            br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="Sheet1!$A$1:$A$10" sheet="Sheet1"/></dataRefs></dataConsolidate></worksheet>"#,
+            &e
+        ));
+        // an UNqualified ref (local to the foreign sheet) does NOT cross (no over-refusal)
+        assert!(!foreign_sheet_ref_attr_crosses(
+            br#"<worksheet><mergeCells><mergeCell ref="A1:B2"/></mergeCells></worksheet>"#,
+            &e
+        ));
+        // a ref qualified to a DIFFERENT sheet does not cross
+        assert!(!foreign_sheet_ref_attr_crosses(
+            br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="Sheet3!$A$1" sheet="Sheet3"/></dataRefs></dataConsolidate></worksheet>"#,
+            &e
+        ));
+    }
+
+    #[test]
+    fn rewrite_pivot_fails_closed_on_edited_sheet_consolidation_source() {
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 2, 1);
+        // a consolidation rangeSet naming the edited sheet -> unhandled (refuse)
+        let (_o, _n, _r, unhandled) = rewrite_pivot(
+            br#"<pivotCacheDefinition><cacheSource type="consolidation"><consolidation><rangeSets><rangeSet ref="A1:C10" sheet="Sheet1"/></rangeSets></consolidation></cacheSource></pivotCacheDefinition>"#,
+            &e,
+        )
+        .unwrap();
+        assert!(
+            unhandled,
+            "a consolidation rangeSet on the edited sheet must be flagged"
+        );
+        // a consolidation rangeSet on a DIFFERENT sheet is unaffected -> not flagged
+        let (_o, _n, _r, u2) = rewrite_pivot(
+            br#"<pivotCacheDefinition><cacheSource type="consolidation"><consolidation><rangeSets><rangeSet ref="A1:C10" sheet="Other"/></rangeSets></consolidation></cacheSource></pivotCacheDefinition>"#,
+            &e,
+        )
+        .unwrap();
+        assert!(!u2);
+    }
+
+    #[test]
+    fn shift_col_range_clamps_at_the_last_column() {
+        let ins = |at, count| edit("S", Axis::Col, Op::Insert, at, count);
+        // a range pushed entirely past XFD (16384) is dropped
+        assert_eq!(shift_col_range(16380, 16384, &ins(1, 5)), None);
+        // a range whose end overflows is clamped to 16384
+        assert_eq!(
+            shift_col_range(16380, 16382, &ins(1, 3)),
+            Some((16383, 16384))
+        );
+    }
+
+    #[test]
+    fn shift_col_range_handles_insert_and_delete_clamp() {
+        let ins = |at, count| edit("S", Axis::Col, Op::Insert, at, count);
+        let del = |at, count| edit("S", Axis::Col, Op::Delete, at, count);
+        // Insert at 3, count 1:
+        assert_eq!(shift_col_range(1, 2, &ins(3, 1)), Some((1, 2))); // before -> unchanged
+        assert_eq!(shift_col_range(3, 5, &ins(3, 1)), Some((4, 6))); // at/after -> +1
+        assert_eq!(shift_col_range(2, 4, &ins(3, 1)), Some((2, 5))); // straddle -> extend right
+                                                                     // Delete columns [3,4] (at=3, count=2):
+        assert_eq!(shift_col_range(1, 2, &del(3, 2)), Some((1, 2))); // entirely before
+        assert_eq!(shift_col_range(6, 8, &del(3, 2)), Some((4, 6))); // entirely after -> -2
+        assert_eq!(shift_col_range(3, 4, &del(3, 2)), None); // entirely deleted -> drop
+        assert_eq!(shift_col_range(1, 4, &del(3, 2)), Some((1, 2))); // right part deleted -> clamp to at-1
+        assert_eq!(shift_col_range(3, 6, &del(3, 2)), Some((3, 4))); // left part deleted -> [at, max-count]
+        assert_eq!(shift_col_range(1, 6, &del(3, 2)), Some((1, 4))); // spans deletion -> max-count
+    }
+
+    #[test]
+    fn defined_names_is_namespace_and_entity_aware() {
+        // Unprefixed still works. Tuple is (name, scope, refers-to); scope empty = global.
+        assert_eq!(
+            defined_names(br#"<workbook><definedNames><definedName name="A">Sheet1!$A$1</definedName></definedNames></workbook>"#),
+            vec![("A".to_string(), String::new(), "Sheet1!$A$1".to_string())]
+        );
+        // REGRESSION: a namespace-prefixed <x:definedName> (which the shifter DOES rewrite)
+        // must be seen — the old substring scan was blind to it, a false-certification hole.
+        assert_eq!(
+            defined_names(br#"<x:workbook xmlns:x="urn:x"><x:definedNames><x:definedName name="Anchor">Sheet1!$A$2</x:definedName></x:definedNames></x:workbook>"#),
+            vec![("Anchor".to_string(), String::new(), "Sheet1!$A$2".to_string())]
+        );
+        // Entities in the refers-to body are resolved (so an entity-encoded target compares
+        // equal to its plain spelling instead of masking a stale reference).
+        assert_eq!(
+            defined_names(
+                br#"<workbook><definedName name="X">Sheet1&#33;$A$1</definedName></workbook>"#
+            ),
+            vec![("X".to_string(), String::new(), "Sheet1!$A$1".to_string())]
+        );
+        // localSheetId (scope) is captured, so a re-scoped name does not compare equal.
+        assert_eq!(
+            defined_names(br#"<workbook><definedName name="A" localSheetId="1">Sheet1!$A$1</definedName></workbook>"#),
+            vec![("A".to_string(), "1".to_string(), "Sheet1!$A$1".to_string())]
+        );
+    }
+
+    #[test]
+    fn edited_sheet_body_unshifted_ref_is_a_fail_closed_whitelist() {
+        // Coordinate-bearing body constructs the engine copies verbatim -> flagged.
+        assert_eq!(
+            edited_sheet_body_unshifted_ref(br#"<worksheet><protectedRanges><protectedRange sqref="A5:A9" name="x"/></protectedRanges></worksheet>"#).as_deref(),
+            Some("protectedRange")
+        );
+        assert_eq!(
+            edited_sheet_body_unshifted_ref(br#"<worksheet><scenarios><scenario name="s"><inputCells r="A8" val="1"/></scenario></scenarios></worksheet>"#).as_deref(),
+            Some("inputCells")
+        );
+        // `$`-anchored and range/qualified `r` values must not evade the cell-shape test.
+        assert_eq!(
+            edited_sheet_body_unshifted_ref(br#"<worksheet><scenarios><scenario name="s"><inputCells r="$A$8" val="1"/></scenario></scenarios></worksheet>"#).as_deref(),
+            Some("inputCells")
+        );
+        assert_eq!(
+            edited_sheet_body_unshifted_ref(
+                br#"<worksheet><cellWatches><cellWatch r="A8:B9"/></cellWatches></worksheet>"#
+            )
+            .as_deref(),
+            Some("cellWatch")
+        );
+        assert_eq!(
+            edited_sheet_body_unshifted_ref(br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="A5:A9"/></dataRefs></dataConsolidate></worksheet>"#).as_deref(),
+            Some("dataRef")
+        );
+        assert_eq!(
+            edited_sheet_body_unshifted_ref(br#"<worksheet><ignoredErrors><ignoredError sqref="A5:A9" numberStoredAsText="1"/></ignoredErrors></worksheet>"#).as_deref(),
+            Some("ignoredError")
+        );
+        // sortState nested inside an autoFilter (autoFilter's own ref IS shifted; the
+        // nested sortState ref is NOT).
+        assert_eq!(
+            edited_sheet_body_unshifted_ref(br#"<worksheet><autoFilter ref="A1:A9"><sortState ref="A2:A9"><sortCondition ref="A2:A9"/></sortState></autoFilter></worksheet>"#).as_deref(),
+            Some("sortState")
+        );
+        // A namespace-prefixed CF the engine does NOT recognize (has_ref_attr is exact) is
+        // also flagged — fail-closed rather than left stale.
+        assert_eq!(
+            edited_sheet_body_unshifted_ref(br#"<worksheet><x:conditionalFormatting xmlns:x="urn:x" sqref="A5:A9"/></worksheet>"#).as_deref(),
+            Some("conditionalFormatting")
+        );
+
+        // Handled / benign constructs must NOT be flagged (no over-refusal).
+        // Cells and rows (row/cell path), formula bodies (formula path):
+        assert!(edited_sheet_body_unshifted_ref(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f><v>1</v></c></row></sheetData></worksheet>"#).is_none());
+        // has_ref_attr elements whose ref/sqref IS shifted:
+        assert!(edited_sheet_body_unshifted_ref(br#"<worksheet><mergeCells><mergeCell ref="A1:B2"/></mergeCells><conditionalFormatting sqref="C1:C9"><cfRule/></conditionalFormatting><dataValidations><dataValidation sqref="D1:D9"/></dataValidations><autoFilter ref="A1:D9"/><dimension ref="A1:D20"/></worksheet>"#).is_none());
+        // Pure view-state (topLeftCell / activeCell) carries no ref/sqref/r:
+        assert!(edited_sheet_body_unshifted_ref(br#"<worksheet><sheetViews><sheetView topLeftCell="B2"><selection activeCell="C3" sqref="C3"/><pane topLeftCell="B2"/></sheetView></sheetViews></worksheet>"#).is_none());
+    }
+
+    #[test]
+    fn internal_hyperlink_hazard_is_scoped_to_the_edited_sheet() {
+        // REGRESSION (round-2 review, finding 1): <hyperlink location=…> is not shifted.
+        // A local link ON the edited sheet, or any link whose location TARGETS the
+        // edited sheet, is a hazard; a link to another sheet is not.
+        let hl = |loc: &str| {
+            format!(
+                r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/><hyperlinks><hyperlink ref="A1" location="{loc}"/></hyperlinks></worksheet>"#
+            )
+        };
+        // local link on the edited sheet -> hazard
+        assert!(sheet_hyperlink_hazard(hl("A11").as_bytes(), "Sheet1", true));
+        // link (on any sheet) targeting the edited sheet by name -> hazard
+        assert!(sheet_hyperlink_hazard(
+            hl("Sheet1!A11").as_bytes(),
+            "Sheet1",
+            false
+        ));
+        assert!(sheet_hyperlink_hazard(
+            hl("'Sheet1'!A11").as_bytes(),
+            "Sheet1",
+            false
+        ));
+        // local link on a NON-edited sheet -> not a hazard for this edit
+        assert!(!sheet_hyperlink_hazard(
+            hl("A11").as_bytes(),
+            "Sheet1",
+            false
+        ));
+        // link targeting a DIFFERENT sheet -> not a hazard
+        assert!(!sheet_hyperlink_hazard(
+            hl("Other!A11").as_bytes(),
+            "Sheet1",
+            true
+        ));
+        // an external (URL) hyperlink has no location -> never flagged
+        assert!(!sheet_hyperlink_hazard(
+            br#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><hyperlinks><hyperlink ref="A1" r:id="rId1"/></hyperlinks></worksheet>"#,
+            "Sheet1",
+            true
+        ));
+    }
+
+    #[test]
+    fn location_sheet_parses_the_qualifier() {
+        assert_eq!(location_sheet("Sheet1!A11").as_deref(), Some("Sheet1"));
+        assert_eq!(location_sheet("'My Sheet'!A1").as_deref(), Some("My Sheet"));
+        assert_eq!(location_sheet("A11"), None);
+    }
+
+    #[test]
+    fn table_carrying_its_own_formula_is_still_refused() {
+        // A calculatedColumnFormula / totalsRowFormula inside a TABLE part can hold a
+        // cross-sheet reference, and we never rewrite table parts — so such a table is
+        // refused even on an unrelated sheet (conservative, fail-closed).
+        assert!(table_part_has_formula(
+            br#"<table ref="A1:B2"><tableColumns><tableColumn name="x"><calculatedColumnFormula>Sheet1!A1*2</calculatedColumnFormula></tableColumn></tableColumns></table>"#
+        ));
+        assert!(table_part_has_formula(
+            br#"<table ref="A1:B2"><tableColumn name="t"><totalsRowFormula>SUBTOTAL(109,T[x])</totalsRowFormula></tableColumn></table>"#
+        ));
+        // REGRESSION (adversarial review): a NAMESPACE-PREFIXED form must not evade the
+        // scan — a substring match on "<calculatedColumnFormula" missed "<x:...".
+        assert!(table_part_has_formula(
+            br#"<x:table xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:tableColumn name="x"><x:calculatedColumnFormula>Sheet2!A2*2</x:calculatedColumnFormula></x:tableColumn></x:table>"#
+        ));
+        // A plain table (no own formula) carries only sheet-local coordinates.
+        assert!(!table_part_has_formula(
+            br#"<table ref="A1:D4" name="Table1"><autoFilter ref="A1:D4"/><tableColumns count="1"><tableColumn id="1" name="Cars"/></tableColumns></table>"#
+        ));
+        // An unparseable table part fails CLOSED (treated as carrying a formula).
+        assert!(table_part_has_formula(b"<table <<< not xml"));
+    }
+
+    #[test]
+    fn namespace_prefixed_tableparts_are_detected() {
+        // REGRESSION (adversarial review): sheet_declares_tables used a substring scan
+        // that <x:tableParts> evaded, letting a table on the EDITED sheet be missed.
+        let plain = sd_worksheet(r#"<tableParts count="1"><tablePart r:id="rId1"/></tableParts>"#);
+        let prefixed = sd_worksheet(
+            r#"<x:tableParts xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1"><x:tablePart r:id="rId1"/></x:tableParts>"#,
+        );
+        assert!(xml_has_local_element(
+            plain.as_bytes(),
+            &[b"tableParts"],
+            true
+        ));
+        assert!(xml_has_local_element(
+            prefixed.as_bytes(),
+            &[b"tableParts"],
+            true
+        ));
+        assert!(!xml_has_local_element(
+            sd_worksheet("").as_bytes(),
+            &[b"tableParts"],
+            true
+        ));
+    }
+
+    #[test]
+    fn structured_reference_in_a_formula_is_detected() {
+        // REGRESSION (adversarial review, finding 4): SUM(Table1[Q4]) — the shift
+        // algebra mangles the specifier inside [] (Q4 looks like an A1 ref), so a
+        // workbook using a structured reference must be refused.
+        let names = vec!["Table1".to_string(), "Sales".to_string()];
+        assert!(part_uses_structured_ref(
+            br#"<x><c><f>SUM(Table1[Q4])</f></c></x>"#,
+            &names
+        ));
+        // case-insensitive (Excel normalizes table-name case)
+        assert!(part_uses_structured_ref(
+            br#"<x><f>SUM(table1[Amount])</f></x>"#,
+            &names
+        ));
+        // namespace-prefixed formula element must still be scanned
+        assert!(part_uses_structured_ref(
+            br#"<x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:f>Sales[Total]</x:f></x:worksheet>"#,
+            &names
+        ));
+        // char-ref evasion: `[` written as &#91; (a GeneralRef) must still be resolved
+        assert!(part_uses_structured_ref(
+            br#"<x><f>SUM(Table1&#91;Q4])</f></x>"#,
+            &names
+        ));
+        // a formula with no structured ref, or referencing an unknown name, is fine
+        assert!(!part_uses_structured_ref(
+            br#"<x><f>SUM(A1:A9)</f></x>"#,
+            &names
+        ));
+        assert!(!part_uses_structured_ref(
+            br#"<x><f>Other[Col]</f></x>"#,
+            &names
+        ));
+        // no tables in the workbook => nothing to scan
+        assert!(!part_uses_structured_ref(
+            br#"<x><f>Table1[Q4]</f></x>"#,
+            &[]
+        ));
+    }
+
+    #[test]
+    fn prefixed_relationship_element_still_resolves_a_table() {
+        // REGRESSION: table_targets_in_rels parsed by splitting on "<Relationship",
+        // which a prefixed <pr:Relationship> evaded. Namespace-aware now.
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("xlq-rels-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        // Build a tiny zip with just the rels part we want to read.
+        let zip_path = dir.join("wb.xlsx");
+        {
+            let f = std::fs::File::create(&zip_path).unwrap();
+            let mut z = zip::ZipWriter::new(f);
+            let opts = zip::write::SimpleFileOptions::default();
+            z.start_file("xl/worksheets/_rels/sheet1.xml.rels", opts)
+                .unwrap();
+            z.write_all(br#"<?xml version="1.0"?><pr:Relationships xmlns:pr="http://schemas.openxmlformats.org/package/2006/relationships"><pr:Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table1.xml"/></pr:Relationships>"#).unwrap();
+            z.finish().unwrap();
+        }
+        let bytes = std::fs::read(&zip_path).unwrap();
+        assert_eq!(
+            tables_attached_to(&bytes, "xl/worksheets/sheet1.xml"),
+            vec!["xl/tables/table1.xml".to_string()],
+            "a prefixed <pr:Relationship> table rel must still resolve"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rel_target_resolution_handles_parent_segments() {
+        assert_eq!(
+            resolve_rel_target("xl/worksheets", "../tables/table1.xml").unwrap(),
+            "xl/tables/table1.xml"
+        );
+        assert_eq!(
+            resolve_rel_target("xl/worksheets", "/xl/tables/t.xml").unwrap(),
+            "xl/tables/t.xml"
+        );
+        assert_eq!(
+            resolve_rel_target("xl", "tables/t.xml").unwrap(),
+            "xl/tables/t.xml"
+        );
+    }
+
+    #[test]
+    fn sheet_declares_tables_is_the_authoritative_signal() {
+        // Fail-open guard: the scan must not depend on the .rels part being readable.
+        // The edited sheet's OWN xml (<tableParts>) is authoritative, so a crafted file
+        // that drops/corrupts sheetN.xml.rels cannot hide its table from the scan.
+        let tbl = std::fs::read(format!("{FIX}table.xlsx")).unwrap();
+        assert!(
+            sheet_declares_tables(&tbl, "xl/worksheets/sheet1.xml"),
+            "table.xlsx sheet1 declares <tableParts>"
+        );
+        let pivot = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/t1/pivot-chart.xlsx"
+        ))
+        .unwrap();
+        assert!(
+            !sheet_declares_tables(&pivot, "xl/worksheets/sheet1.xml"),
+            "pivot Sheet1 owns no table"
+        );
+        assert!(
+            sheet_declares_tables(&pivot, "xl/worksheets/sheet5.xml"),
+            "pivot sheet5 owns the table"
+        );
+        // An unreadable/absent sheet part fails CLOSED (assume tables).
+        assert!(sheet_declares_tables(&pivot, "xl/worksheets/nope.xml"));
+    }
+
+    #[test]
+    fn tables_attached_to_finds_only_the_owning_sheets_tables() {
+        let input = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/t1/pivot-chart.xlsx"
+        ))
+        .unwrap();
+        // The table lives on sheet5, not sheet1.
+        assert!(tables_attached_to(&input, "xl/worksheets/sheet1.xml").is_empty());
+        assert_eq!(
+            tables_attached_to(&input, "xl/worksheets/sheet5.xml"),
+            vec!["xl/tables/table1.xml".to_string()]
         );
     }
 
