@@ -112,6 +112,9 @@ pub fn run(
     // restructure.rs's proof-carrying re-open) and the foreign edited file.
     let expected_model = load_from_bytes(&expected_bytes, original)
         .context("load xlq structural transform")?;
+    // Anti-bomb preflight on the untrusted foreign edit before ironcalc loads it.
+    crate::ooxml::guard_decompression(edited)
+        .map_err(|e| anyhow!("guard {}: {e}", diff::basename(edited)))?;
     let edited_model = ironcalc::import::load_from_xlsx(edited, "en", "UTC", "en")
         .map_err(|e| anyhow!("load {}: {e}", diff::basename(edited)))?;
 

@@ -60,7 +60,7 @@ use ironcalc::base::Model;
 use ironcalc::base::ENGINE_PROVENANCE;
 use serde_json::json;
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 
 fn basename(path: &str) -> String {
@@ -208,6 +208,9 @@ pub fn run(path: &str, redact: bool) -> Result<serde_json::Value> {
 /// census — still get one. Returns the model plus the engine features the
 /// workbook needs that the engine lacks.
 fn load_model(path: &str, name: &str) -> Result<(Model<'static>, Vec<String>)> {
+    // Anti-bomb preflight before ironcalc's unbounded zip load. Carries the same
+    // basename context as the load so a corrupt/bomb file reports identically.
+    crate::ooxml::guard_decompression(path).with_context(|| format!("load workbook {name}"))?;
     match ironcalc::import::load_from_xlsx(path, "en", "UTC", "en") {
         Ok(model) => Ok((model, Vec::new())),
         // NOT COVERABLE in tests today: the vendored ironcalc master loads
@@ -242,16 +245,15 @@ fn load_with_cse_normalized(path: &str) -> Result<Model<'static>> {
     {
         let out = std::fs::File::create(&tmp).context("create temp workbook copy")?;
         let mut writer = zip::ZipWriter::new(out);
+        let mut budget = crate::ooxml::total_cap();
         for i in 0..archive.len() {
-            let mut entry = archive.by_index(i).context("read zip entry")?;
+            let entry = archive.by_index(i).context("read zip entry")?;
             if entry.is_dir() {
                 continue;
             }
             let entry_name = entry.name().to_string();
-            let mut data = Vec::with_capacity(entry.size() as usize);
-            entry
-                .read_to_end(&mut data)
-                .context("read zip entry data")?;
+            let sz = entry.size();
+            let mut data = crate::ooxml::read_entry_capped(entry, sz, &entry_name, &mut budget)?;
             if entry_name.starts_with("xl/worksheets/") && entry_name.ends_with(".xml") {
                 let xml = String::from_utf8_lossy(&data).into_owned();
                 data = strip_cse_array_attrs(&xml).into_bytes();
@@ -329,6 +331,7 @@ fn ooxml_parts(path: &str) -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read; // ZipFile::read_to_end in a fixture helper below
 
     fn save_temp(model: &Model, tag: &str) -> String {
         let dir = std::env::temp_dir().join("xlq-inspect-tests");

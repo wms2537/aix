@@ -32,7 +32,7 @@ use ironcalc::base::types::CellType;
 use ironcalc::base::Model;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 
 use crate::journal::{self, ChainStatus};
 use crate::ooxml::{self, CellEdit, CellValue};
@@ -128,14 +128,18 @@ fn read_parts(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>> {
     let mut archive =
         zip::ZipArchive::new(Cursor::new(bytes)).context("open xlsx archive for fidelity check")?;
     let mut parts = BTreeMap::new();
+    // Anti-bomb: this fidelity check decompresses EVERY part of both the original
+    // and the written workbook (called twice per apply), so it is a prime OOM
+    // target. One budget per call bounds it.
+    let mut budget = crate::ooxml::total_cap();
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).context("read archive entry")?;
+        let entry = archive.by_index(i).context("read archive entry")?;
         if entry.is_dir() {
             continue;
         }
         let name = entry.name().to_string();
-        let mut buf = Vec::new();
-        entry.read_to_end(&mut buf).context("read archive entry")?;
+        let sz = entry.size();
+        let buf = crate::ooxml::read_entry_capped(entry, sz, &name, &mut budget)?;
         parts.insert(name, buf);
     }
     Ok(parts)
@@ -177,6 +181,9 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
     // (2) PREDICT. load_from_xlsx reads the file into an in-memory model; every
     // mutation below is on that copy, so the original file is never touched
     // until the surgical write in step (4).
+    // Anti-bomb preflight before ironcalc's unbounded zip loads the user file.
+    crate::ooxml::guard_decompression(file)
+        .with_context(|| format!("load workbook {file_name}"))?;
     let mut model = ironcalc::import::load_from_xlsx(file, "en", "UTC", "en")
         .map_err(|e| anyhow!(e))
         .with_context(|| format!("load workbook {file_name}"))?;

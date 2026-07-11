@@ -77,8 +77,11 @@ pub fn surgical_write(input: &[u8], edits: &[CellEdit]) -> Result<Vec<u8>> {
         .compression_method(zip::CompressionMethod::Deflated)
         .last_modified_time(zip::DateTime::default());
 
+    // One decompression budget across the whole workbook (anti-bomb; see
+    // read_entry_capped).
+    let mut budget = total_cap();
     for i in 0..archive.len() {
-        let mut file = archive
+        let file = archive
             .by_index(i)
             .map_err(|e| anyhow!("read zip entry: {e}"))?;
         let name = file.name().to_string();
@@ -96,10 +99,8 @@ pub fn surgical_write(input: &[u8], edits: &[CellEdit]) -> Result<Vec<u8>> {
             continue;
         }
 
-        let mut bytes = Vec::with_capacity(file.size() as usize);
-        file.read_to_end(&mut bytes)
-            .map_err(|e| anyhow!("read part bytes: {e}"))?;
-        drop(file);
+        let sz = file.size();
+        let mut bytes = read_entry_capped(file, sz, &name, &mut budget)?;
 
         if let Some(part_edits) = by_part.get(&name) {
             bytes = rewrite_sheet(&bytes, part_edits)
@@ -149,19 +150,120 @@ pub fn sheet_part(input: &[u8], sheet_name: &str) -> Result<String> {
 }
 
 // ---------------------------------------------------------------------------
-// zip part access
+// zip part access — bounded against decompression bombs
 // ---------------------------------------------------------------------------
+
+/// Per-part and per-workbook decompression caps. An .xlsx is a zip; a crafted
+/// "decompression bomb" declares a small compressed size but expands to gigabytes,
+/// OOM-ing the process — a real threat for a tool whose whole premise is handling
+/// UNTRUSTED workbooks. xlq controls all of ITS OWN zip reads (via `zip` 2.4.2),
+/// so every one routes through [`read_entry_capped`], which bounds both the
+/// up-front reservation (defeats the declared-size over-allocation attack) and the
+/// actual decompressed length (defeats the real bomb). Defaults are generous — a
+/// real single sheet part rarely exceeds tens of MiB — and overridable via
+/// `XLQ_MAX_PART_BYTES` / `XLQ_MAX_TOTAL_BYTES` for the rare legitimately-huge model.
+pub(crate) const PART_DECOMPRESS_CAP: u64 = 512 << 20; // 512 MiB / part
+pub(crate) const TOTAL_DECOMPRESS_CAP: u64 = 2 << 30; // 2 GiB / workbook
+
+fn env_cap(var: &str, default: u64) -> u64 {
+    std::env::var(var).ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(default)
+}
+
+/// The per-part decompression cap, honoring the `XLQ_MAX_PART_BYTES` override.
+pub(crate) fn part_cap() -> u64 {
+    env_cap("XLQ_MAX_PART_BYTES", PART_DECOMPRESS_CAP)
+}
+
+/// The per-workbook decompression cap, honoring the `XLQ_MAX_TOTAL_BYTES`
+/// override. Callers seed a mutable budget with this before a per-entry loop.
+pub(crate) fn total_cap() -> u64 {
+    env_cap("XLQ_MAX_TOTAL_BYTES", TOTAL_DECOMPRESS_CAP)
+}
+
+/// Read one zip entry fully into memory, failing closed on a decompression bomb.
+/// `declared_size` is the entry's (untrusted) central-directory uncompressed size,
+/// used ONLY to size the reservation — never trusted for the cap. `budget` is the
+/// remaining per-workbook allowance; it is decremented by the bytes actually read,
+/// so a workbook of many individually-under-cap parts that together exceed the
+/// total cap still fails closed.
+pub(crate) fn read_entry_capped<R: Read>(
+    entry: R,
+    declared_size: u64,
+    name: &str,
+    budget: &mut u64,
+) -> Result<Vec<u8>> {
+    let cap = part_cap().min(*budget);
+    // Reserve at most the smaller of declared size, the remaining cap, and a sane
+    // 8 MiB start — never allocate gigabytes from an attacker-declared size.
+    let reserve = declared_size.min(cap).min(8 << 20) as usize;
+    let mut bytes = Vec::with_capacity(reserve);
+    // Read one byte PAST the cap so an over-cap entry is detected deterministically,
+    // whatever size it declared.
+    let n = entry
+        .take(cap + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| anyhow!("read part {name}: {e}"))? as u64;
+    if n > cap {
+        bail!(
+            "decompression_bomb: part '{name}' exceeds the decompression cap \
+             ({cap} bytes) — refusing (raise XLQ_MAX_PART_BYTES / XLQ_MAX_TOTAL_BYTES if intentional)"
+        );
+    }
+    *budget -= n;
+    Ok(bytes)
+}
 
 pub(crate) fn read_part(input: &[u8], name: &str) -> Result<Vec<u8>> {
     let mut archive = zip::ZipArchive::new(Cursor::new(input))
         .map_err(|e| anyhow!("open workbook zip: {e}"))?;
-    let mut file = archive
+    let file = archive
         .by_name(name)
         .map_err(|_| anyhow!("missing part {name}"))?;
-    let mut bytes = Vec::with_capacity(file.size() as usize);
-    file.read_to_end(&mut bytes)
-        .map_err(|e| anyhow!("read {name}: {e}"))?;
-    Ok(bytes)
+    let sz = file.size();
+    // Single named part: a fresh per-part budget is correct here.
+    let mut budget = total_cap();
+    read_entry_capped(file, sz, name, &mut budget)
+}
+
+/// Preflight guard: stream every zip entry of the workbook at `path` through the
+/// decompression caps BEFORE the file is handed to the vendored ironcalc engine.
+///
+/// Commands that read the workbook through xlq's own capped readers (structural
+/// edit, surgical write, `read_part`) are already bounded. But `calc`/`inspect`/
+/// `diff`/`certify`/`apply` hand a user path straight to
+/// `ironcalc::import::load_from_xlsx`, which decompresses the whole workbook via a
+/// SEPARATE, unbounded transitive `zip` that xlq cannot bound without patching the
+/// engine. This guard streams the same entries under the same caps first: if every
+/// entry stays under the cap for xlq, ironcalc reading them stays under the cap
+/// too — turning a potential OOM into a clean fail-closed error. Bytes are streamed
+/// to a sink (no allocation).
+///
+/// Residual (honest): a malformed archive that ironcalc's zip parses differently
+/// than xlq's could still slip past; bounding the engine's own reader is tracked as
+/// a follow-up. This guard also does not address the quick-xml XML-parse DoS
+/// vectors (handled separately by the quick-xml >=0.41 bump).
+pub(crate) fn guard_decompression(path: &str) -> Result<()> {
+    let f = std::fs::File::open(path).map_err(|e| anyhow!("open workbook: {e}"))?;
+    let mut archive = zip::ZipArchive::new(f).map_err(|e| anyhow!("open workbook zip: {e}"))?;
+    let mut budget = total_cap();
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i).map_err(|e| anyhow!("read zip entry: {e}"))?;
+        if entry.is_dir() {
+            continue;
+        }
+        let name = entry.name().to_string();
+        let cap = part_cap().min(budget);
+        let n = std::io::copy(&mut entry.take(cap + 1), &mut std::io::sink())
+            .map_err(|e| anyhow!("read part {name}: {e}"))?;
+        if n > cap {
+            bail!(
+                "decompression_bomb: part '{name}' exceeds the decompression cap \
+                 ({cap} bytes) — refusing (raise XLQ_MAX_PART_BYTES / XLQ_MAX_TOTAL_BYTES if intentional)"
+            );
+        }
+        budget -= n;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -799,6 +901,36 @@ mod tests {
 
     fn read_fixture(path: &str) -> Vec<u8> {
         std::fs::read(path).unwrap_or_else(|e| panic!("read fixture {path}: {e}"))
+    }
+
+    #[test]
+    fn read_entry_capped_refuses_bomb() {
+        // A decompression bomb expands far past its declared size; an "infinite"
+        // reader with a small budget must be refused deterministically.
+        let mut budget = 1024u64;
+        let err = read_entry_capped(std::io::repeat(0u8), 16, "bomb", &mut budget).unwrap_err();
+        assert!(format!("{err:#}").contains("decompression_bomb"), "{err:#}");
+    }
+
+    #[test]
+    fn read_entry_capped_reads_normal_and_debits_budget() {
+        let data = vec![7u8; 500];
+        let mut budget = 10_000u64;
+        let out = read_entry_capped(&data[..], 500, "part", &mut budget).unwrap();
+        assert_eq!(out, data, "under-cap entry read fully");
+        assert_eq!(budget, 10_000 - 500, "budget debited by bytes read");
+    }
+
+    #[test]
+    fn read_entry_capped_enforces_total_across_parts() {
+        // Two parts each under the per-part cap but together over the small
+        // remaining budget: the second fails closed via cap = part_cap.min(budget).
+        let mut budget = 800u64;
+        let first = read_entry_capped(&vec![1u8; 500][..], 500, "p1", &mut budget).unwrap();
+        assert_eq!(first.len(), 500);
+        assert_eq!(budget, 300);
+        let err = read_entry_capped(&vec![1u8; 500][..], 500, "p2", &mut budget).unwrap_err();
+        assert!(format!("{err:#}").contains("decompression_bomb"), "total cap: {err:#}");
     }
 
     fn parts_map(bytes: &[u8]) -> BTreeMap<String, Vec<u8>> {

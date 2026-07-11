@@ -327,6 +327,10 @@ pub fn run(path: &str) -> Result<serde_json::Value> {
         .unwrap_or(path)
         .to_string();
 
+    // Anti-bomb preflight: bound decompression before ironcalc's own unbounded
+    // zip loads the untrusted workbook (see ooxml::guard_decompression).
+    crate::ooxml::guard_decompression(path)
+        .with_context(|| format!("load workbook {file_name}"))?;
     let mut model = ironcalc::import::load_from_xlsx(path, "en", "UTC", "en")
         .map_err(|e| anyhow!(e))
         .with_context(|| format!("load workbook {file_name}"))?;

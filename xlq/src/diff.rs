@@ -85,6 +85,9 @@ pub fn run(old_path: &str, new_path: &str) -> Result<serde_json::Value> {
     // into the stdout JSON payload, which must never contain full paths.
     let old_name = basename(old_path);
     let new_name = basename(new_path);
+    // Anti-bomb preflight before ironcalc's unbounded zip loads either workbook.
+    crate::ooxml::guard_decompression(old_path).with_context(|| format!("guard {old_name}"))?;
+    crate::ooxml::guard_decompression(new_path).with_context(|| format!("guard {new_name}"))?;
     let old_model = ironcalc::import::load_from_xlsx(old_path, "en", "UTC", "en")
         .with_context(|| format!("load {old_name}"))?;
     let new_model = ironcalc::import::load_from_xlsx(new_path, "en", "UTC", "en")

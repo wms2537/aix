@@ -328,4 +328,24 @@ mod exit_codes {
         assert!(!Path::new("/no/such/file.xlsx").exists());
         assert_eq!(run(&["inspect", "/no/such/file.xlsx"]), 1);
     }
+
+    #[test]
+    fn decompression_guard_is_wired_and_fails_closed() {
+        // With a tiny per-part cap the anti-bomb preflight must refuse a real
+        // workbook BEFORE ironcalc loads it — proving the guard is wired into a
+        // command and fails closed (exit 1, JSON error on stdout, no OOM). Env is
+        // process-isolated, so this cannot race other tests.
+        let fx = fixture("refs.xlsx");
+        let out = Command::new(env!("CARGO_BIN_EXE_xlq"))
+            .args(["inspect", fx.as_str()])
+            .env("XLQ_MAX_PART_BYTES", "100")
+            .output()
+            .expect("spawn xlq");
+        assert_eq!(out.status.code(), Some(1), "guard refusal exits 1");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("decompression_bomb"), "guard error on stdout: {stdout}");
+        // The same workbook inspects fine without the tiny cap (caps don't trip
+        // on real files).
+        assert_eq!(run(&["inspect", fx.as_str()]), 0, "normal inspect still succeeds");
+    }
 }

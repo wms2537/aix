@@ -23,7 +23,7 @@ use quick_xml::events::{BytesRef, BytesStart, BytesText, Event};
 use quick_xml::reader::Reader;
 use quick_xml::writer::Writer;
 use std::collections::BTreeMap;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Write};
 
 #[derive(Debug, Default, Clone)]
 pub struct StructuralReport {
@@ -76,8 +76,14 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
     //     command layer declines the edit — preserving "never silently wrong".
     scan_extra_residuals(&archive_names(input)?, input, edit, &mut report);
 
+    // One decompression budget across the whole workbook. The declared
+    // uncompressed size is attacker-controlled; read_entry_capped bounds BOTH the
+    // reservation (defeats the over-allocation attack) AND the actual decompressed
+    // length (defeats the real bomb — the old .min(8<<20) clamped only the former,
+    // so read_to_end still expanded the whole entry unbounded).
+    let mut budget = crate::ooxml::total_cap();
     for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| anyhow!("zip entry: {e}"))?;
+        let file = archive.by_index(i).map_err(|e| anyhow!("zip entry: {e}"))?;
         let name = file.name().to_string();
         if name == "xl/calcChain.xml" {
             continue;
@@ -88,13 +94,8 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
                 .map_err(|e| anyhow!("dir: {e}"))?;
             continue;
         }
-        // Clamp the reservation: the declared uncompressed size is attacker-
-        // controlled, so a crafted entry must not drive a giant allocation. The
-        // Vec still grows as needed for a genuinely large (but real) part.
-        let cap = (file.size() as usize).min(8 << 20);
-        let mut bytes = Vec::with_capacity(cap);
-        file.read_to_end(&mut bytes).map_err(|e| anyhow!("read: {e}"))?;
-        drop(file);
+        let sz = file.size();
+        let mut bytes = crate::ooxml::read_entry_capped(file, sz, &name, &mut budget)?;
 
         // `touched` is derived from CONTENT, not from a shift counter: any part
         // whose bytes actually change must be reported in `parts_touched`, even
@@ -1278,6 +1279,7 @@ fn tag_local_eq(name: &[u8], local: &[u8]) -> bool {
 mod tests {
     use super::*;
     use crate::refshift::{Axis, Op, StructuralEdit};
+    use std::io::Read; // File::read_to_end/read_to_string in fixture helpers below
 
     fn edit(sheet: &str, axis: Axis, op: Op, at: u32, count: u32) -> StructuralEdit {
         StructuralEdit { axis, at, count, op, sheet: sheet.into(), dest: 0 }
