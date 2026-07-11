@@ -1219,6 +1219,7 @@ dependencies = [
  "anyhow",
  "clap",
  "ironcalc",
+ "libc",
  "quick-xml",
  "serde",
  "serde_json",

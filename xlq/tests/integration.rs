@@ -494,3 +494,57 @@ mod journal_verbs {
         let _ = std::fs::remove_dir_all(&dir3);
     }
 }
+
+/// The process-robustness firewall: a panic becomes machine-readable JSON with a
+/// stable exit code and no path leak; a closed stdout pipe no longer panics.
+mod robustness {
+    use std::process::Command;
+
+    #[test]
+    fn panic_becomes_json_exit_70_with_no_path_leak() {
+        let out = Command::new(env!("CARGO_BIN_EXE_xlq"))
+            .arg("__panic")
+            .output()
+            .expect("spawn xlq");
+        // Internal panic -> stable exit 70 (EX_SOFTWARE), distinct from 0/1/2.
+        assert_eq!(out.status.code(), Some(70), "internal panic exits 70");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let v: serde_json::Value = serde_json::from_str(stdout.trim())
+            .unwrap_or_else(|e| panic!("stdout must be json ({e}): {stdout}"));
+        assert_eq!(v["internal_error"], true, "flagged as an internal error");
+        let err = v["error"].as_str().expect("error string");
+        assert!(err.contains(".rs:"), "carries a basename source location: {err}");
+        // The no-full-paths-on-stdout guarantee must hold even on a crash: the
+        // hook reduces the (possibly ~/.cargo/registry) location to a basename.
+        assert!(!err.contains('/'), "no path components leak on stdout: {err}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("xlq internal error:"), "single-line stderr: {stderr}");
+        assert!(
+            !stderr.contains("thread 'main' panicked"),
+            "raw multi-line panic dump suppressed: {stderr}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn closed_stdout_pipe_does_not_panic() {
+        use std::io::Read;
+        use std::process::Stdio;
+        let fx = format!("{}/../fixtures/structural/refs.xlsx", env!("CARGO_MANIFEST_DIR"));
+        let mut child = Command::new(env!("CARGO_BIN_EXE_xlq"))
+            .args(["inspect", &fx])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn xlq");
+        // Close the read end of stdout immediately so xlq's write hits a broken
+        // pipe — the `| head` scenario. With Rust's default SIG_IGN this becomes a
+        // BrokenPipe panic (exit 101); with SIG_DFL the process dies cleanly.
+        drop(child.stdout.take());
+        let mut stderr = String::new();
+        child.stderr.take().unwrap().read_to_string(&mut stderr).ok();
+        let status = child.wait().expect("wait");
+        assert_ne!(status.code(), Some(101), "broken pipe must not panic-exit (101)");
+        assert!(!stderr.contains("panicked"), "no panic on a closed pipe; stderr: {stderr}");
+    }
+}

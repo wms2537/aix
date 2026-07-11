@@ -19,6 +19,10 @@ sha2 = "0.10"
 anyhow = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 quick-xml = "0.41"
+# Used solely to restore the default SIGPIPE disposition in main() (Rust's
+# runtime sets SIG_IGN). Already resolved transitively via zip/ironcalc, so this
+# adds zero new crates — it only makes libc::SIGPIPE/SIG_DFL nameable.
+libc = "0.2"
 
 [[bin]]
 name = "xlq"

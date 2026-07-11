@@ -17,6 +17,7 @@ mod value;
 mod verify;
 
 use clap::{Parser, Subcommand};
+use std::sync::Mutex;
 
 /// xlq — agent-safe operations on Excel workbooks.
 ///
@@ -150,6 +151,10 @@ enum Command {
         #[arg(long)]
         actor: Option<String>,
     },
+    /// Deliberately panic — the only reliable trigger for the panic-firewall
+    /// integration test (hidden; namespaced with __; never a user surface).
+    #[command(name = "__panic", hide = true)]
+    Panic,
     /// Test-only batch driver for the Lean↔Rust tokenizer differential
     /// (hidden from help; not part of the public CLI surface). Reads TSV
     /// lines from stdin — formula \t axis(row|col) \t op(insert|delete)
@@ -236,7 +241,71 @@ fn shift_formula_batch() {
     }
 }
 
+/// Captured panic message (basename-sanitized location + payload), set by the
+/// panic hook and read by `main()` after `catch_unwind`. A panic is fatal, so a
+/// single last-writer-wins slot is sufficient.
+static PANIC_MSG: Mutex<Option<String>> = Mutex::new(None);
+
+/// Install a panic hook that captures a machine-usable, path-safe message and
+/// suppresses Rust's default multi-line stderr dump. The source LOCATION is
+/// reduced to its basename: a panic inside a dependency carries an absolute
+/// `file!()` under `~/.cargo/registry`, which would otherwise leak the home
+/// directory into the stdout JSON — the no-full-paths guarantee must hold even
+/// on a crash.
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "internal panic".to_string());
+        let loc = info
+            .location()
+            .map(|l| {
+                let base = std::path::Path::new(l.file())
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                format!("{base}:{}", l.line())
+            })
+            .unwrap_or_else(|| "unknown".to_string());
+        if let Ok(mut slot) = PANIC_MSG.lock() {
+            *slot = Some(format!("internal error at {loc}: {payload}"));
+        }
+    }));
+}
+
 fn main() {
+    // Behave like a standard Unix filter under early pipe closure. Rust's runtime
+    // sets SIGPIPE to SIG_IGN, so a closed stdout (`xlq inspect big.xlsx | head`)
+    // turns the next `println!` into a BrokenPipe panic. Restoring SIG_DFL makes
+    // the process die cleanly on a closed pipe (exit 141) and sidesteps the
+    // chicken-and-egg of writing a JSON error to an already-dead stdout. Must run
+    // before any output.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+    install_panic_hook();
+
+    // Firewall: a genuine internal panic becomes a machine-readable JSON error on
+    // stdout with a stable exit 70 (EX_SOFTWARE) — distinct from the 0/1/2
+    // refusal/usage contract — instead of a raw multi-line panic + exit 101. The
+    // intended exit codes are unaffected: run()'s std::process::exit(..) calls
+    // terminate WITHOUT unwinding, so they never reach this arm.
+    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).is_err() {
+        let msg = PANIC_MSG
+            .lock()
+            .ok()
+            .and_then(|m| m.clone())
+            .unwrap_or_else(|| "internal error".to_string());
+        eprintln!("xlq internal error: {msg}");
+        println!("{}", serde_json::json!({ "error": msg, "internal_error": true }));
+        std::process::exit(70);
+    }
+}
+
+fn run() {
     let cli = Cli::parse();
     let result = match cli.command {
         Command::Inspect { file, redact } => inspect::run(&file, redact),
@@ -305,6 +374,7 @@ fn main() {
         Command::Log { file } => log::run(&file),
         Command::Verify { file } => verify::run(&file),
         Command::Undo { file, actor } => undo::run(&file, actor.as_deref()),
+        Command::Panic => panic!("deliberate test panic — firewall check"),
         Command::ShiftFormulaBatch => {
             shift_formula_batch();
             return;
