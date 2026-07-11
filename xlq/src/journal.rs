@@ -42,10 +42,10 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
 
-// Duplicated from calc.rs's ENGINE const so a receipt records exactly which
-// engine produced its cached values. Kept in sync by hand: bump both together
-// (calc.rs ENGINE, inspect.rs, and this) whenever the ironcalc pin changes.
-const ENGINE_VERSION: &str = "ironcalc 0.7.1+e50ccea8 (vendored master)";
+// Single-sourced from the vendored engine (base/src/constants.rs) so a receipt
+// records exactly which engine produced its cached values — no hand-sync; the
+// version segment tracks the linked crate's Cargo.toml at compile time.
+use ironcalc::base::ENGINE_PROVENANCE as ENGINE_VERSION;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Receipt {

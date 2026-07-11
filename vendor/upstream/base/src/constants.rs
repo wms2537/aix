@@ -39,6 +39,17 @@ pub(crate) const MINIMUM_DATE_SERIAL_NUMBER: i32 = 1;
 /// 2958465 is the number of days from 1900-01-01 to 9999-12-31
 pub(crate) const MAXIMUM_DATE_SERIAL_NUMBER: i32 = 2_958_465;
 
+/// Provenance string for this vendored IronCalc build, consumed by xlq to
+/// stamp receipts/reports with the engine that produced cached values.
+/// The version segment is derived from this crate's `Cargo.toml` at compile
+/// time (`env!("CARGO_PKG_VERSION")`) so it can never disagree with the linked
+/// engine; the commit hash and `(vendored master)` tag are the maintained
+/// parts and are the single place to update on an engine bump (see
+/// `vendor/PATCHES.md` §2). This is the sole source of truth — every xlq site
+/// consumes `ironcalc::base::ENGINE_PROVENANCE` rather than a hand-copied literal.
+pub const ENGINE_PROVENANCE: &str =
+    concat!("ironcalc ", env!("CARGO_PKG_VERSION"), "+e50ccea8 (vendored master)");
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,5 +57,15 @@ mod tests {
     fn test_constants() {
         assert_eq!(COLUMN_WIDTH_FACTOR * 10.0, DEFAULT_COLUMN_WIDTH);
         assert_eq!(ROW_HEIGHT_FACTOR * 16.0, DEFAULT_ROW_HEIGHT);
+    }
+
+    #[test]
+    fn engine_provenance_tracks_crate_version() {
+        // The version segment must be compile-time-derived from THIS crate's
+        // manifest, so it cannot drift from the linked engine.
+        assert!(ENGINE_PROVENANCE.starts_with(concat!("ironcalc ", env!("CARGO_PKG_VERSION"))));
+        // Pin the exact current output so an accidental format change is caught
+        // and stays byte-identical to the receipts/harnesses already committed.
+        assert_eq!(ENGINE_PROVENANCE, "ironcalc 0.7.1+e50ccea8 (vendored master)");
     }
 }

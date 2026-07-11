@@ -30,6 +30,7 @@
 
 use ironcalc::base::cell::CellValue;
 use ironcalc::base::Model;
+use ironcalc::base::ENGINE_PROVENANCE;
 use serde_json::{json, Map, Value};
 use std::process::ExitCode;
 
@@ -390,10 +391,11 @@ fn run() -> Result<Value, String> {
 
     Ok(json!({
         "meta": {
-            // Keep in sync with the ENGINE constant in xlq/src/calc.rs (the
-            // xlq bin targets share no library crate, so it is duplicated):
-            // this artifact must identify the engine that actually ran.
-            "engine": "ironcalc 0.7.1+e50ccea8 (vendored master)",
+            // Single-sourced from the vendored engine (ironcalc_base). The bin
+            // targets share no xlq library crate, so they reach the const only
+            // through the ironcalc dependency — which is exactly why the single
+            // source lives there, not in an xlq module.
+            "engine": ENGINE_PROVENANCE,
             "reference": "LibreOffice-computed cached values from the converted workbook",
             "policy": {
                 "numbers": "relative 1e-9, absolute 1e-12 near zero; exact zero only matches exact zero; non-bit-identical agreements counted as within_tolerance",

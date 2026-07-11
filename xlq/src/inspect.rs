@@ -57,6 +57,7 @@
 use anyhow::{anyhow, Context, Result};
 use ironcalc::base::types::CellType;
 use ironcalc::base::Model;
+use ironcalc::base::ENGINE_PROVENANCE;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -181,8 +182,7 @@ pub fn run(path: &str, redact: bool) -> Result<serde_json::Value> {
         })
     };
 
-    let mut coverage =
-        json!({"engine": "ironcalc 0.7.1+e50ccea8 (vendored master)", "reliable": reliable});
+    let mut coverage = json!({"engine": ENGINE_PROVENANCE, "reliable": reliable});
     if !unsupported_features.is_empty() {
         coverage["unsupported_features"] = json!(unsupported_features);
     }
@@ -414,7 +414,7 @@ mod tests {
         assert!(report["ooxml_parts"]["part_count"].as_u64().unwrap() > 0);
         assert_eq!(
             report["coverage"]["engine"],
-            json!("ironcalc 0.7.1+e50ccea8 (vendored master)")
+            json!(ironcalc::base::ENGINE_PROVENANCE)
         );
         assert_eq!(report["xlq"]["command"], json!("inspect"));
 

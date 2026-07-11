@@ -250,10 +250,7 @@ fn calc_payroll_reports_coverage_and_zero_recalc_drift() {
     let coverage = json["coverage"]
         .as_object()
         .expect("coverage block present");
-    assert_eq!(
-        coverage["engine"],
-        "ironcalc 0.7.1+e50ccea8 (vendored master)"
-    );
+    assert_eq!(coverage["engine"], ironcalc::base::ENGINE_PROVENANCE);
     // Fixtures must only use functions the engine supports.
     assert_eq!(
         coverage["reliable"], true,

@@ -38,9 +38,10 @@ use crate::journal::{self, ChainStatus};
 use crate::ooxml::{self, CellEdit, CellValue};
 use crate::patch;
 
-// Must match calc.rs ENGINE (the provenance string is pinned to the linked
-// engine; bump both together). census/coverage consumers compare against it.
-const ENGINE: &str = "ironcalc 0.7.1+e50ccea8 (vendored master)";
+// Single-sourced from the vendored engine (base/src/constants.rs); the
+// cross-module invariant ("must match calc.rs ENGINE") now holds by construction
+// because both alias the same const. census/coverage consumers compare against it.
+use ironcalc::base::ENGINE_PROVENANCE as ENGINE;
 
 // Excel volatile set (same list census.rs uses); a cell whose own formula
 // calls one is time/randomness dependent.

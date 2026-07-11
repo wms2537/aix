@@ -54,10 +54,10 @@ use serde::Serialize;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 
-// Kept truthful by pinning `ironcalc = "=0.7.1"` in Cargo.toml: a plain
-// caret requirement would let `cargo update` silently falsify this
-// provenance string. Bump both together.
-const ENGINE: &str = "ironcalc 0.7.1+e50ccea8 (vendored master)";
+// Single-sourced from the vendored engine (base/src/constants.rs); aliased so
+// the JSON-emitting code below is unchanged and the string can never disagree
+// with the linked engine. Kept truthful by pinning `ironcalc = "=0.7.1"`.
+use ironcalc::base::ENGINE_PROVENANCE as ENGINE;
 const CHANGED_CAP: usize = 10_000;
 
 // Same 8-name volatile set as census.rs (Excel semantics); census does not
