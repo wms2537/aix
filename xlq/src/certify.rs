@@ -71,8 +71,8 @@ pub fn run(
     };
 
     // (1) xlq's OWN faithful transform of the original.
-    let original_bytes = std::fs::read(original)
-        .with_context(|| format!("read {}", diff::basename(original)))?;
+    let original_bytes =
+        std::fs::read(original).with_context(|| format!("read {}", diff::basename(original)))?;
     let edit = StructuralEdit {
         axis,
         at,
@@ -102,16 +102,16 @@ pub fn run(
     // would be invisible to it — a reachable false certification. We close it here:
     // defined names must match xlq's (proven) transform exactly, and any other
     // reference-bearing part certify does not compare fails closed.
-    let edited_bytes = std::fs::read(edited)
-        .with_context(|| format!("read {}", diff::basename(edited)))?;
+    let edited_bytes =
+        std::fs::read(edited).with_context(|| format!("read {}", diff::basename(edited)))?;
     if let Some(refusal) = verify_noncell_refs(&expected_bytes, &edited_bytes) {
         return Ok(refusal);
     }
 
     // (2) Load xlq's transform (from a unique temp file, same discipline as
     // restructure.rs's proof-carrying re-open) and the foreign edited file.
-    let expected_model = load_from_bytes(&expected_bytes, original)
-        .context("load xlq structural transform")?;
+    let expected_model =
+        load_from_bytes(&expected_bytes, original).context("load xlq structural transform")?;
     // Anti-bomb preflight on the untrusted foreign edit before ironcalc loads it.
     crate::ooxml::guard_decompression(edited)
         .map_err(|e| anyhow!("guard {}: {e}", diff::basename(edited)))?;
@@ -119,8 +119,8 @@ pub fn run(
         .map_err(|e| anyhow!("load {}: {e}", diff::basename(edited)))?;
 
     // Positional snapshots — STORED formulas + raw values, no evaluation.
-    let expected_snap = diff::snapshot(&expected_model)
-        .context("snapshot xlq structural transform")?;
+    let expected_snap =
+        diff::snapshot(&expected_model).context("snapshot xlq structural transform")?;
     let edited_snap = diff::snapshot(&edited_model)
         .with_context(|| format!("snapshot {}", diff::basename(edited)))?;
 
@@ -128,7 +128,11 @@ pub fn run(
     let (counts, samples) = compare(&expected_snap, &edited_snap);
 
     let disqualifying = counts.formula + counts.value + counts.added + counts.removed;
-    let status = if disqualifying == 0 { "CERTIFIED" } else { "REFUSED" };
+    let status = if disqualifying == 0 {
+        "CERTIFIED"
+    } else {
+        "REFUSED"
+    };
 
     Ok(json!({
         "status": status,
@@ -227,7 +231,10 @@ fn defined_names(bytes: &[u8]) -> Vec<(String, String)> {
         let tag = &rest[..gt];
         let name = attr(tag, "name").unwrap_or_default();
         let after = &rest[gt + 1..];
-        let refers = after.find("</definedName>").map(|e| &after[..e]).unwrap_or("");
+        let refers = after
+            .find("</definedName>")
+            .map(|e| &after[..e])
+            .unwrap_or("");
         out.push((name, refers.to_string()));
         rest = after;
     }

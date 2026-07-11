@@ -62,7 +62,11 @@ pub fn run(file: &str, actor: Option<&str>) -> Result<Value> {
     let head = entries.last().expect("non-empty");
     let head_rev = get_u64(head, "rev");
     let target_hash = get_str(head, "base_hash").to_string();
-    let target = match entries.iter().rev().find(|e| get_str(e, "result_hash") == target_hash) {
+    let target = match entries
+        .iter()
+        .rev()
+        .find(|e| get_str(e, "result_hash") == target_hash)
+    {
         Some(t) => t,
         // Genesis apply's base is the pristine ORIGINAL, which was never snapshotted
         // as a rev file (commit overwrites the book with the result), so there is

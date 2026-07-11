@@ -59,10 +59,9 @@ fn basename(path: &str) -> &str {
 
 pub fn load(path: &str) -> Result<Patch> {
     let name = basename(path);
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("reading patch {name}"))?;
-    let patch: Patch = serde_json::from_str(&text)
-        .with_context(|| format!("parsing patch {name}"))?;
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading patch {name}"))?;
+    let patch: Patch =
+        serde_json::from_str(&text).with_context(|| format!("parsing patch {name}"))?;
     Ok(patch)
 }
 
@@ -218,7 +217,10 @@ mod tests {
     fn schema_matches_the_deserializer() {
         let s = schema();
         let required = s["required"].as_array().expect("required is an array");
-        assert!(required.iter().any(|v| v == "base_hash"), "base_hash required");
+        assert!(
+            required.iter().any(|v| v == "base_hash"),
+            "base_hash required"
+        );
         assert!(required.iter().any(|v| v == "ops"), "ops required");
         // Drift guard: an example conforming to the schema (both op kinds + a date
         // wrapper) must deserialize through the REAL Patch deserializer, so the
@@ -265,7 +267,11 @@ mod tests {
             _ => panic!("expected set_cell"),
         }
         match &p.ops[1] {
-            Op::SetFormula { sheet, cell, formula } => {
+            Op::SetFormula {
+                sheet,
+                cell,
+                formula,
+            } => {
                 assert_eq!(sheet, "Sheet1");
                 assert_eq!(cell, "C1");
                 assert_eq!(formula, "=A1+1");

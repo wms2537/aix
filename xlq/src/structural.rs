@@ -102,7 +102,11 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
         // if it shifted zero references (e.g. a foreign sheet whose only change
         // was shared-formula expansion). Reporting fewer parts than we rewrote
         // would be silently-wrong — the exact property this tool must not have.
-        let before = if name == edited_part { Vec::new() } else { bytes.clone() };
+        let before = if name == edited_part {
+            Vec::new()
+        } else {
+            bytes.clone()
+        };
         if name == edited_part {
             // Materialize shared formulas so σ shifts them uniformly, then run
             // the row/cell coordinate + formula surgery on the explicit sheet.
@@ -124,7 +128,8 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
                         part: name.clone(),
                         reason: "non_ascii_sheet_qualifier".into(),
                         detail: "unquoted non-ASCII sheet qualifier in a cross-sheet formula \
-                                 — edit refused (fail-closed)".into(),
+                                 — edit refused (fail-closed)"
+                            .into(),
                     });
                 }
             }
@@ -138,7 +143,8 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
                     part: name.clone(),
                     reason: "non_ascii_sheet_qualifier".into(),
                     detail: "unquoted non-ASCII sheet qualifier in a defined name — edit \
-                             refused (fail-closed)".into(),
+                             refused (fail-closed)"
+                        .into(),
                 });
             }
         } else if name.starts_with("xl/charts/") && name.ends_with(".xml") {
@@ -151,7 +157,8 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
                     part: name.clone(),
                     reason: "non_ascii_sheet_qualifier".into(),
                     detail: "unquoted non-ASCII sheet qualifier in a chart formula — edit \
-                             refused (fail-closed)".into(),
+                             refused (fail-closed)"
+                        .into(),
                 });
             }
         } else if (name.starts_with("xl/pivotCache/") || name.starts_with("xl/pivotTables/"))
@@ -170,7 +177,9 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
         writer
             .start_file(&name, base_opts)
             .map_err(|e| anyhow!("start {name}: {e}"))?;
-        writer.write_all(&bytes).map_err(|e| anyhow!("write {name}: {e}"))?;
+        writer
+            .write_all(&bytes)
+            .map_err(|e| anyhow!("write {name}: {e}"))?;
     }
     // Move straddle safety net: under Move a #REF! can ONLY arise from a range
     // that reorders across the move boundary (σ is a total bijection on single
@@ -180,7 +189,10 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
     // above did not already flag.
     if edit.op == Op::Move
         && report.ref_errors > 0
-        && !report.residuals.iter().any(|r| r.reason == "move_straddles_range")
+        && !report
+            .residuals
+            .iter()
+            .any(|r| r.reason == "move_straddles_range")
     {
         report.residuals.push(Residual {
             part: "(workbook)".into(),
@@ -231,7 +243,10 @@ fn expand_shared_in_sheet(src: &[u8]) -> Result<Vec<u8>> {
         // splits entities out of Text); captured logical at the closing </f>.
         let mut body_acc = String::new();
         loop {
-            match reader.read_event_into(&mut buf).map_err(|e| anyhow!("shared-formula xml: {e}"))? {
+            match reader
+                .read_event_into(&mut buf)
+                .map_err(|e| anyhow!("shared-formula xml: {e}"))?
+            {
                 Event::Eof => break,
                 Event::Start(e) | Event::Empty(e) if e.name().as_ref() == b"c" => {
                     cur = e
@@ -382,7 +397,12 @@ pub(crate) fn archive_names(input: &[u8]) -> Result<Vec<String>> {
 /// Populate residuals for constructs the current implementation cannot safely
 /// shift: table parts (unsupported extent/structured refs) and 3D spans not
 /// anchored on the edited sheet (interior-tab shift is unverifiable).
-fn scan_extra_residuals(names: &[String], input: &[u8], edit: &StructuralEdit, report: &mut StructuralReport) {
+fn scan_extra_residuals(
+    names: &[String],
+    input: &[u8],
+    edit: &StructuralEdit,
+    report: &mut StructuralReport,
+) {
     for n in names {
         if n.starts_with("xl/tables/") && n.ends_with(".xml") {
             report.residuals.push(Residual {
@@ -430,7 +450,9 @@ fn scan_extra_residuals(names: &[String], input: &[u8], edit: &StructuralEdit, r
                 report.residuals.push(Residual {
                     part: n.clone(),
                     reason: "threeD_span_unverifiable".into(),
-                    detail: "a 3D span not anchored on the edited sheet may cover it as an interior tab".into(),
+                    detail:
+                        "a 3D span not anchored on the edited sheet may cover it as an interior tab"
+                            .into(),
                 });
             }
         }
@@ -473,7 +495,7 @@ fn defined_name_names(workbook_xml: &str) -> Vec<String> {
 fn replace_attr_value(inner: &[u8], key: &[u8], new_val: &str) -> Vec<u8> {
     let s = inner;
     let mut i = 0;
-    while i + key.len() + 1 <= s.len() {
+    while i + key.len() < s.len() {
         let at_boundary = i == 0 || s[i - 1].is_ascii_whitespace();
         if at_boundary && s[i..].starts_with(key) && s.get(i + key.len()) == Some(&b'=') {
             let qpos = i + key.len() + 1;
@@ -496,7 +518,9 @@ fn replace_attr_value(inner: &[u8], key: &[u8], new_val: &str) -> Vec<u8> {
 }
 
 fn xml_attr_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('"', "&quot;")
 }
 
 /// Minimal XML text-content escaping — only the characters that MUST be escaped
@@ -505,7 +529,9 @@ fn xml_attr_escape(s: &str) -> String {
 /// wrote them (quick-xml's default writer would emit `&apos;`, breaking the
 /// minimal-patch invariant on sheet-qualified references).
 fn text_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 // --- Formula-body reassembly across quick-xml >=0.38 Text + GeneralRef events ---
@@ -538,7 +564,9 @@ fn push_ref_raw(acc: &mut String, r: &BytesRef) {
 /// entity outside the XML predefined set / char-refs (fail-closed: the caller
 /// writes the raw bytes back verbatim rather than mis-shift).
 fn logical_formula(raw: &str) -> Option<String> {
-    quick_xml::escape::unescape(raw).ok().map(|c| c.into_owned())
+    quick_xml::escape::unescape(raw)
+        .ok()
+        .map(|c| c.into_owned())
 }
 
 /// Build a BytesStart from raw inner bytes (name + attributes).
@@ -592,7 +620,7 @@ fn rewrite_edited_sheet(
             Event::Eof => break,
 
             Event::Start(e) if row_axis && e.name().as_ref() == b"row" => {
-                if maybe_inject(&mut writer, &e, edit, &mut inserted, report)? {}
+                maybe_inject(&mut writer, &e, edit, &mut inserted, report)?;
                 if delete_skip(&e, edit) {
                     reader.read_to_end(e.name())?;
                     report.rows_deleted = edit.count;
@@ -602,7 +630,7 @@ fn rewrite_edited_sheet(
                 writer.write_event(Event::Start(shift_row_tag(&e, edit)))?;
             }
             Event::Empty(e) if row_axis && e.name().as_ref() == b"row" => {
-                if maybe_inject(&mut writer, &e, edit, &mut inserted, report)? {}
+                maybe_inject(&mut writer, &e, edit, &mut inserted, report)?;
                 if delete_skip(&e, edit) {
                     report.rows_deleted = edit.count;
                     buf.clear();
@@ -620,7 +648,9 @@ fn rewrite_edited_sheet(
                         report.residuals.push(Residual {
                             part: part_name.into(),
                             reason: detect_residual(&e).unwrap().into(),
-                            detail: "shared/array formula present; refused (sound over-approximation)".into(),
+                            detail:
+                                "shared/array formula present; refused (sound over-approximation)"
+                                    .into(),
                         });
                     }
                 }
@@ -653,7 +683,8 @@ fn rewrite_edited_sheet(
                                 if nf == logical {
                                     // unchanged: preserve the ORIGINAL bytes exactly
                                     // (do not let the writer re-escape e.g. ' -> &apos;)
-                                    writer.write_event(Event::Text(BytesText::from_escaped(raw)))?;
+                                    writer
+                                        .write_event(Event::Text(BytesText::from_escaped(raw)))?;
                                 } else {
                                     writer.write_event(Event::Text(BytesText::from_escaped(
                                         text_escape(&nf),
@@ -780,7 +811,9 @@ fn rewrite_edited_sheet_move(
                 in_sheetdata = false;
                 rows.sort_by_key(|(k, _)| *k);
                 for (_, bytes) in &rows {
-                    main.get_mut().write_all(bytes).map_err(|e| anyhow!("flush row: {e}"))?;
+                    main.get_mut()
+                        .write_all(bytes)
+                        .map_err(|e| anyhow!("flush row: {e}"))?;
                 }
                 rows.clear();
                 main.write_event(Event::End(e.into_owned()))?;
@@ -822,9 +855,7 @@ fn rewrite_edited_sheet_move(
                     // Whole <f> body reassembled across Text + GeneralRef; shift once.
                     let raw = std::mem::take(&mut f_raw);
                     let out_ev = match logical_formula(&raw) {
-                        Some(logical)
-                            if !refshift::has_unquoted_non_ascii_qualifier(&logical) =>
-                        {
+                        Some(logical) if !refshift::has_unquoted_non_ascii_qualifier(&logical) => {
                             let before_ref = logical.matches("#REF!").count();
                             let (nf, n) = refshift::shift_formula(&logical, &sheet, edit);
                             let new_ref = nf.matches("#REF!").count().saturating_sub(before_ref);
@@ -854,7 +885,8 @@ fn rewrite_edited_sheet_move(
                                 reason: "non_ascii_sheet_qualifier".into(),
                                 detail: "a formula carries an UNQUOTED non-ASCII sheet qualifier, \
                                          which the reference tokenizer cannot parse — edit refused \
-                                         (fail-closed)".into(),
+                                         (fail-closed)"
+                                    .into(),
                             });
                             Event::Text(BytesText::from_escaped(raw))
                         }
@@ -971,7 +1003,7 @@ fn maybe_inject(
 
 fn delete_skip(e: &BytesStart, edit: &StructuralEdit) -> bool {
     edit.op == Op::Delete
-        && attr_u32(e, b"r").map_or(false, |r| r >= edit.at && r < edit.at + edit.count)
+        && attr_u32(e, b"r").is_some_and(|r| r >= edit.at && r < edit.at + edit.count)
 }
 
 fn inject_blanks_at_end(out: &[u8], edit: &StructuralEdit) -> Result<Vec<u8>> {
@@ -1086,7 +1118,12 @@ fn shift_sqref(value: &str, sheet: &str, edit: &StructuralEdit) -> (String, u32,
             Shift::Ref => consumed += 1,
         }
     }
-    (parts.join(" "), shifted, consumed, parts.is_empty() && total > 0)
+    (
+        parts.join(" "),
+        shifted,
+        consumed,
+        parts.is_empty() && total > 0,
+    )
 }
 
 fn detect_residual(e: &BytesStart) -> Option<&'static str> {
@@ -1111,7 +1148,11 @@ fn attr_u32(e: &BytesStart, key: &[u8]) -> Option<u32> {
 
 fn shift_line(pos: u32, edit: &StructuralEdit) -> Option<u32> {
     match edit.op {
-        Op::Insert => Some(if pos >= edit.at { pos + edit.count } else { pos }),
+        Op::Insert => Some(if pos >= edit.at {
+            pos + edit.count
+        } else {
+            pos
+        }),
         Op::Delete => {
             if pos < edit.at {
                 Some(pos)
@@ -1121,7 +1162,9 @@ fn shift_line(pos: u32, edit: &StructuralEdit) -> Option<u32> {
                 None
             }
         }
-        Op::Move => Some(refshift::move_row_sigma(pos, edit.at, edit.count, edit.dest)),
+        Op::Move => Some(refshift::move_row_sigma(
+            pos, edit.at, edit.count, edit.dest,
+        )),
     }
 }
 
@@ -1140,33 +1183,33 @@ fn rewrite_pivot(src: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, u32, u32
     // a Start whose children the loop copies through) — the previous code read and
     // discarded the following event and forced an Empty, silently dropping a
     // sibling element and unbalancing the pivot XML.
-    let shift_source = |e: &BytesStart,
-                        shifted: &mut u32,
-                        errs: &mut u32|
-     -> Vec<(&'static [u8], String)> {
-        let sheet_attr = e
-            .attributes()
-            .flatten()
-            .find(|a| a.key.as_ref() == b"sheet")
-            .map(|a| String::from_utf8_lossy(&a.value).into_owned())
-            .unwrap_or_default();
-        let mut repl: Vec<(&[u8], String)> = Vec::new();
-        if sheet_attr.eq_ignore_ascii_case(&edit.sheet) {
-            if let Some(a) = e.attributes().flatten().find(|a| a.key.as_ref() == b"ref") {
-                let val = String::from_utf8_lossy(&a.value).into_owned();
-                let (nv, n, c, _) = shift_sqref(&val, &edit.sheet, edit);
-                *shifted += n;
-                *errs += c;
-                if nv != val {
-                    repl.push((b"ref", nv));
+    let shift_source =
+        |e: &BytesStart, shifted: &mut u32, errs: &mut u32| -> Vec<(&'static [u8], String)> {
+            let sheet_attr = e
+                .attributes()
+                .flatten()
+                .find(|a| a.key.as_ref() == b"sheet")
+                .map(|a| String::from_utf8_lossy(&a.value).into_owned())
+                .unwrap_or_default();
+            let mut repl: Vec<(&[u8], String)> = Vec::new();
+            if sheet_attr.eq_ignore_ascii_case(&edit.sheet) {
+                if let Some(a) = e.attributes().flatten().find(|a| a.key.as_ref() == b"ref") {
+                    let val = String::from_utf8_lossy(&a.value).into_owned();
+                    let (nv, n, c, _) = shift_sqref(&val, &edit.sheet, edit);
+                    *shifted += n;
+                    *errs += c;
+                    if nv != val {
+                        repl.push((b"ref", nv));
+                    }
                 }
             }
-        }
-        repl
-    };
+            repl
+        };
     loop {
         // Fail closed: a mid-stream parse error must NOT commit a truncated part.
-        let ev = reader.read_event_into(&mut buf).map_err(|e| anyhow!("pivot xml: {e}"))?;
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| anyhow!("pivot xml: {e}"))?;
         match ev {
             Event::Eof => break,
             Event::Empty(e) if e.name().as_ref() == b"worksheetSource" => {
@@ -1213,23 +1256,25 @@ fn shift_text_in_element(
     loop {
         // Fail closed: a mid-stream parse or write error must NOT commit a
         // truncated part (chart / definedName / foreign sheet) as a "success".
-        let ev = reader.read_event_into(&mut buf).map_err(|e| anyhow!("xml: {e}"))?;
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| anyhow!("xml: {e}"))?;
         match ev {
             Event::Eof => break,
             Event::Start(e) if tag_local_eq(e.name().as_ref(), tag) => {
                 in_tag = true;
                 residual = detect_residual(&e).is_some();
                 f_raw.clear();
-                writer.write_event(Event::Start(e.into_owned())).map_err(|e| anyhow!("xml write: {e}"))?;
+                writer
+                    .write_event(Event::Start(e.into_owned()))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
             }
             Event::End(e) if tag_local_eq(e.name().as_ref(), tag) => {
                 if in_tag && !residual {
                     // Whole element body reassembled across Text + GeneralRef; shift once.
                     let raw = std::mem::take(&mut f_raw);
                     let out_ev = match logical_formula(&raw) {
-                        Some(logical)
-                            if !refshift::has_unquoted_non_ascii_qualifier(&logical) =>
-                        {
+                        Some(logical) if !refshift::has_unquoted_non_ascii_qualifier(&logical) => {
                             let (nf, n) = refshift::shift_formula(&logical, host, edit);
                             shifted += n;
                             errs += nf.matches("#REF!").count() as u32;
@@ -1246,11 +1291,15 @@ fn shift_text_in_element(
                         }
                         None => Event::Text(BytesText::from_escaped(raw)),
                     };
-                    writer.write_event(out_ev).map_err(|e| anyhow!("xml write: {e}"))?;
+                    writer
+                        .write_event(out_ev)
+                        .map_err(|e| anyhow!("xml write: {e}"))?;
                 }
                 in_tag = false;
                 residual = false;
-                writer.write_event(Event::End(e.into_owned())).map_err(|e| anyhow!("xml write: {e}"))?;
+                writer
+                    .write_event(Event::End(e.into_owned()))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
             }
             Event::Text(t) if in_tag && !residual => {
                 push_text_raw(&mut f_raw, &t);
@@ -1259,12 +1308,19 @@ fn shift_text_in_element(
                 push_ref_raw(&mut f_raw, &r);
             }
             other => {
-                writer.write_event(other.into_owned()).map_err(|e| anyhow!("xml write: {e}"))?;
+                writer
+                    .write_event(other.into_owned())
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
             }
         }
         buf.clear();
     }
-    Ok((writer.into_inner().into_inner(), shifted, errs, qualifier_risk))
+    Ok((
+        writer.into_inner().into_inner(),
+        shifted,
+        errs,
+        qualifier_risk,
+    ))
 }
 
 fn tag_local_eq(name: &[u8], local: &[u8]) -> bool {
@@ -1282,10 +1338,24 @@ mod tests {
     use std::io::Read; // File::read_to_end/read_to_string in fixture helpers below
 
     fn edit(sheet: &str, axis: Axis, op: Op, at: u32, count: u32) -> StructuralEdit {
-        StructuralEdit { axis, at, count, op, sheet: sheet.into(), dest: 0 }
+        StructuralEdit {
+            axis,
+            at,
+            count,
+            op,
+            sheet: sheet.into(),
+            dest: 0,
+        }
     }
     fn move_edit(sheet: &str, at: u32, count: u32, dest: u32) -> StructuralEdit {
-        StructuralEdit { axis: Axis::Row, at, count, op: Op::Move, sheet: sheet.into(), dest }
+        StructuralEdit {
+            axis: Axis::Row,
+            at,
+            count,
+            op: Op::Move,
+            sheet: sheet.into(),
+            dest,
+        }
     }
 
     #[test]
@@ -1318,13 +1388,16 @@ mod tests {
         assert!(s.contains("<cacheFields"), "following sibling dropped: {s}");
         assert!(s.contains(r#"ref="A1:B6""#), "ref not shifted: {s}");
         assert_eq!((n, r), (1, 0)); // one range shifted, no #REF!
-        // and the output is well-formed (round-trips through the reader)
+                                    // and the output is well-formed (round-trips through the reader)
         let mut rd = Reader::from_reader(out.as_slice());
         let mut b = Vec::new();
         loop {
-            match rd.read_event_into(&mut b).expect("malformed pivot XML produced") {
-                Event::Eof => break,
-                _ => {}
+            if rd
+                .read_event_into(&mut b)
+                .expect("malformed pivot XML produced")
+                == Event::Eof
+            {
+                break;
             }
         }
     }
@@ -1334,7 +1407,10 @@ mod tests {
         // End-to-end regression on the committed pivot+chart fixture: a structural
         // edit must leave every pivot/chart part WELL-FORMED (the event-swallow bug
         // produced unbalanced XML) and the whole workbook must reload.
-        const PIVOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/t1/pivot-chart.xlsx");
+        const PIVOT: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/t1/pivot-chart.xlsx"
+        );
         let input = std::fs::read(PIVOT).unwrap();
         let e = edit("Sheet1", Axis::Row, Op::Insert, 2, 1);
         let (out, _report) = structural_edit(&input, &e).unwrap();
@@ -1343,7 +1419,8 @@ mod tests {
         for i in 0..z.len() {
             let mut f = z.by_index(i).unwrap();
             let name = f.name().to_string();
-            if name.starts_with("xl/pivotCache") || name.starts_with("xl/pivotTables")
+            if name.starts_with("xl/pivotCache")
+                || name.starts_with("xl/pivotTables")
                 || name.starts_with("xl/charts/")
             {
                 let mut b = Vec::new();
@@ -1351,11 +1428,12 @@ mod tests {
                 let mut rd = Reader::from_reader(b.as_slice());
                 let mut buf = Vec::new();
                 loop {
-                    match rd.read_event_into(&mut buf)
+                    if rd
+                        .read_event_into(&mut buf)
                         .unwrap_or_else(|err| panic!("{name} is not well-formed: {err}"))
+                        == Event::Eof
                     {
-                        Event::Eof => break,
-                        _ => {}
+                        break;
                     }
                     buf.clear();
                 }
@@ -1443,7 +1521,10 @@ mod tests {
         assert!(s.contains(r#"<f>#REF!</f>"#), "ref err: {s}");
         // old row 6 (value 7) shifts up into row 5 / cell A5
         assert!(s.contains(r#"<row r="5">"#), "old row6 -> 5: {s}");
-        assert!(s.contains(r#"<c r="A5">"#) && s.contains(r#"<v>7</v>"#), "A6 -> A5: {s}");
+        assert!(
+            s.contains(r#"<c r="A5">"#) && s.contains(r#"<v>7</v>"#),
+            "A6 -> A5: {s}"
+        );
         assert_eq!(report.rows_deleted, 1);
     }
 
@@ -1472,16 +1553,32 @@ mod tests {
         let mut m = ironcalc::import::load_from_xlsx(&path, "en", "UTC", "en").unwrap();
         m.evaluate();
         // A11 SUM moved to A12, still = 55 (blank row 5 contributes 0)
-        assert_eq!(m.get_formatted_cell_value(0, 12, 1).unwrap(), "55", "SUM recompute");
+        assert_eq!(
+            m.get_formatted_cell_value(0, 12, 1).unwrap(),
+            "55",
+            "SUM recompute"
+        );
         // A13 (=A5*2) moved to A14, A5 shifted to A6 (value 5) => 10
-        assert_eq!(m.get_formatted_cell_value(0, 14, 1).unwrap(), "10", "A5*2 recompute");
+        assert_eq!(
+            m.get_formatted_cell_value(0, 14, 1).unwrap(),
+            "10",
+            "A5*2 recompute"
+        );
         // Sheet2!B1 = Sheet1!A11 -> Sheet1!A12 = 55
-        assert_eq!(m.get_formatted_cell_value(1, 1, 2).unwrap(), "55", "cross-sheet recompute");
+        assert_eq!(
+            m.get_formatted_cell_value(1, 1, 2).unwrap(),
+            "55",
+            "cross-sheet recompute"
+        );
         std::fs::remove_file(&path).ok();
 
         // formula-shift correctness in the output XML
         let sheet1 = read_zip_part(&out, "xl/worksheets/sheet1.xml");
-        assert!(sheet1.contains("SUM(A1:A11)"), "SUM grew: {}", &sheet1[..sheet1.len().min(400)]);
+        assert!(
+            sheet1.contains("SUM(A1:A11)"),
+            "SUM grew: {}",
+            &sheet1[..sheet1.len().min(400)]
+        );
         assert!(sheet1.contains("A6*2"), "A5*2 -> A6*2");
         assert!(sheet1.contains("$A$9"), "$A$8 -> $A$9");
         assert!(sheet1.contains(r#"<row r="5"/>"#), "blank row injected");
@@ -1492,7 +1589,11 @@ mod tests {
         assert!(wb.contains("Sheet1!$A$12"), "defined name shifted: {wb}");
 
         assert!(report.residuals.is_empty(), "no residuals expected");
-        assert!(report.refs_shifted >= 4, "shifted {} refs", report.refs_shifted);
+        assert!(
+            report.refs_shifted >= 4,
+            "shifted {} refs",
+            report.refs_shifted
+        );
     }
 
     #[test]
@@ -1505,7 +1606,11 @@ mod tests {
         let before = zip_parts(&input);
         let after = zip_parts(&out);
         // styles/theme/sharedStrings must be byte-identical (no ref to edited rows)
-        for p in ["xl/styles.xml", "xl/theme/theme1.xml", "xl/sharedStrings.xml"] {
+        for p in [
+            "xl/styles.xml",
+            "xl/theme/theme1.xml",
+            "xl/sharedStrings.xml",
+        ] {
             if let (Some(b), Some(a)) = (before.get(p), after.get(p)) {
                 assert_eq!(b, a, "part {p} must be byte-identical");
             }
@@ -1611,7 +1716,11 @@ mod tests {
             s.contains(r#"<c r="C3"><f>IF(A3&gt;0,A3,B3)</f>"#),
             "move-path entity formula reassembled and shifted (row 6 -> 3): {s}"
         );
-        assert!(report.residuals.is_empty(), "no residuals: {:?}", report.residuals);
+        assert!(
+            report.residuals.is_empty(),
+            "no residuals: {:?}",
+            report.residuals
+        );
     }
 
     #[test]
@@ -1622,18 +1731,32 @@ mod tests {
         let e = edit("Sheet1", Axis::Row, Op::Insert, 3, 1);
         let (_out, report) = structural_edit(&input, &e).unwrap();
         assert!(
-            report.residuals.iter().any(|r| r.reason == "table_unsupported"),
+            report
+                .residuals
+                .iter()
+                .any(|r| r.reason == "table_unsupported"),
             "table must force a residual"
         );
     }
 
     #[test]
-    fn threeD_interior_span_forces_residual() {
-        assert!(crate::refshift::has_unverifiable_3d_span("=SUM(Sheet1:Sheet3!A5)", "Sheet2"));
-        assert!(!crate::refshift::has_unverifiable_3d_span("=SUM(Sheet1:Sheet3!A5)", "Sheet1"));
-        assert!(!crate::refshift::has_unverifiable_3d_span("=A5+B10", "Sheet2"));
+    fn three_d_interior_span_forces_residual() {
+        assert!(crate::refshift::has_unverifiable_3d_span(
+            "=SUM(Sheet1:Sheet3!A5)",
+            "Sheet2"
+        ));
+        assert!(!crate::refshift::has_unverifiable_3d_span(
+            "=SUM(Sheet1:Sheet3!A5)",
+            "Sheet1"
+        ));
+        assert!(!crate::refshift::has_unverifiable_3d_span(
+            "=A5+B10", "Sheet2"
+        ));
         // string literal with a colon-bang must not false-positive
-        assert!(!crate::refshift::has_unverifiable_3d_span(r#"=IF(A1,"Sheet1:Sheet3!x","")"#, "Sheet2"));
+        assert!(!crate::refshift::has_unverifiable_3d_span(
+            r#"=IF(A1,"Sheet1:Sheet3!x","")"#,
+            "Sheet2"
+        ));
     }
 
     #[test]
@@ -1677,7 +1800,10 @@ mod tests {
         let mut report = StructuralReport::default();
         let _ = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
         assert!(
-            report.residuals.iter().any(|r| r.reason == "array_formula_present"),
+            report
+                .residuals
+                .iter()
+                .any(|r| r.reason == "array_formula_present"),
             "array must still be refused: {:?}",
             report.residuals
         );
@@ -1711,17 +1837,36 @@ mod tests {
         let out = rewrite_edited_sheet(xml, &e, "xl/worksheets/sheet1.xml", &mut report).unwrap();
         let s = String::from_utf8_lossy(&out);
         // physical rows are re-emitted ASCENDING by new row number
-        assert_eq!(row_order(&s), vec![1, 2, 3, 4, 5, 6, 7, 8], "rows ascending: {s}");
+        assert_eq!(
+            row_order(&s),
+            vec![1, 2, 3, 4, 5, 6, 7, 8],
+            "rows ascending: {s}"
+        );
         // old row 6 (value 6, formula) landed at row 3, cells relabeled, ref followed
-        assert!(s.contains(r#"<row r="3"><c r="A3"><v>6</v></c><c r="C3"><f>A3*2</f>"#),
-            "moved row content + shifted ref: {s}");
+        assert!(
+            s.contains(r#"<row r="3"><c r="A3"><v>6</v></c><c r="C3"><f>A3*2</f>"#),
+            "moved row content + shifted ref: {s}"
+        );
         // old row 3 (value 3) shifted down into row 4
-        assert!(s.contains(r#"<row r="4"><c r="A4"><v>3</v></c></row>"#), "gap row shifted: {s}");
+        assert!(
+            s.contains(r#"<row r="4"><c r="A4"><v>3</v></c></row>"#),
+            "gap row shifted: {s}"
+        );
         // old row 5 (value 5) → row 6
-        assert!(s.contains(r#"<row r="6"><c r="A6"><v>5</v></c></row>"#), "gap row shifted: {s}");
+        assert!(
+            s.contains(r#"<row r="6"><c r="A6"><v>5</v></c></row>"#),
+            "gap row shifted: {s}"
+        );
         // dimension (extent) is invariant under a permutation — left byte-identical
-        assert!(s.contains(r#"<dimension ref="A1:C8"/>"#), "dimension unchanged: {s}");
-        assert!(report.residuals.is_empty(), "no residuals: {:?}", report.residuals);
+        assert!(
+            s.contains(r#"<dimension ref="A1:C8"/>"#),
+            "dimension unchanged: {s}"
+        );
+        assert!(
+            report.residuals.is_empty(),
+            "no residuals: {:?}",
+            report.residuals
+        );
         assert_eq!(report.ref_errors, 0, "no #REF! for a clean move");
     }
 
@@ -1734,7 +1879,10 @@ mod tests {
         let mut report = StructuralReport::default();
         let _ = rewrite_edited_sheet(xml, &e, "xl/worksheets/sheet1.xml", &mut report).unwrap();
         assert!(
-            report.residuals.iter().any(|r| r.reason == "move_straddles_range"),
+            report
+                .residuals
+                .iter()
+                .any(|r| r.reason == "move_straddles_range"),
             "straddle must be refused: {:?}",
             report.residuals
         );
@@ -1752,6 +1900,9 @@ mod tests {
             sheet: "Sheet1".into(),
             dest: 5,
         };
-        assert!(structural_edit(&input, &e).is_err(), "col move must be rejected");
+        assert!(
+            structural_edit(&input, &e).is_err(),
+            "col move must be rejected"
+        );
     }
 }

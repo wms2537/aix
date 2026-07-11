@@ -67,8 +67,8 @@ pub fn surgical_write(input: &[u8], edits: &[CellEdit]) -> Result<Vec<u8>> {
         by_part.entry(part).or_default().push(edit);
     }
 
-    let mut archive = zip::ZipArchive::new(Cursor::new(input))
-        .map_err(|e| anyhow!("open workbook zip: {e}"))?;
+    let mut archive =
+        zip::ZipArchive::new(Cursor::new(input)).map_err(|e| anyhow!("open workbook zip: {e}"))?;
 
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     // Normalized options: fixed 1980-01-01 mtime + deterministic per-entry
@@ -103,8 +103,7 @@ pub fn surgical_write(input: &[u8], edits: &[CellEdit]) -> Result<Vec<u8>> {
         let mut bytes = read_entry_capped(file, sz, &name, &mut budget)?;
 
         if let Some(part_edits) = by_part.get(&name) {
-            bytes = rewrite_sheet(&bytes, part_edits)
-                .with_context(|| format!("rewrite {name}"))?;
+            bytes = rewrite_sheet(&bytes, part_edits).with_context(|| format!("rewrite {name}"))?;
         }
 
         writer
@@ -115,9 +114,7 @@ pub fn surgical_write(input: &[u8], edits: &[CellEdit]) -> Result<Vec<u8>> {
             .map_err(|e| anyhow!("write part {name}: {e}"))?;
     }
 
-    let cursor = writer
-        .finish()
-        .map_err(|e| anyhow!("finalize zip: {e}"))?;
+    let cursor = writer.finish().map_err(|e| anyhow!("finalize zip: {e}"))?;
     Ok(cursor.into_inner())
 }
 
@@ -127,8 +124,8 @@ pub fn surgical_write(input: &[u8], edits: &[CellEdit]) -> Result<Vec<u8>> {
 // API and covered by tests below.
 #[allow(dead_code)]
 pub fn part_names(input: &[u8]) -> Result<Vec<String>> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(input))
-        .map_err(|e| anyhow!("open workbook zip: {e}"))?;
+    let mut archive =
+        zip::ZipArchive::new(Cursor::new(input)).map_err(|e| anyhow!("open workbook zip: {e}"))?;
     let mut names = Vec::with_capacity(archive.len());
     for i in 0..archive.len() {
         let file = archive
@@ -166,7 +163,10 @@ pub(crate) const PART_DECOMPRESS_CAP: u64 = 512 << 20; // 512 MiB / part
 pub(crate) const TOTAL_DECOMPRESS_CAP: u64 = 2 << 30; // 2 GiB / workbook
 
 fn env_cap(var: &str, default: u64) -> u64 {
-    std::env::var(var).ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(default)
+    std::env::var(var)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(default)
 }
 
 /// The per-part decompression cap, honoring the `XLQ_MAX_PART_BYTES` override.
@@ -214,8 +214,8 @@ pub(crate) fn read_entry_capped<R: Read>(
 }
 
 pub(crate) fn read_part(input: &[u8], name: &str) -> Result<Vec<u8>> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(input))
-        .map_err(|e| anyhow!("open workbook zip: {e}"))?;
+    let mut archive =
+        zip::ZipArchive::new(Cursor::new(input)).map_err(|e| anyhow!("open workbook zip: {e}"))?;
     let file = archive
         .by_name(name)
         .map_err(|_| anyhow!("missing part {name}"))?;
@@ -247,7 +247,9 @@ pub(crate) fn guard_decompression(path: &str) -> Result<()> {
     let mut archive = zip::ZipArchive::new(f).map_err(|e| anyhow!("open workbook zip: {e}"))?;
     let mut budget = total_cap();
     for i in 0..archive.len() {
-        let entry = archive.by_index(i).map_err(|e| anyhow!("read zip entry: {e}"))?;
+        let entry = archive
+            .by_index(i)
+            .map_err(|e| anyhow!("read zip entry: {e}"))?;
         if entry.is_dir() {
             continue;
         }
@@ -298,7 +300,12 @@ pub(crate) fn all_sheets(input: &[u8]) -> Result<Vec<(String, String)>> {
                 let mut rid: Option<String> = None;
                 for a in e.attributes().flatten() {
                     match a.key.as_ref() {
-                        b"name" => nm = a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok().map(|c| c.into_owned()),
+                        b"name" => {
+                            nm = a
+                                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                                .ok()
+                                .map(|c| c.into_owned())
+                        }
                         b"r:id" => rid = Some(String::from_utf8_lossy(&a.value).into_owned()),
                         _ => {}
                     }
@@ -328,7 +335,10 @@ fn sheet_rid(workbook_xml: &[u8], name: &str) -> Result<Option<String>> {
                 for a in e.attributes().flatten() {
                     match a.key.as_ref() {
                         b"name" => {
-                            nm = a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok().map(|c| c.into_owned());
+                            nm = a
+                                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                                .ok()
+                                .map(|c| c.into_owned());
                         }
                         b"r:id" => {
                             rid = Some(String::from_utf8_lossy(&a.value).into_owned());
@@ -359,7 +369,10 @@ fn rid_target(rels_xml: &[u8], rid: &str) -> Result<Option<String>> {
                     match a.key.as_ref() {
                         b"Id" => id = Some(String::from_utf8_lossy(&a.value).into_owned()),
                         b"Target" => {
-                            target = a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok().map(|c| c.into_owned());
+                            target = a
+                                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                                .ok()
+                                .map(|c| c.into_owned());
                         }
                         _ => {}
                     }
@@ -466,7 +479,7 @@ fn rewrite_sheet(src: &[u8], edits: &[&CellEdit]) -> Result<Vec<u8>> {
                         min_col,
                         max_col,
                     )))?;
-                    for (_c, edit) in &cells {
+                    for edit in cells.values() {
                         writer.get_mut().write_all(&gen_cell(edit, None))?;
                     }
                     writer.write_event(Event::End(BytesEnd::new("row")))?;
@@ -518,7 +531,10 @@ fn edit_bounds(edits: &[&CellEdit]) -> Option<(i32, i32, i32, i32)> {
 /// Rebuild a `<dimension>` tag whose `ref` is widened to cover `bounds` (the
 /// edit box). Returns the tag unchanged when there is nothing to widen or the
 /// ref cannot be parsed, so a well-formed sheet is only ever left more correct.
-fn widen_dimension_tag(e: &BytesStart, bounds: Option<(i32, i32, i32, i32)>) -> BytesStart<'static> {
+fn widen_dimension_tag(
+    e: &BytesStart,
+    bounds: Option<(i32, i32, i32, i32)>,
+) -> BytesStart<'static> {
     let widened = bounds.and_then(|b| {
         e.attributes()
             .flatten()
@@ -607,7 +623,7 @@ fn modify_existing_row(
     let min_col = *out.keys().next().unwrap();
     let max_col = *out.keys().next_back().unwrap();
     writer.write_event(Event::Start(maybe_widen_row_spans(start, min_col, max_col)))?;
-    for (_c, bytes) in &out {
+    for bytes in out.values() {
         writer.get_mut().write_all(bytes)?;
     }
     writer.write_event(Event::End(BytesEnd::new("row")))?;
@@ -735,7 +751,7 @@ fn write_new_row(
     let max = *cells.keys().next_back().unwrap();
     let start = format!("<row r=\"{r}\" spans=\"{min}:{max}\">");
     writer.get_mut().write_all(start.as_bytes())?;
-    for (_c, edit) in cells {
+    for edit in cells.values() {
         writer.get_mut().write_all(&gen_cell(edit, None))?;
     }
     writer.get_mut().write_all(b"</row>")?;
@@ -897,7 +913,10 @@ mod tests {
     use std::collections::BTreeSet;
 
     const MACRO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/t1/macro.xlsm");
-    const PIVOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/t1/pivot-chart.xlsx");
+    const PIVOT: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/t1/pivot-chart.xlsx"
+    );
 
     fn read_fixture(path: &str) -> Vec<u8> {
         std::fs::read(path).unwrap_or_else(|e| panic!("read fixture {path}: {e}"))
@@ -930,7 +949,10 @@ mod tests {
         assert_eq!(first.len(), 500);
         assert_eq!(budget, 300);
         let err = read_entry_capped(&vec![1u8; 500][..], 500, "p2", &mut budget).unwrap_err();
-        assert!(format!("{err:#}").contains("decompression_bomb"), "total cap: {err:#}");
+        assert!(
+            format!("{err:#}").contains("decompression_bomb"),
+            "total cap: {err:#}"
+        );
     }
 
     fn parts_map(bytes: &[u8]) -> BTreeMap<String, Vec<u8>> {
@@ -1006,7 +1028,10 @@ mod tests {
         }
         // The edited value made it in.
         let s = String::from_utf8_lossy(&out_parts[&sheet]);
-        assert!(s.contains("<c r=\"B2\"><v>999</v></c>"), "edit not applied: {s}");
+        assert!(
+            s.contains("<c r=\"B2\"><v>999</v></c>"),
+            "edit not applied: {s}"
+        );
     }
 
     // (2) Editing a cell in the pivot+chart workbook leaves charts / pivot
@@ -1031,10 +1056,7 @@ mod tests {
                 || name.starts_with("xl/pivotTables")
                 || name.starts_with("xl/drawings/")
             {
-                assert_eq!(
-                    &out_parts[name], bytes,
-                    "feature part {name} was modified"
-                );
+                assert_eq!(&out_parts[name], bytes, "feature part {name} was modified");
             }
         }
         assert!(!out_parts.contains_key("xl/calcChain.xml"));
@@ -1080,7 +1102,9 @@ mod tests {
         );
         let sheet = String::from_utf8_lossy(&out_parts["xl/worksheets/sheet1.xml"]);
         assert!(
-            sheet.contains("t=\"inlineStr\"><is><t xml:space=\"preserve\">hello &amp; &lt;world&gt;</t></is>"),
+            sheet.contains(
+                "t=\"inlineStr\"><is><t xml:space=\"preserve\">hello &amp; &lt;world&gt;</t></is>"
+            ),
             "inline string not escaped/written: {sheet}"
         );
     }
@@ -1119,10 +1143,7 @@ mod tests {
             .iter()
             .position(|p| p.name == "Data")
             .unwrap() as u32;
-        assert_eq!(
-            model.get_formatted_cell_value(sheet, 2, 3).unwrap(),
-            "555"
-        );
+        assert_eq!(model.get_formatted_cell_value(sheet, 2, 3).unwrap(), "555");
         assert_eq!(
             model.get_formatted_cell_value(sheet, 10, 1).unwrap(),
             "inserted"
@@ -1213,9 +1234,14 @@ mod tests {
     // Excel error cell (#NUM!), never `<v>inf</v>`/`<v>NaN</v>`.
     #[test]
     fn nonfinite_number_becomes_error_cell() {
-        let lit = String::from_utf8(gen_cell(&edit(1, 1, CellValue::Number(f64::INFINITY)), None)).unwrap();
+        let lit = String::from_utf8(gen_cell(
+            &edit(1, 1, CellValue::Number(f64::INFINITY)),
+            None,
+        ))
+        .unwrap();
         assert_eq!(lit, "<c r=\"A1\" t=\"e\"><v>#NUM!</v></c>", "got {lit}");
-        let nan = String::from_utf8(gen_cell(&edit(1, 1, CellValue::Number(f64::NAN)), None)).unwrap();
+        let nan =
+            String::from_utf8(gen_cell(&edit(1, 1, CellValue::Number(f64::NAN)), None)).unwrap();
         assert!(nan.contains("t=\"e\"") && nan.contains("#NUM!") && !nan.contains("NaN</v>"));
         let f = CellEdit {
             sheet: "S".into(),
@@ -1225,7 +1251,10 @@ mod tests {
             value: CellValue::Number(f64::NEG_INFINITY),
         };
         let out = String::from_utf8(gen_cell(&f, None)).unwrap();
-        assert_eq!(out, "<c r=\"A1\" t=\"e\"><f>1/0</f><v>#NUM!</v></c>", "got {out}");
+        assert_eq!(
+            out, "<c r=\"A1\" t=\"e\"><f>1/0</f><v>#NUM!</v></c>",
+            "got {out}"
+        );
     }
 
     // XML-1.0-illegal control characters must be dropped, not passed through raw
@@ -1235,7 +1264,11 @@ mod tests {
         assert_eq!(xml_escape_text("bad\u{1}char\u{1f}!"), "badchar!");
         // Legal whitespace survives; entities still escape.
         assert_eq!(xml_escape_text("a\tb\nc & <d>"), "a\tb\nc &amp; &lt;d&gt;");
-        let out = String::from_utf8(gen_cell(&edit(1, 1, CellValue::Str("x\u{0}y".into())), None)).unwrap();
+        let out = String::from_utf8(gen_cell(
+            &edit(1, 1, CellValue::Str("x\u{0}y".into())),
+            None,
+        ))
+        .unwrap();
         assert!(!out.contains('\u{0}'), "raw NUL leaked: {out:?}");
         assert!(out.contains(">xy<"), "control char not stripped: {out}");
     }
@@ -1249,8 +1282,14 @@ mod tests {
         let out = rewrite(src, &[edit(1, 2, CellValue::Number(99.0))]).unwrap();
         assert!(out.contains("<v>10</v>"), "A1 lost: {out}");
         assert!(out.contains("<v>30</v>"), "C1 lost: {out}");
-        assert!(out.contains("<c r=\"B1\"><v>99</v></c>"), "B1 edit missing: {out}");
-        assert!(!out.contains("<v>20</v>"), "old B1 value should be replaced: {out}");
+        assert!(
+            out.contains("<c r=\"B1\"><v>99</v></c>"),
+            "B1 edit missing: {out}"
+        );
+        assert!(
+            !out.contains("<v>20</v>"),
+            "old B1 value should be replaced: {out}"
+        );
     }
 
     // A namespace-prefixed worksheet the writer cannot match must ERROR, never
@@ -1260,7 +1299,10 @@ mod tests {
         let src = "<x:worksheet xmlns:x=\"urn:main\"><x:sheetData><x:row r=\"1\">\
                    <x:c r=\"A1\"><x:v>1</x:v></x:c></x:row></x:sheetData></x:worksheet>";
         let err = rewrite(src, &[edit(1, 1, CellValue::Number(42.0))]).unwrap_err();
-        assert!(format!("{err}").contains("silently dropped"), "wrong error: {err}");
+        assert!(
+            format!("{err}").contains("silently dropped"),
+            "wrong error: {err}"
+        );
     }
 
     // An edit beyond the stored <dimension> widens it to a valid superset.
@@ -1269,10 +1311,16 @@ mod tests {
         let src = "<worksheet><dimension ref=\"A1:B2\"/><sheetData>\
                    <row r=\"1\"><c r=\"A1\"><v>1</v></c></row></sheetData></worksheet>";
         let out = rewrite(src, &[edit(5, 5, CellValue::Number(7.0))]).unwrap();
-        assert!(out.contains("<dimension ref=\"A1:E5\"/>"), "dimension not widened: {out}");
+        assert!(
+            out.contains("<dimension ref=\"A1:E5\"/>"),
+            "dimension not widened: {out}"
+        );
         // An edit already inside the range leaves dimension byte-identical.
         let inside = rewrite(src, &[edit(1, 1, CellValue::Number(9.0))]).unwrap();
-        assert!(inside.contains("<dimension ref=\"A1:B2\"/>"), "dimension churned: {inside}");
+        assert!(
+            inside.contains("<dimension ref=\"A1:B2\"/>"),
+            "dimension churned: {inside}"
+        );
     }
 
     // Adding a column past a row's spans widens the spans hint.

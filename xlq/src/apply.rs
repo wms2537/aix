@@ -10,8 +10,8 @@
 //!     IronCalc, snapshot all stored values, apply the ops via
 //!     set_user_input, evaluate(), snapshot again. Affected = cells whose
 //!     value changed OR that the ops set directly. Build:
-//!       { affected:[{sheet,cell,stored,recomputed,formula,volatile}],
-//!         new_errors:[…], watch:[{cell,before,after}], coverage:{…} }
+//!     `{ affected:[{sheet,cell,stored,recomputed,formula,volatile}],`
+//!     `new_errors:[…], watch:[{cell,before,after}], coverage:{…} }`.
 //!     Dry-run RETURNS this (command "apply", "dry_run": true), writes nothing.
 //!  3. WRITE (real apply): acquire journal::lock; chain_status(current_hash);
 //!     turn the affected set into ooxml::CellEdit list; ooxml::surgical_write;
@@ -76,15 +76,15 @@ const NONDETERMINISTIC_VOLATILE: [&str; 4] = ["NOW", "TODAY", "RAND", "RANDBETWE
 // the write-reliability gate. (Error/coverage-gap functions like AREAS, GROWTH,
 // FILTER are already refused by the unsupported/policy gate.)
 const ENGINE_DIVERGENT: [&str; 10] = [
-    "CONVERT",     // CONVERT(68,"F","C") = 19.65 vs Excel 20 (additive offset)
-    "TRIM",        // does not collapse internal whitespace runs
-    "ROW",         // ROW(range) returns a scalar, not the array Excel spills
-    "SUMPRODUCT",  // does not coerce boolean arrays
-    "MAXA",        // A-family: ignores text/boolean cells Excel counts as 0/1
+    "CONVERT",    // CONVERT(68,"F","C") = 19.65 vs Excel 20 (additive offset)
+    "TRIM",       // does not collapse internal whitespace runs
+    "ROW",        // ROW(range) returns a scalar, not the array Excel spills
+    "SUMPRODUCT", // does not coerce boolean arrays
+    "MAXA",       // A-family: ignores text/boolean cells Excel counts as 0/1
     "MINA",
     "STDEVA",
-    "SECOND",      // truncates instead of rounding sub-second times
-    "PRICE",       // basis-3 returns exact par instead of Excel's value
+    "SECOND",          // truncates instead of rounding sub-second times
+    "PRICE",           // basis-3 returns exact par instead of Excel's value
     "PERCENTRANK.EXC", // truncates to decimal places, not significant digits
 ];
 
@@ -206,7 +206,9 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
     for c in &before_cells {
         let pos = (c.index, c.row, c.column);
         before_raw.insert(pos, raw(&model, pos)?);
-        if model.get_cell_type(pos.0, pos.1, pos.2).map_err(|e| anyhow!(e))?
+        if model
+            .get_cell_type(pos.0, pos.1, pos.2)
+            .map_err(|e| anyhow!(e))?
             == CellType::ErrorValue
         {
             before_err.insert(pos);
@@ -249,8 +251,8 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
             patch::Op::SetCell { sheet, cell, .. } => (sheet, cell),
             patch::Op::SetFormula { sheet, cell, .. } => (sheet, cell),
         };
-        let s = resolve_sheet(sheet)
-            .ok_or_else(|| anyhow!("unknown sheet {sheet} in {file_name}"))?;
+        let s =
+            resolve_sheet(sheet).ok_or_else(|| anyhow!("unknown sheet {sheet} in {file_name}"))?;
         let (row, col) = patch::parse_a1(cell)?;
         let input = match op {
             patch::Op::SetCell { value, .. } => patch::value_to_input(value)?,
@@ -323,7 +325,8 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
     let mut new_errors: Vec<Value> = Vec::new();
     for &pos in &universe {
         let (s, row, col) = pos;
-        let is_err = model.get_cell_type(s, row, col).map_err(|e| anyhow!(e))? == CellType::ErrorValue;
+        let is_err =
+            model.get_cell_type(s, row, col).map_err(|e| anyhow!(e))? == CellType::ErrorValue;
         if is_err && !before_err.contains(&pos) {
             let literal = model
                 .get_formatted_cell_value(s, row, col)
@@ -526,7 +529,13 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| std::path::PathBuf::from("."));
-        match verify_output(&new_bytes, &predicted, &sheet_names, &verify_dir, &result_hash)? {
+        match verify_output(
+            &new_bytes,
+            &predicted,
+            &sheet_names,
+            &verify_dir,
+            &result_hash,
+        )? {
             VerifyOutcome::LoadFailed(detail) => {
                 // The output does not even re-open: the strongest failure.
                 return Ok(json!({
@@ -683,8 +692,10 @@ fn verify_output(
 ) -> Result<VerifyOutcome> {
     let verify_path = dir.join(format!(".xlq-verify-{tag}.xlsx"));
     let verify_str = verify_path.to_string_lossy().into_owned();
-    std::fs::write(&verify_path, new_bytes).with_context(|| "write verification copy".to_string())?;
-    let loaded = ironcalc::import::load_from_xlsx(&verify_str, "en", "UTC", "en").map_err(|e| anyhow!(e));
+    std::fs::write(&verify_path, new_bytes)
+        .with_context(|| "write verification copy".to_string())?;
+    let loaded =
+        ironcalc::import::load_from_xlsx(&verify_str, "en", "UTC", "en").map_err(|e| anyhow!(e));
     let outcome = match loaded {
         Err(e) => VerifyOutcome::LoadFailed(format!("{e:#}")),
         Ok(mut vmodel) => {
@@ -713,7 +724,6 @@ fn verify_output(
     let _ = std::fs::remove_file(&verify_path);
     Ok(outcome)
 }
-
 
 /// The raw `ops` array straight from the patch file, so the receipt records
 /// exactly what was requested without depending on Op: Serialize.
@@ -841,7 +851,14 @@ mod tests {
         let dir = tmpdir("v-corrupt");
         let mut predicted: BTreeMap<Pos, Value> = BTreeMap::new();
         predicted.insert((0, 1, 1), json!(1.0));
-        let out = verify_output(b"not a zip at all", &predicted, &["Sheet1".into()], &dir, "corrupt").unwrap();
+        let out = verify_output(
+            b"not a zip at all",
+            &predicted,
+            &["Sheet1".into()],
+            &dir,
+            "corrupt",
+        )
+        .unwrap();
         assert!(matches!(out, VerifyOutcome::LoadFailed(_)));
     }
 
@@ -893,7 +910,10 @@ mod tests {
 
         let report = run(book, patch, false, None).expect("mismatch is Ok payload");
         assert_eq!(report["error"], json!("revision_mismatch"));
-        assert_eq!(report["actual"], json!(crate::hash::sha256_file(book).unwrap()));
+        assert_eq!(
+            report["actual"],
+            json!(crate::hash::sha256_file(book).unwrap())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -995,7 +1015,11 @@ mod tests {
         // written (file hash unchanged).
         let refused = run(book, patch2, false, Some("t")).expect("refusal is Ok payload");
         assert_eq!(refused["error"], json!("external_edit_detected"));
-        assert_eq!(crate::hash::sha256_file(book).unwrap(), ext_hash, "file was written on refusal");
+        assert_eq!(
+            crate::hash::sha256_file(book).unwrap(),
+            ext_hash,
+            "file was written on refusal"
+        );
 
         // Re-issue the SAME patch: the marker adopted ext_hash, so the chain is
         // Ok now and the apply proceeds.
@@ -1038,7 +1062,11 @@ mod tests {
         let real = run(book, patch, false, None).expect("refusal is Ok payload");
         assert_eq!(real["error"], json!("coverage_unreliable"));
         assert_eq!(real["nondeterministic_functions"], json!(["NOW"]));
-        assert_eq!(crate::hash::sha256_file(book).unwrap(), base, "file must be untouched");
+        assert_eq!(
+            crate::hash::sha256_file(book).unwrap(),
+            base,
+            "file must be untouched"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

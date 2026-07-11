@@ -546,8 +546,34 @@ mod tests {
     fn two_receipts(dir: &TempDir, tag: &str) -> String {
         let book = dir.book(tag);
         std::fs::write(&book, b"orig").unwrap();
-        commit(&book, b"v1", 1, "apply", "b0", "h1", json!({}), "t", "a", None, None).unwrap();
-        commit(&book, b"v2", 2, "apply", "h1", "h2", json!({}), "t", "a", None, None).unwrap();
+        commit(
+            &book,
+            b"v1",
+            1,
+            "apply",
+            "b0",
+            "h1",
+            json!({}),
+            "t",
+            "a",
+            None,
+            None,
+        )
+        .unwrap();
+        commit(
+            &book,
+            b"v2",
+            2,
+            "apply",
+            "h1",
+            "h2",
+            json!({}),
+            "t",
+            "a",
+            None,
+            None,
+        )
+        .unwrap();
         book
     }
 
@@ -560,15 +586,30 @@ mod tests {
         let dir = TempDir::new("torn");
         let book = two_receipts(&dir, "m.xlsx");
         {
-            let mut f = OpenOptions::new().append(true).open(journal_path(&book)).unwrap();
+            let mut f = OpenOptions::new()
+                .append(true)
+                .open(journal_path(&book))
+                .unwrap();
             f.write_all(br#"{"rev":3,"kin"#).unwrap(); // torn: no trailing newline
         }
         assert_eq!(read_entries(&book).unwrap().len(), 2, "torn tail dropped");
         assert_eq!(chain_status(&book, "h2").unwrap(), ChainStatus::Ok);
         let rev = next_rev(&book).unwrap();
         assert_eq!(rev, 3, "numbering continues from the recovered head");
-        let r = commit(&book, b"v3", rev, "apply", "h2", "h3", json!({}), "t", "a", None, None)
-            .unwrap();
+        let r = commit(
+            &book,
+            b"v3",
+            rev,
+            "apply",
+            "h2",
+            "h3",
+            json!({}),
+            "t",
+            "a",
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(r.rev, 3, "a fresh commit at the recovered rev succeeds");
     }
 
@@ -583,8 +624,14 @@ mod tests {
         lines[0] = "{BROKEN".to_string(); // corrupt the FIRST line, keep newline-terminated
         std::fs::write(journal_path(&book), lines.join("\n") + "\n").unwrap();
         let err = format!("{:#}", read_entries(&book).unwrap_err());
-        assert!(err.contains("journal_corrupt"), "interior corruption must fail loudly: {err}");
-        assert!(next_rev(&book).is_err(), "next_rev must not silently use a later line");
+        assert!(
+            err.contains("journal_corrupt"),
+            "interior corruption must fail loudly: {err}"
+        );
+        assert!(
+            next_rev(&book).is_err(),
+            "next_rev must not silently use a later line"
+        );
     }
 
     #[test]
@@ -595,7 +642,10 @@ mod tests {
         let dir = TempDir::new("badtail");
         let book = two_receipts(&dir, "m.xlsx");
         {
-            let mut f = OpenOptions::new().append(true).open(journal_path(&book)).unwrap();
+            let mut f = OpenOptions::new()
+                .append(true)
+                .open(journal_path(&book))
+                .unwrap();
             f.write_all(b"{durably-corrupt}\n").unwrap();
         }
         assert!(
@@ -611,7 +661,17 @@ mod tests {
         std::fs::write(&book, b"original").unwrap();
 
         commit(
-            &book, b"v1", 1, "apply", "base0", "hash0", json!({}), "t0", "a", None, None,
+            &book,
+            b"v1",
+            1,
+            "apply",
+            "base0",
+            "hash0",
+            json!({}),
+            "t0",
+            "a",
+            None,
+            None,
         )
         .unwrap();
 
@@ -620,7 +680,17 @@ mod tests {
 
         // base_hash of rev-2 equals the previous receipt's result_hash.
         let r2 = commit(
-            &book, b"v2", 2, "apply", "hash0", "hash1", json!({}), "t1", "a", None, None,
+            &book,
+            b"v2",
+            2,
+            "apply",
+            "hash0",
+            "hash1",
+            json!({}),
+            "t1",
+            "a",
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(r2.rev, 2);
@@ -647,7 +717,17 @@ mod tests {
         std::fs::write(&book, b"original").unwrap();
 
         commit(
-            &book, b"v1", 1, "apply", "b", "h1", json!({}), "t", "a", None, None,
+            &book,
+            b"v1",
+            1,
+            "apply",
+            "b",
+            "h1",
+            json!({}),
+            "t",
+            "a",
+            None,
+            None,
         )
         .unwrap();
         // Simulate the crash: rev-2 exists on disk but no receipt was written.
@@ -657,7 +737,17 @@ mod tests {
         assert_eq!(next_rev(&book).unwrap(), 3);
         // The commit at that rev succeeds instead of returning rev_exists.
         let r = commit(
-            &book, b"v3", 3, "apply", "h1", "h3", json!({}), "t", "a", None, None,
+            &book,
+            b"v3",
+            3,
+            "apply",
+            "h1",
+            "h3",
+            json!({}),
+            "t",
+            "a",
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(r.rev, 3);
@@ -670,14 +760,34 @@ mod tests {
         std::fs::write(&book, b"original").unwrap();
 
         commit(
-            &book, b"v0", 0, "apply", "b", "h0", json!({}), "t", "a", None, None,
+            &book,
+            b"v0",
+            0,
+            "apply",
+            "b",
+            "h0",
+            json!({}),
+            "t",
+            "a",
+            None,
+            None,
         )
         .unwrap();
 
         // Re-committing rev 0 must fail (history is immutable) and leave the
         // existing rev-0 bytes untouched.
         let err = commit(
-            &book, b"OVERWRITE", 0, "apply", "b", "h0b", json!({}), "t", "a", None, None,
+            &book,
+            b"OVERWRITE",
+            0,
+            "apply",
+            "b",
+            "h0b",
+            json!({}),
+            "t",
+            "a",
+            None,
+            None,
         )
         .unwrap_err();
         assert_eq!(format!("{err}"), "rev_exists");
@@ -709,7 +819,17 @@ mod tests {
         std::fs::write(&book, b"original").unwrap();
 
         commit(
-            &book, b"v0", 0, "apply", "b", "hash0", json!({}), "t", "a", None, None,
+            &book,
+            b"v0",
+            0,
+            "apply",
+            "b",
+            "hash0",
+            json!({}),
+            "t",
+            "a",
+            None,
+            None,
         )
         .unwrap();
 
@@ -728,7 +848,17 @@ mod tests {
 
         let rev0 = next_rev(&book).unwrap(); // genesis -> 1
         commit(
-            &book, b"v1", rev0, "apply", "b", "hash0", json!({}), "t", "a", None, None,
+            &book,
+            b"v1",
+            rev0,
+            "apply",
+            "b",
+            "hash0",
+            json!({}),
+            "t",
+            "a",
+            None,
+            None,
         )
         .unwrap();
 
@@ -755,7 +885,17 @@ mod tests {
 
         // A real commit follows on top of the adopted hash.
         commit(
-            &book, b"v2", rev_next, "apply", "external", "hash1", json!({}), "t3", "a", None, None,
+            &book,
+            b"v2",
+            rev_next,
+            "apply",
+            "external",
+            "hash1",
+            json!({}),
+            "t3",
+            "a",
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(std::fs::read(&book).unwrap(), b"v2");

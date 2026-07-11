@@ -297,7 +297,10 @@ mod exit_codes {
     }
 
     fn fixture(name: &str) -> String {
-        format!("{}/tests/fixtures/structural/{name}", env!("CARGO_MANIFEST_DIR"))
+        format!(
+            "{}/tests/fixtures/structural/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        )
     }
 
     #[test]
@@ -310,20 +313,54 @@ mod exit_codes {
         let good = good.to_str().unwrap();
         // xlq's own faithful transform certifies (exit 0)
         assert_eq!(
-            run(&["restructure", good, "--sheet", "Sheet1", "--op", "insert-rows",
-                  "--at", "2", "--count", "1", "--actor", "t"]),
+            run(&[
+                "restructure",
+                good,
+                "--sheet",
+                "Sheet1",
+                "--op",
+                "insert-rows",
+                "--at",
+                "2",
+                "--count",
+                "1",
+                "--actor",
+                "t"
+            ]),
             0
         );
         assert_eq!(
-            run(&["certify", &orig, good, "--sheet", "Sheet1", "--op", "insert-rows",
-                  "--at", "2", "--count", "1"]),
+            run(&[
+                "certify",
+                &orig,
+                good,
+                "--sheet",
+                "Sheet1",
+                "--op",
+                "insert-rows",
+                "--at",
+                "2",
+                "--count",
+                "1"
+            ]),
             0,
             "faithful transform must certify (exit 0)"
         );
         // the untouched original is NOT the insert-row transform → REFUSED (exit 1)
         assert_eq!(
-            run(&["certify", &orig, &orig, "--sheet", "Sheet1", "--op", "insert-rows",
-                  "--at", "2", "--count", "1"]),
+            run(&[
+                "certify",
+                &orig,
+                &orig,
+                "--sheet",
+                "Sheet1",
+                "--op",
+                "insert-rows",
+                "--at",
+                "2",
+                "--count",
+                "1"
+            ]),
             1,
             "REFUSED must exit 1 so a shell 'if xlq certify' does not ship it"
         );
@@ -334,7 +371,16 @@ mod exit_codes {
     fn bad_op_exits_2_missing_file_exits_1() {
         let orig = fixture("refs.xlsx");
         assert_eq!(
-            run(&["restructure", &orig, "--sheet", "Sheet1", "--op", "bogus", "--at", "2"]),
+            run(&[
+                "restructure",
+                &orig,
+                "--sheet",
+                "Sheet1",
+                "--op",
+                "bogus",
+                "--at",
+                "2"
+            ]),
             2,
             "malformed --op is a usage error (exit 2)"
         );
@@ -356,10 +402,17 @@ mod exit_codes {
             .expect("spawn xlq");
         assert_eq!(out.status.code(), Some(1), "guard refusal exits 1");
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(stdout.contains("decompression_bomb"), "guard error on stdout: {stdout}");
+        assert!(
+            stdout.contains("decompression_bomb"),
+            "guard error on stdout: {stdout}"
+        );
         // The same workbook inspects fine without the tiny cap (caps don't trip
         // on real files).
-        assert_eq!(run(&["inspect", fx.as_str()]), 0, "normal inspect still succeeds");
+        assert_eq!(
+            run(&["inspect", fx.as_str()]),
+            0,
+            "normal inspect still succeeds"
+        );
     }
 }
 
@@ -379,11 +432,18 @@ mod journal_verbs {
         xlq(args).status.code().expect("exit code")
     }
     fn json(out: &std::process::Output) -> serde_json::Value {
-        serde_json::from_slice(&out.stdout)
-            .unwrap_or_else(|e| panic!("stdout not json ({e}): {}", String::from_utf8_lossy(&out.stdout)))
+        serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+            panic!(
+                "stdout not json ({e}): {}",
+                String::from_utf8_lossy(&out.stdout)
+            )
+        })
     }
     fn fixture(name: &str) -> String {
-        format!("{}/tests/fixtures/structural/{name}", env!("CARGO_MANIFEST_DIR"))
+        format!(
+            "{}/tests/fixtures/structural/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        )
     }
     fn book(tag: &str) -> (std::path::PathBuf, String) {
         let dir = std::env::temp_dir().join(format!("xlq-verbs-{}-{}", tag, std::process::id()));
@@ -394,7 +454,20 @@ mod journal_verbs {
         (dir, s)
     }
     fn restructure_at(b: &str, at: &str) -> i32 {
-        code(&["restructure", b, "--sheet", "Sheet1", "--op", "insert-rows", "--at", at, "--count", "1", "--actor", "t"])
+        code(&[
+            "restructure",
+            b,
+            "--sheet",
+            "Sheet1",
+            "--op",
+            "insert-rows",
+            "--at",
+            at,
+            "--count",
+            "1",
+            "--actor",
+            "t",
+        ])
     }
 
     #[test]
@@ -404,12 +477,19 @@ mod journal_verbs {
         let v = json(&out);
         assert_eq!(v["command"], "apply");
         let required = v["schema"]["required"].as_array().expect("required array");
-        assert!(required.iter().any(|x| x == "base_hash"), "schema lists base_hash: {v}");
+        assert!(
+            required.iter().any(|x| x == "base_hash"),
+            "schema lists base_hash: {v}"
+        );
     }
 
     #[test]
     fn apply_without_positionals_exits_2_bad_args() {
-        assert_eq!(code(&["apply"]), 2, "no file/patch and no --schema is a usage error");
+        assert_eq!(
+            code(&["apply"]),
+            2,
+            "no file/patch and no --schema is a usage error"
+        );
     }
 
     #[test]
@@ -423,7 +503,10 @@ mod journal_verbs {
         assert_eq!(lv["count"], 2);
         let receipts = lv["receipts"].as_array().unwrap();
         assert_eq!(receipts.len(), 2);
-        assert!(receipts.iter().all(|r| r["verified"] == true), "all linked: {lv}");
+        assert!(
+            receipts.iter().all(|r| r["verified"] == true),
+            "all linked: {lv}"
+        );
         assert_eq!(receipts[0]["rev"], 1);
         assert_eq!(receipts[1]["rev"], 2);
 
@@ -432,13 +515,22 @@ mod journal_verbs {
 
         // undo: restores rev-1 state, records a new 'undo' receipt.
         let uo = xlq(&["undo", &b]);
-        assert_eq!(uo.status.code(), Some(0), "undo exits 0: {}", String::from_utf8_lossy(&uo.stdout));
+        assert_eq!(
+            uo.status.code(),
+            Some(0),
+            "undo exits 0: {}",
+            String::from_utf8_lossy(&uo.stdout)
+        );
         let uv = json(&uo);
         assert_eq!(uv["undone_rev"], 2);
         assert_eq!(uv["restored_rev"], 1);
         // the file now byte-equals the rev-1 snapshot.
         let rev1 = std::fs::read(format!("{b}.rev-1.xlsx")).unwrap();
-        assert_eq!(std::fs::read(&b).unwrap(), rev1, "undo restored rev-1 bytes");
+        assert_eq!(
+            std::fs::read(&b).unwrap(),
+            rev1,
+            "undo restored rev-1 bytes"
+        );
         // and verify still passes (the chain stayed linked through the undo).
         assert_eq!(code(&["verify", &b]), 0, "verify passes after undo");
 
@@ -454,7 +546,11 @@ mod journal_verbs {
         assert_eq!(json(&nj)["status"], "no_journal");
 
         assert_eq!(restructure_at(&b, "2"), 0);
-        assert_eq!(code(&["verify", &b]), 0, "verify passes right after a write");
+        assert_eq!(
+            code(&["verify", &b]),
+            0,
+            "verify passes right after a write"
+        );
         // Tamper with the file out-of-band.
         {
             use std::io::Write;
@@ -462,7 +558,11 @@ mod journal_verbs {
             f.write_all(b"x").unwrap();
         }
         let t = xlq(&["verify", &b]);
-        assert_eq!(t.status.code(), Some(1), "tampered file fails verify (exit 1)");
+        assert_eq!(
+            t.status.code(),
+            Some(1),
+            "tampered file fails verify (exit 1)"
+        );
         assert_eq!(json(&t)["verified"], false);
         assert_eq!(json(&t)["head"]["match"], false);
 
@@ -488,7 +588,11 @@ mod journal_verbs {
         let m = xlq(&["undo", &b2]);
         assert_eq!(m.status.code(), Some(1), "missing backup refuses");
         assert_eq!(json(&m)["error"], "backup_missing");
-        assert_eq!(std::fs::read(&b2).unwrap(), before, "file untouched on refusal");
+        assert_eq!(
+            std::fs::read(&b2).unwrap(),
+            before,
+            "file untouched on refusal"
+        );
 
         // Corrupt the target snapshot (present, but wrong bytes): the hash guard
         // must refuse (distinct from backup_missing) and leave the file untouched.
@@ -500,7 +604,11 @@ mod journal_verbs {
         let c = xlq(&["undo", &b3]);
         assert_eq!(c.status.code(), Some(1), "corrupt backup refuses");
         assert_eq!(json(&c)["error"], "backup_corrupt");
-        assert_eq!(std::fs::read(&b3).unwrap(), before3, "file untouched on corrupt-backup refusal");
+        assert_eq!(
+            std::fs::read(&b3).unwrap(),
+            before3,
+            "file untouched on corrupt-backup refusal"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&dir2);
@@ -526,12 +634,21 @@ mod robustness {
             .unwrap_or_else(|e| panic!("stdout must be json ({e}): {stdout}"));
         assert_eq!(v["internal_error"], true, "flagged as an internal error");
         let err = v["error"].as_str().expect("error string");
-        assert!(err.contains(".rs:"), "carries a basename source location: {err}");
+        assert!(
+            err.contains(".rs:"),
+            "carries a basename source location: {err}"
+        );
         // The no-full-paths-on-stdout guarantee must hold even on a crash: the
         // hook reduces the (possibly ~/.cargo/registry) location to a basename.
-        assert!(!err.contains('/'), "no path components leak on stdout: {err}");
+        assert!(
+            !err.contains('/'),
+            "no path components leak on stdout: {err}"
+        );
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(stderr.contains("xlq internal error:"), "single-line stderr: {stderr}");
+        assert!(
+            stderr.contains("xlq internal error:"),
+            "single-line stderr: {stderr}"
+        );
         assert!(
             !stderr.contains("thread 'main' panicked"),
             "raw multi-line panic dump suppressed: {stderr}"
@@ -543,7 +660,10 @@ mod robustness {
     fn closed_stdout_pipe_does_not_panic() {
         use std::io::Read;
         use std::process::Stdio;
-        let fx = format!("{}/tests/fixtures/structural/refs.xlsx", env!("CARGO_MANIFEST_DIR"));
+        let fx = format!(
+            "{}/tests/fixtures/structural/refs.xlsx",
+            env!("CARGO_MANIFEST_DIR")
+        );
         let mut child = Command::new(env!("CARGO_BIN_EXE_xlq"))
             .args(["inspect", &fx])
             .stdout(Stdio::piped())
@@ -555,9 +675,21 @@ mod robustness {
         // BrokenPipe panic (exit 101); with SIG_DFL the process dies cleanly.
         drop(child.stdout.take());
         let mut stderr = String::new();
-        child.stderr.take().unwrap().read_to_string(&mut stderr).ok();
+        child
+            .stderr
+            .take()
+            .unwrap()
+            .read_to_string(&mut stderr)
+            .ok();
         let status = child.wait().expect("wait");
-        assert_ne!(status.code(), Some(101), "broken pipe must not panic-exit (101)");
-        assert!(!stderr.contains("panicked"), "no panic on a closed pipe; stderr: {stderr}");
+        assert_ne!(
+            status.code(),
+            Some(101),
+            "broken pipe must not panic-exit (101)"
+        );
+        assert!(
+            !stderr.contains("panicked"),
+            "no panic on a closed pipe; stderr: {stderr}"
+        );
     }
 }

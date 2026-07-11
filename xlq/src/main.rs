@@ -300,7 +300,10 @@ fn main() {
             .and_then(|m| m.clone())
             .unwrap_or_else(|| "internal error".to_string());
         eprintln!("xlq internal error: {msg}");
-        println!("{}", serde_json::json!({ "error": msg, "internal_error": true }));
+        println!(
+            "{}",
+            serde_json::json!({ "error": msg, "internal_error": true })
+        );
         std::process::exit(70);
     }
 }
@@ -415,7 +418,11 @@ fn run() {
 fn outcome_exit_code(v: &serde_json::Value) -> i32 {
     // Malformed invocation → 2 (usage), consistent with clap's own arg errors.
     if let Some(kind) = v.get("error").and_then(|e| e.as_str()) {
-        return if matches!(kind, "bad_op" | "bad_args") { 2 } else { 1 };
+        return if matches!(kind, "bad_op" | "bad_args") {
+            2
+        } else {
+            1
+        };
     }
     // Any other top-level error object, an explicit REFUSED, or a write that
     // did not verify → 1 (operational refusal/failure).

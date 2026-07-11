@@ -14,7 +14,7 @@
 use crate::journal::{self, ChainStatus};
 use crate::refshift::{Axis, Op, StructuralEdit};
 use crate::structural::{self, StructuralReport};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use serde_json::{json, Value};
 
 #[allow(clippy::too_many_arguments)]
@@ -38,11 +38,22 @@ pub fn run(
         return Ok(json!({"command":"restructure","error":"bad_args",
             "reason":"move-rows requires --dest >= 1 (the 1-based row to move the block before)"}));
     }
-    let edit = StructuralEdit { axis, at, count, op, sheet: sheet.to_string(), dest };
+    let edit = StructuralEdit {
+        axis,
+        at,
+        count,
+        op,
+        sheet: sheet.to_string(),
+        dest,
+    };
     let op_str = op_name(op, axis);
 
     // A real apply takes the advisory lock BEFORE reading, closing TOCTOU.
-    let _lock = if dry_run { None } else { Some(journal::lock(file)?) };
+    let _lock = if dry_run {
+        None
+    } else {
+        Some(journal::lock(file)?)
+    };
 
     let original = std::fs::read(file).with_context(|| format!("read {file}"))?;
     let base_hash = crate::hash::sha256_file(file)?;
@@ -118,8 +129,17 @@ pub fn run(
         json!([{ "type": op_str, "sheet": sheet, "at": at, "count": count }])
     };
     let receipt = journal::commit(
-        file, &new_bytes, rev, "restructure", &base_hash, &result_hash, ops, &timestamp,
-        &resolved_actor, None, None,
+        file,
+        &new_bytes,
+        rev,
+        "restructure",
+        &base_hash,
+        &result_hash,
+        ops,
+        &timestamp,
+        &resolved_actor,
+        None,
+        None,
     )?;
 
     Ok(json!({
@@ -199,7 +219,6 @@ fn reopen_ok(bytes: &[u8], near: &str) -> Result<(), String> {
     res
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,10 +247,25 @@ mod tests {
     fn dry_run_reports_shift_without_writing() {
         let f = setup("dry");
         let before = crate::hash::sha256_file(&f).unwrap();
-        let out = run(&f, "Sheet1", Axis::Row, Op::Insert, 5, 1, 0, true, Some("t")).unwrap();
+        let out = run(
+            &f,
+            "Sheet1",
+            Axis::Row,
+            Op::Insert,
+            5,
+            1,
+            0,
+            true,
+            Some("t"),
+        )
+        .unwrap();
         assert_eq!(out["edit"]["reopens"], json!(true));
         assert!(out["edit"]["refs_shifted"].as_u64().unwrap() >= 4);
-        assert_eq!(crate::hash::sha256_file(&f).unwrap(), before, "dry run must not write");
+        assert_eq!(
+            crate::hash::sha256_file(&f).unwrap(),
+            before,
+            "dry run must not write"
+        );
         std::fs::remove_file(&f).ok();
     }
 
@@ -239,14 +273,29 @@ mod tests {
     fn move_requires_dest() {
         let f = setup("movedest");
         let out = run(&f, "Sheet1", Axis::Row, Op::Move, 5, 1, 0, true, Some("t")).unwrap();
-        assert_eq!(out["error"], json!("bad_args"), "move without --dest must be refused: {out}");
+        assert_eq!(
+            out["error"],
+            json!("bad_args"),
+            "move without --dest must be refused: {out}"
+        );
         std::fs::remove_file(&f).ok();
     }
 
     #[test]
     fn real_insert_commits_and_recomputes() {
         let f = setup("real");
-        let out = run(&f, "Sheet1", Axis::Row, Op::Insert, 5, 1, 0, false, Some("t")).unwrap();
+        let out = run(
+            &f,
+            "Sheet1",
+            Axis::Row,
+            Op::Insert,
+            5,
+            1,
+            0,
+            false,
+            Some("t"),
+        )
+        .unwrap();
         assert_eq!(out["rev"], json!(1), "got {out}");
         assert_eq!(out["verified"]["reopened"], json!(true));
         // the committed file recomputes correctly
@@ -266,7 +315,18 @@ mod tests {
         // real file must now commit, not be refused.
         let fixture = format!("{FIX}shared.xlsx"); // YEAR.xlsx: shared, no table
         let dst = setup_from("shared", &fixture); // unique temp name — no stale sidecars
-        let out = run(&dst, "Sheet1", Axis::Row, Op::Insert, 2, 1, 0, false, Some("t")).unwrap();
+        let out = run(
+            &dst,
+            "Sheet1",
+            Axis::Row,
+            Op::Insert,
+            2,
+            1,
+            0,
+            false,
+            Some("t"),
+        )
+        .unwrap();
         assert_eq!(out["rev"], json!(1), "shared edit should commit, got {out}");
         assert_eq!(out["verified"]["reopened"], json!(true));
         std::fs::remove_file(&dst).ok();
@@ -279,7 +339,18 @@ mod tests {
         // tables remain unsupported → refused (never silently wrong).
         let fixture = format!("{FIX}table.xlsx");
         let dst = setup_from("table", &fixture);
-        let out = run(&dst, "Sheet1", Axis::Row, Op::Insert, 3, 1, 0, false, Some("t")).unwrap();
+        let out = run(
+            &dst,
+            "Sheet1",
+            Axis::Row,
+            Op::Insert,
+            3,
+            1,
+            0,
+            false,
+            Some("t"),
+        )
+        .unwrap();
         assert_eq!(out["error"], json!("residual_unreachable"), "got {out}");
         std::fs::remove_file(&dst).ok();
     }

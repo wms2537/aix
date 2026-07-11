@@ -31,8 +31,8 @@ pub enum Axis {
 #[derive(Clone, Debug)]
 pub struct StructuralEdit {
     pub axis: Axis,
-    pub at: u32,       // k, 1-based
-    pub count: u32,    // n
+    pub at: u32,    // k, 1-based
+    pub count: u32, // n
     pub op: Op,
     pub sheet: String, // the edited sheet
     pub dest: u32,     // b, 1-based (Move only; 0 for insert/delete)
@@ -166,7 +166,9 @@ pub fn col_to_num(s: &str) -> Option<u32> {
         if !c.is_ascii_alphabetic() {
             return None;
         }
-        n = n.checked_mul(26)?.checked_add((c.to_ascii_uppercase() - b'A' + 1) as u32)?;
+        n = n
+            .checked_mul(26)?
+            .checked_add((c.to_ascii_uppercase() - b'A' + 1) as u32)?;
     }
     Some(n)
 }
@@ -202,7 +204,9 @@ pub fn looks_like_cell_ref(name: &str) -> bool {
     // must consume the ENTIRE name and have a valid in-grid row
     i == b.len()
         && i > row_start
-        && name[row_start..i].parse::<u32>().is_ok_and(|r| (1..=1048576).contains(&r))
+        && name[row_start..i]
+            .parse::<u32>()
+            .is_ok_and(|r| (1..=1048576).contains(&r))
 }
 
 /// 1-based column number → letters.
@@ -351,7 +355,11 @@ fn rebuild_range(
     head_was_lo: bool,
 ) -> (String, String) {
     // assign new axis lines back to head/tail preserving original order
-    let (h_new, t_new) = if head_was_lo { (new_lo, new_hi) } else { (new_hi, new_lo) };
+    let (h_new, t_new) = if head_was_lo {
+        (new_lo, new_hi)
+    } else {
+        (new_hi, new_lo)
+    };
     let head = set_axis(hp, axis, h_new);
     let tail = set_axis(tp, axis, t_new);
     (head, tail)
@@ -433,7 +441,15 @@ fn eq_sheet(a: &str, b: &str) -> bool {
 /// so lead bytes are well-formed and `i` always lands on a boundary.
 #[inline]
 fn utf8_len(b0: u8) -> usize {
-    if b0 < 0x80 { 1 } else if b0 >= 0xF0 { 4 } else if b0 >= 0xE0 { 3 } else { 2 }
+    if b0 < 0x80 {
+        1
+    } else if b0 >= 0xF0 {
+        4
+    } else if b0 >= 0xE0 {
+        3
+    } else {
+        2
+    }
 }
 
 pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) -> (String, u32) {
@@ -471,9 +487,22 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
         let prev = out.chars().last();
         let boundary = match prev {
             None => true,
-            Some(p) => !(p.is_ascii_alphanumeric() || p == '_' || p == '.' || p == '$' || p == '!' || p == '\''),
+            Some(p) => {
+                !(p.is_ascii_alphanumeric()
+                    || p == '_'
+                    || p == '.'
+                    || p == '$'
+                    || p == '!'
+                    || p == '\'')
+            }
         };
-        if boundary && (c == b'\'' || c == b'[' || c.is_ascii_alphabetic() || c == b'$' || c.is_ascii_digit()) {
+        if boundary
+            && (c == b'\''
+                || c == b'['
+                || c.is_ascii_alphabetic()
+                || c == b'$'
+                || c.is_ascii_digit())
+        {
             if let Some((tok_len, replacement, did_shift)) =
                 try_reference(&formula[i..], current_sheet, edit)
             {
@@ -511,7 +540,10 @@ pub fn has_unquoted_non_ascii_qualifier(f: &str) -> bool {
                 i += 1;
                 while i < b.len() {
                     if b[i] == b'"' {
-                        if i + 1 < b.len() && b[i + 1] == b'"' { i += 2; continue; }
+                        if i + 1 < b.len() && b[i + 1] == b'"' {
+                            i += 2;
+                            continue;
+                        }
                         break;
                     }
                     i += 1;
@@ -523,7 +555,10 @@ pub fn has_unquoted_non_ascii_qualifier(f: &str) -> bool {
                 i += 1;
                 while i < b.len() {
                     if b[i] == b'\'' {
-                        if i + 1 < b.len() && b[i + 1] == b'\'' { i += 2; continue; }
+                        if i + 1 < b.len() && b[i + 1] == b'\'' {
+                            i += 2;
+                            continue;
+                        }
                         break;
                     }
                     i += 1;
@@ -538,9 +573,27 @@ pub fn has_unquoted_non_ascii_qualifier(f: &str) -> bool {
                 while j > 0 {
                     let p = b[j - 1];
                     if p < 0x80
-                        && matches!(p, b'(' | b')' | b',' | b'+' | b'-' | b'*' | b'/' | b'^'
-                                       | b'&' | b'=' | b'<' | b'>' | b';' | b' ' | b'{' | b'}'
-                                       | b'%' | b'"' | b'\'')
+                        && matches!(
+                            p,
+                            b'(' | b')'
+                                | b','
+                                | b'+'
+                                | b'-'
+                                | b'*'
+                                | b'/'
+                                | b'^'
+                                | b'&'
+                                | b'='
+                                | b'<'
+                                | b'>'
+                                | b';'
+                                | b' '
+                                | b'{'
+                                | b'}'
+                                | b'%'
+                                | b'"'
+                                | b'\''
+                        )
                     {
                         break;
                     }
@@ -604,7 +657,11 @@ fn parse_ref_prefix(s: &str) -> Option<usize> {
 
 /// Try to parse a (possibly sheet-qualified) reference at the start of `s`.
 /// Returns (consumed_bytes, replacement_text, did_shift) or None if not a ref.
-fn try_reference(s: &str, current_sheet: &str, edit: &StructuralEdit) -> Option<(usize, String, bool)> {
+fn try_reference(
+    s: &str,
+    current_sheet: &str,
+    edit: &StructuralEdit,
+) -> Option<(usize, String, bool)> {
     let body_start = parse_ref_prefix(s)?;
     let (body_len, is_ref) = scan_ref_body(&s[body_start..]);
     if !is_ref || body_len == 0 {
@@ -656,9 +713,22 @@ pub fn offset_formula(formula: &str, dr: i64, dc: i64) -> String {
         let prev = out.chars().last();
         let boundary = match prev {
             None => true,
-            Some(p) => !(p.is_ascii_alphanumeric() || p == '_' || p == '.' || p == '$' || p == '!' || p == '\''),
+            Some(p) => {
+                !(p.is_ascii_alphanumeric()
+                    || p == '_'
+                    || p == '.'
+                    || p == '$'
+                    || p == '!'
+                    || p == '\'')
+            }
         };
-        if boundary && (c == b'\'' || c == b'[' || c.is_ascii_alphabetic() || c == b'$' || c.is_ascii_digit()) {
+        if boundary
+            && (c == b'\''
+                || c == b'['
+                || c.is_ascii_alphabetic()
+                || c == b'$'
+                || c.is_ascii_digit())
+        {
             if let Some((len, repl)) = try_offset_reference(&formula[i..], dr, dc) {
                 out.push_str(&repl);
                 i += len;
@@ -742,8 +812,8 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
         // GRID VALIDITY (not a syntactic proxy): a real column is A..XFD, i.e. its
         // numeric value is in 1..=16384. This rejects `Sales2020` (col far past XFD)
         // and `XFE9`/`ZZZ9` (letter-count 1..=3 but numerically > XFD) alike.
-        let has_col = i > col_start
-            && col_to_num(&s[col_start..i]).is_some_and(|n| (1..=16384).contains(&n));
+        let has_col =
+            i > col_start && col_to_num(&s[col_start..i]).is_some_and(|n| (1..=16384).contains(&n));
         let mut had_row_dollar = false;
         if i < b.len() && b[i] == b'$' {
             had_row_dollar = true;
@@ -756,7 +826,9 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
         // GRID VALIDITY: a real row is 1..=1048576. Rejects `A2000000` (a name that
         // scans like a column+row but whose row is past the sheet limit).
         let has_row = i > row_start
-            && s[row_start..i].parse::<u32>().is_ok_and(|r| (1..=1048576).contains(&r));
+            && s[row_start..i]
+                .parse::<u32>()
+                .is_ok_and(|r| (1..=1048576).contains(&r));
         if had_row_dollar && !has_row {
             // trailing $ without row → back off the $
             i -= 1;
@@ -774,8 +846,9 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
     //  - '(' -> a function call whose name ends in a digit (`LOG10(...)`: `LOG10`
     //    scans as col LOG row 10; a row insert would corrupt it to `LOG11`).
     // Excel cell refs are never immediately followed by any of these.
-    let ident_tail =
-        |end: usize| end < sb.len() && (sb[end].is_ascii_alphabetic() || sb[end] == b'_' || sb[end] == b'(');
+    let ident_tail = |end: usize| {
+        end < sb.len() && (sb[end].is_ascii_alphabetic() || sb[end] == b'_' || sb[end] == b'(')
+    };
     // range?
     if sb.get(l1) == Some(&b':') {
         let (l2, c2, r2) = scan_endpoint(&s[l1 + 1..]);
@@ -853,7 +926,8 @@ pub fn has_unverifiable_3d_span(formula: &str, edited_sheet: &str) -> bool {
             if let Some((s1, s2)) = qual.split_once(':') {
                 let s1 = s1.trim().trim_matches('\'');
                 let s2 = s2.trim().trim_matches('\'');
-                if !s1.eq_ignore_ascii_case(edited_sheet) && !s2.eq_ignore_ascii_case(edited_sheet) {
+                if !s1.eq_ignore_ascii_case(edited_sheet) && !s2.eq_ignore_ascii_case(edited_sheet)
+                {
                     return true; // 3D span not anchored on the edited sheet
                 }
             }
@@ -865,6 +939,10 @@ pub fn has_unverifiable_3d_span(formula: &str, edited_sheet: &str) -> bool {
 
 /// Residual detection: does this formula body use a construct the minimal-patch
 /// invariant cannot preserve by token surgery? Returns the reason, or None.
+// The integrator detects residuals via structural::detect_residual on the parsed
+// element; this attribute-string form is kept as documented API and covered by
+// tests below (mirrors ooxml::part_names/sheet_part).
+#[allow(dead_code)]
 pub fn residual_reason(formula_attrs: &str) -> Option<&'static str> {
     // shared/array formula stubs and INDIRECT/OFFSET text refs
     if formula_attrs.contains("t=\"array\"") {
@@ -881,7 +959,14 @@ mod tests {
     use super::*;
 
     fn row_edit(op: Op, at: u32, count: u32) -> StructuralEdit {
-        StructuralEdit { axis: Axis::Row, at, count, op, sheet: "Sheet1".into(), dest: 0 }
+        StructuralEdit {
+            axis: Axis::Row,
+            at,
+            count,
+            op,
+            sheet: "Sheet1".into(),
+            dest: 0,
+        }
     }
 
     /// Regression for the in-the-wild locked test's real defect (research-log/017):
@@ -892,7 +977,10 @@ mod tests {
     fn shift_preserves_non_ascii_literals() {
         let f = r#"IF(C8="","",IF(C8=$IA$4,"大当たり！","はずれ！もう一度考えよう！"))"#;
         let (out, n) = shift_formula(f, "Sheet1", &row_edit(Op::Insert, 2, 1));
-        assert_eq!(out, r#"IF(C9="","",IF(C9=$IA$5,"大当たり！","はずれ！もう一度考えよう！"))"#);
+        assert_eq!(
+            out,
+            r#"IF(C9="","",IF(C9=$IA$5,"大当たり！","はずれ！もう一度考えよう！"))"#
+        );
         assert_eq!(n, 3);
         // 2-byte (é), 3-byte (○), 4-byte (𝄞) scalars inside and outside literals
         let g = r#"IF(A5=1,"café ○ 𝄞","×")&B5"#;
@@ -939,16 +1027,32 @@ mod tests {
         assert!(!has_unquoted_non_ascii_qualifier("'集計01'!CI3"));
         assert!(!has_unquoted_non_ascii_qualifier("SUM('データ'!B2:B9)"));
         // non-ASCII only inside string literals — must NOT trip
-        assert!(!has_unquoted_non_ascii_qualifier(r#"IF(A1=1,"集計!","x")&Sheet2!B1"#));
+        assert!(!has_unquoted_non_ascii_qualifier(
+            r#"IF(A1=1,"集計!","x")&Sheet2!B1"#
+        ));
         // plain ASCII cross-sheet and same-sheet — must NOT trip
         assert!(!has_unquoted_non_ascii_qualifier("Sheet2!A1+SUM(B1:B9)"));
         assert!(!has_unquoted_non_ascii_qualifier("SUM(A1:B2)"));
     }
     fn col_edit(op: Op, at: u32, count: u32) -> StructuralEdit {
-        StructuralEdit { axis: Axis::Col, at, count, op, sheet: "Sheet1".into(), dest: 0 }
+        StructuralEdit {
+            axis: Axis::Col,
+            at,
+            count,
+            op,
+            sheet: "Sheet1".into(),
+            dest: 0,
+        }
     }
     fn move_edit(at: u32, count: u32, dest: u32) -> StructuralEdit {
-        StructuralEdit { axis: Axis::Row, at, count, op: Op::Move, sheet: "Sheet1".into(), dest }
+        StructuralEdit {
+            axis: Axis::Row,
+            at,
+            count,
+            op: Op::Move,
+            sheet: "Sheet1".into(),
+            dest,
+        }
     }
     fn s(x: &str) -> Shift {
         Shift::Shifted(x.into())
@@ -969,44 +1073,68 @@ mod tests {
     #[test]
     fn insert_below_shifts_whole_range() {
         // insert 1 row at k=2; A5:A10 both >= 2 → shift down to A6:A11
-        assert_eq!(shift_body("A5:A10", &row_edit(Op::Insert, 2, 1)), s("A6:A11"));
+        assert_eq!(
+            shift_body("A5:A10", &row_edit(Op::Insert, 2, 1)),
+            s("A6:A11")
+        );
     }
     #[test]
     fn insert_inside_grows_range() {
         // insert 1 at k=7; A5:A10 straddles (head 5<7<=tail 10) → grow tail: A5:A11
-        assert_eq!(shift_body("A5:A10", &row_edit(Op::Insert, 7, 1)), s("A5:A11"));
+        assert_eq!(
+            shift_body("A5:A10", &row_edit(Op::Insert, 7, 1)),
+            s("A5:A11")
+        );
     }
     #[test]
     fn insert_above_whole_range_unchanged() {
         // insert 1 at k=20; A5:A10 entirely above → unchanged
-        assert_eq!(shift_body("A5:A10", &row_edit(Op::Insert, 20, 1)), Shift::Unchanged);
+        assert_eq!(
+            shift_body("A5:A10", &row_edit(Op::Insert, 20, 1)),
+            Shift::Unchanged
+        );
     }
     #[test]
     fn insert_at_head_boundary_shifts_not_grows() {
         // insert at k == head (5): head>=k → both shift → A6:A11 (range moves, blank excluded at top)
-        assert_eq!(shift_body("A5:A10", &row_edit(Op::Insert, 5, 1)), s("A6:A11"));
+        assert_eq!(
+            shift_body("A5:A10", &row_edit(Op::Insert, 5, 1)),
+            s("A6:A11")
+        );
     }
     #[test]
     fn insert_at_tail_boundary_grows() {
         // insert at k == tail (10): head 5<10 fixed, tail 10>=10 shifts → grow (blank included at bottom)
-        assert_eq!(shift_body("A5:A10", &row_edit(Op::Insert, 10, 1)), s("A5:A11"));
+        assert_eq!(
+            shift_body("A5:A10", &row_edit(Op::Insert, 10, 1)),
+            s("A5:A11")
+        );
     }
 
     // ---- DELETE: the 6-case clamp (the theory-review FAIL) ----
     #[test]
     fn delete_clip_head_endpoint() {
         // =SUM(A5:A10) delete rows 5-6 → SUM(A5:A8): clamp head to k=5, tail 10-2=8
-        assert_eq!(shift_body("A5:A10", &row_edit(Op::Delete, 5, 2)), s("A5:A8"));
+        assert_eq!(
+            shift_body("A5:A10", &row_edit(Op::Delete, 5, 2)),
+            s("A5:A8")
+        );
     }
     #[test]
     fn delete_straddle_shrinks() {
         // =SUM(A3:A10) delete rows 5-6 → head 3<5 fixed, tail 10-2=8 → A3:A8
-        assert_eq!(shift_body("A3:A10", &row_edit(Op::Delete, 5, 2)), s("A3:A8"));
+        assert_eq!(
+            shift_body("A3:A10", &row_edit(Op::Delete, 5, 2)),
+            s("A3:A8")
+        );
     }
     #[test]
     fn delete_head_in_band_clamps_to_k() {
         // =SUM(A5:A10) delete rows 3-6 (k=3,n=4,band[3,7)) → head 5 in band→clamp to 3, tail 10-4=6 → A3:A6
-        assert_eq!(shift_body("A5:A10", &row_edit(Op::Delete, 3, 4)), s("A3:A6"));
+        assert_eq!(
+            shift_body("A5:A10", &row_edit(Op::Delete, 3, 4)),
+            s("A3:A6")
+        );
     }
     #[test]
     fn delete_entirely_consumed_is_ref() {
@@ -1023,7 +1151,10 @@ mod tests {
     }
     #[test]
     fn delete_above_unchanged() {
-        assert_eq!(shift_body("A3", &row_edit(Op::Delete, 5, 2)), Shift::Unchanged);
+        assert_eq!(
+            shift_body("A3", &row_edit(Op::Delete, 5, 2)),
+            Shift::Unchanged
+        );
     }
     #[test]
     fn delete_tail_in_band_clamps_to_k_minus_1() {
@@ -1039,14 +1170,20 @@ mod tests {
     }
     #[test]
     fn mixed_ref_preserves_dollars() {
-        assert_eq!(shift_body("$A5:B$10", &row_edit(Op::Insert, 2, 3)), s("$A8:B$13"));
+        assert_eq!(
+            shift_body("$A5:B$10", &row_edit(Op::Insert, 2, 3)),
+            s("$A8:B$13")
+        );
     }
 
     // ---- axis selectivity + whole-row/col forms (C7) ----
     #[test]
     fn row_op_leaves_whole_column_ref_untouched() {
         // A:A under a ROW op → unchanged (no row component)
-        assert_eq!(shift_body("A:A", &row_edit(Op::Insert, 5, 1)), Shift::Unchanged);
+        assert_eq!(
+            shift_body("A:A", &row_edit(Op::Insert, 5, 1)),
+            Shift::Unchanged
+        );
     }
     #[test]
     fn row_op_shifts_whole_row_ref() {
@@ -1056,11 +1193,17 @@ mod tests {
     #[test]
     fn col_op_shifts_columns_only() {
         // B5:D10 insert 1 col at k=3 (col C) → B fixed(<C? B=2<3 yes)… D=4>=3→E → B5:E10
-        assert_eq!(shift_body("B5:D10", &col_edit(Op::Insert, 3, 1)), s("B5:E10"));
+        assert_eq!(
+            shift_body("B5:D10", &col_edit(Op::Insert, 3, 1)),
+            s("B5:E10")
+        );
     }
     #[test]
     fn col_op_leaves_whole_row_ref_untouched() {
-        assert_eq!(shift_body("5:5", &col_edit(Op::Insert, 3, 1)), Shift::Unchanged);
+        assert_eq!(
+            shift_body("5:5", &col_edit(Op::Insert, 3, 1)),
+            Shift::Unchanged
+        );
     }
 
     // ---- scoping (C4): only the edited sheet shifts ----
@@ -1097,10 +1240,13 @@ mod tests {
         assert_eq!(shift_ref("'My Sheet'!A5", "Other", &e), s("'My Sheet'!A6"));
     }
     #[test]
-    fn threeD_span_including_edited_sheet_shifts() {
+    fn three_d_span_including_edited_sheet_shifts() {
         // Sheet1:Sheet3!A5 with edit on Sheet1 (an endpoint) → shift
         let e = row_edit(Op::Insert, 5, 1);
-        assert_eq!(shift_ref("Sheet1:Sheet3!A5", "Sheet2", &e), s("Sheet1:Sheet3!A6"));
+        assert_eq!(
+            shift_ref("Sheet1:Sheet3!A5", "Sheet2", &e),
+            s("Sheet1:Sheet3!A6")
+        );
     }
 
     // ---- formula tokenizer (shift_formula) ----
@@ -1109,18 +1255,28 @@ mod tests {
     }
     #[test]
     fn formula_shifts_simple_range() {
-        assert_eq!(sf("SUM(A5:A10)", "Sheet1", &row_edit(Op::Insert, 2, 1)), "SUM(A6:A11)");
+        assert_eq!(
+            sf("SUM(A5:A10)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM(A6:A11)"
+        );
     }
     #[test]
     fn formula_leaves_function_names_alone() {
         // SUM parses as col letters but has no row and no ':' → not a ref
-        assert_eq!(sf("SUM(A5)+MAX(B2)", "Sheet1", &row_edit(Op::Insert, 100, 1)), "SUM(A5)+MAX(B2)");
+        assert_eq!(
+            sf("SUM(A5)+MAX(B2)", "Sheet1", &row_edit(Op::Insert, 100, 1)),
+            "SUM(A5)+MAX(B2)"
+        );
     }
     #[test]
     fn formula_does_not_touch_string_literals() {
         // the "A5" inside the quotes must NOT shift
         assert_eq!(
-            sf(r#"IF(A5>0,"row A5 here",B10)"#, "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            sf(
+                r#"IF(A5>0,"row A5 here",B10)"#,
+                "Sheet1",
+                &row_edit(Op::Insert, 2, 1)
+            ),
             r#"IF(A6>0,"row A5 here",B11)"#
         );
     }
@@ -1128,46 +1284,78 @@ mod tests {
     fn formula_shifts_cross_sheet_and_scopes() {
         // edit on Sheet1; Sheet1!A5 shifts, Sheet2!B10 (other sheet) does not
         assert_eq!(
-            sf("Sheet1!A5+Sheet2!B10", "SheetX", &row_edit(Op::Insert, 3, 1)),
+            sf(
+                "Sheet1!A5+Sheet2!B10",
+                "SheetX",
+                &row_edit(Op::Insert, 3, 1)
+            ),
             "Sheet1!A6+Sheet2!B10"
         );
     }
     #[test]
     fn formula_preserves_absolute_and_mixed() {
-        assert_eq!(sf("$A$5+B$10", "Sheet1", &row_edit(Op::Insert, 5, 2)), "$A$7+B$12");
+        assert_eq!(
+            sf("$A$5+B$10", "Sheet1", &row_edit(Op::Insert, 5, 2)),
+            "$A$7+B$12"
+        );
     }
     #[test]
     fn formula_delete_produces_ref_error() {
-        assert_eq!(sf("A5+B10", "Sheet1", &row_edit(Op::Delete, 5, 1)), "#REF!+B9");
+        assert_eq!(
+            sf("A5+B10", "Sheet1", &row_edit(Op::Delete, 5, 1)),
+            "#REF!+B9"
+        );
     }
     #[test]
     fn formula_indirect_text_arg_not_shifted() {
         // INDIRECT's "A5" is a string → untouched; the bare B10 shifts
         assert_eq!(
-            sf(r#"INDIRECT("A5")+B10"#, "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            sf(
+                r#"INDIRECT("A5")+B10"#,
+                "Sheet1",
+                &row_edit(Op::Insert, 2, 1)
+            ),
             r#"INDIRECT("A5")+B11"#
         );
     }
     #[test]
     fn formula_whole_column_under_row_op_unchanged() {
-        assert_eq!(sf("SUM(A:A)", "Sheet1", &row_edit(Op::Insert, 5, 1)), "SUM(A:A)");
+        assert_eq!(
+            sf("SUM(A:A)", "Sheet1", &row_edit(Op::Insert, 5, 1)),
+            "SUM(A:A)"
+        );
     }
     #[test]
     fn formula_whole_column_under_col_op_shifts() {
         // the FATAL scanner-routing bug: SUM(A:A) under a column insert must
         // become SUM(B:B), not stay unchanged.
-        assert_eq!(sf("SUM(A:A)", "Sheet1", &col_edit(Op::Insert, 1, 1)), "SUM(B:B)");
-        assert_eq!(sf("SUM(A:C)", "Sheet1", &col_edit(Op::Insert, 1, 1)), "SUM(B:D)");
-        assert_eq!(sf("SUM($A:$C)", "Sheet1", &col_edit(Op::Insert, 1, 1)), "SUM($B:$D)");
+        assert_eq!(
+            sf("SUM(A:A)", "Sheet1", &col_edit(Op::Insert, 1, 1)),
+            "SUM(B:B)"
+        );
+        assert_eq!(
+            sf("SUM(A:C)", "Sheet1", &col_edit(Op::Insert, 1, 1)),
+            "SUM(B:D)"
+        );
+        assert_eq!(
+            sf("SUM($A:$C)", "Sheet1", &col_edit(Op::Insert, 1, 1)),
+            "SUM($B:$D)"
+        );
     }
     #[test]
     fn formula_whole_column_delete_consumed_is_ref() {
         // deleting column A entirely consumes SUM(A:A) -> #REF!
-        assert_eq!(sf("SUM(A:A)", "Sheet1", &col_edit(Op::Delete, 1, 1)), "SUM(#REF!)");
+        assert_eq!(
+            sf("SUM(A:A)", "Sheet1", &col_edit(Op::Delete, 1, 1)),
+            "SUM(#REF!)"
+        );
     }
     #[test]
     fn formula_whole_row_under_row_op_shifts() {
-        assert_eq!(sf("SUM(5:5)", "Sheet1", &row_edit(Op::Insert, 2, 1)), "SUM(6:6)");
+        assert_eq!(
+            sf("SUM(5:5)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM(6:6)"
+        );
     }
     #[test]
     fn formula_quoted_sheet() {
@@ -1194,23 +1382,44 @@ mod tests {
             "BIN2HEX(A3,B3)"
         );
         // a defined-name-like identifier with a digit tail is also left alone
-        assert_eq!(sf("Sales2020+A2", "Sheet1", &row_edit(Op::Insert, 2, 1)), "Sales2020+A3");
+        assert_eq!(
+            sf("Sales2020+A2", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "Sales2020+A3"
+        );
         // function name ENDING in a digit before '(' (LOG10 = col LOG, row 10) is a
         // call, not a ref — must not become LOG11; the real arg A10 shifts.
-        assert_eq!(sf("LOG10(A10)", "Sheet1", &row_edit(Op::Insert, 2, 1)), "LOG10(A11)");
+        assert_eq!(
+            sf("LOG10(A10)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "LOG10(A11)"
+        );
         // and a ref genuinely followed by a paren-less context still shifts
-        assert_eq!(sf("A10+LOG10(A10)", "Sheet1", &row_edit(Op::Insert, 2, 1)), "A11+LOG10(A11)");
+        assert_eq!(
+            sf("A10+LOG10(A10)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "A11+LOG10(A11)"
+        );
     }
     #[test]
     fn formula_out_of_grid_tokens_not_shifted() {
         // GRID VALIDITY: XFE/ZZZ are 1..=3 letters but numerically past XFD(16384),
         // and row 2000000 is past 1048576 — these are names, not cells, so a row
         // insert must leave them alone while shifting the real ref A5.
-        assert_eq!(sf("XFE9+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)), "XFE9+A6");
-        assert_eq!(sf("ZZZ9+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)), "ZZZ9+A6");
-        assert_eq!(sf("A2000000+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)), "A2000000+A6");
+        assert_eq!(
+            sf("XFE9+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "XFE9+A6"
+        );
+        assert_eq!(
+            sf("ZZZ9+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "ZZZ9+A6"
+        );
+        assert_eq!(
+            sf("A2000000+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "A2000000+A6"
+        );
         // the boundary column XFD and boundary row ARE valid and shift
-        assert_eq!(sf("XFD9+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)), "XFD10+A6");
+        assert_eq!(
+            sf("XFD9+A5", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "XFD10+A6"
+        );
     }
 
     // ---- offset_formula (shared-formula materialization) ----
@@ -1239,30 +1448,39 @@ mod tests {
     }
     #[test]
     fn offset_leaves_strings_and_functions() {
-        assert_eq!(offset_formula(r#"IF(A2,"A2",B2)"#, 1, 0), r#"IF(A3,"A2",B3)"#);
+        assert_eq!(
+            offset_formula(r#"IF(A2,"A2",B2)"#, 1, 0),
+            r#"IF(A3,"A2",B3)"#
+        );
     }
 
     #[test]
     fn defined_name_cell_ref_collision_detection() {
         // names spelled like grid-valid cells -> collide (must be refused upstream)
-        assert!(looks_like_cell_ref("FY2021"));   // col FY, row 2021
+        assert!(looks_like_cell_ref("FY2021")); // col FY, row 2021
         assert!(looks_like_cell_ref("Q1"));
         assert!(looks_like_cell_ref("$A$5"));
         assert!(looks_like_cell_ref("XFD1"));
         // names that are NOT grid-valid cells -> safe (no collision)
-        assert!(!looks_like_cell_ref("TaxRate"));      // no row digits
-        assert!(!looks_like_cell_ref("XFE9"));         // col past XFD
-        assert!(!looks_like_cell_ref("A2000000"));     // row past 1048576
-        assert!(!looks_like_cell_ref("Sales2020"));    // col SALES past XFD
-        assert!(!looks_like_cell_ref("FY2021x"));      // trailing junk
+        assert!(!looks_like_cell_ref("TaxRate")); // no row digits
+        assert!(!looks_like_cell_ref("XFE9")); // col past XFD
+        assert!(!looks_like_cell_ref("A2000000")); // row past 1048576
+        assert!(!looks_like_cell_ref("Sales2020")); // col SALES past XFD
+        assert!(!looks_like_cell_ref("FY2021x")); // trailing junk
         assert!(!looks_like_cell_ref("Total"));
     }
 
     // ---- residual detection ----
     #[test]
     fn detects_array_and_shared_residual() {
-        assert_eq!(residual_reason("t=\"array\" ref=\"C2:C10\""), Some("array_formula_present"));
-        assert_eq!(residual_reason("t=\"shared\" ref=\"B2:B100\" si=\"0\""), Some("shared_formula_present"));
+        assert_eq!(
+            residual_reason("t=\"array\" ref=\"C2:C10\""),
+            Some("array_formula_present")
+        );
+        assert_eq!(
+            residual_reason("t=\"shared\" ref=\"B2:B100\" si=\"0\""),
+            Some("shared_formula_present")
+        );
         assert_eq!(residual_reason(""), None);
     }
 
@@ -1296,7 +1514,11 @@ mod tests {
         for pos in 1..=12u32 {
             assert_eq!(move_row_sigma(pos, 5, 2, 5), pos, "dest==a identity");
             assert_eq!(move_row_sigma(pos, 5, 2, 7), pos, "dest==a+n identity");
-            assert_eq!(move_row_sigma(pos, 5, 2, 6), pos, "dest inside block identity");
+            assert_eq!(
+                move_row_sigma(pos, 5, 2, 6),
+                pos,
+                "dest inside block identity"
+            );
         }
     }
     #[test]
@@ -1316,10 +1538,14 @@ mod tests {
                     let mut seen = std::collections::BTreeSet::new();
                     for pos in 1..=maxrow {
                         let img = move_row_sigma(pos, a, n, b);
-                        assert!((1..=maxrow).contains(&img),
-                            "σ out of grid: a={a} n={n} b={b} pos={pos} -> {img}");
-                        assert!(seen.insert(img),
-                            "σ not injective: a={a} n={n} b={b} collision at {img}");
+                        assert!(
+                            (1..=maxrow).contains(&img),
+                            "σ out of grid: a={a} n={n} b={b} pos={pos} -> {img}"
+                        );
+                        assert!(
+                            seen.insert(img),
+                            "σ not injective: a={a} n={n} b={b} collision at {img}"
+                        );
                     }
                     // injective + closed range on a finite set ⇒ bijection
                     assert_eq!(seen.len(), maxrow as usize);
@@ -1332,8 +1558,10 @@ mod tests {
         // order within the moved block is preserved (strictly increasing).
         for &(a, n, b) in &[(5u32, 3u32, 12u32), (8, 4, 2), (6, 1, 3), (2, 5, 15)] {
             for p in a..(a + n - 1) {
-                assert!(move_row_sigma(p, a, n, b) < move_row_sigma(p + 1, a, n, b),
-                    "block order broken a={a} n={n} b={b} at p={p}");
+                assert!(
+                    move_row_sigma(p, a, n, b) < move_row_sigma(p + 1, a, n, b),
+                    "block order broken a={a} n={n} b={b} at p={p}"
+                );
             }
         }
     }
@@ -1393,4 +1621,3 @@ mod tests {
         );
     }
 }
-
