@@ -19,7 +19,7 @@
 use crate::ooxml;
 use crate::refshift::{self, Axis, Op, Shift, StructuralEdit};
 use anyhow::{anyhow, Result};
-use quick_xml::events::{BytesStart, BytesText, Event};
+use quick_xml::events::{BytesRef, BytesStart, BytesText, Event};
 use quick_xml::reader::Reader;
 use quick_xml::writer::Writer;
 use std::collections::BTreeMap;
@@ -226,6 +226,9 @@ fn expand_shared_in_sheet(src: &[u8]) -> Result<Vec<u8>> {
         let mut buf = Vec::new();
         let mut cur: Option<(u32, u32)> = None;
         let mut pending_si: Option<String> = None;
+        // Master body reassembled across Text + GeneralRef (quick-xml >=0.38
+        // splits entities out of Text); captured logical at the closing </f>.
+        let mut body_acc = String::new();
         loop {
             match reader.read_event_into(&mut buf).map_err(|e| anyhow!("shared-formula xml: {e}"))? {
                 Event::Eof => break,
@@ -248,16 +251,25 @@ fn expand_shared_in_sheet(src: &[u8]) -> Result<Vec<u8>> {
                         .find(|a| a.key.as_ref() == b"si")
                         .map(|a| String::from_utf8_lossy(&a.value).into_owned());
                     if is_shared && has_ref {
-                        pending_si = si; // master body is the next Text
+                        pending_si = si; // master body accumulates until </f>
+                        body_acc.clear();
                     }
                 }
                 Event::Text(t) if pending_si.is_some() => {
+                    push_text_raw(&mut body_acc, &t);
+                }
+                Event::GeneralRef(r) if pending_si.is_some() => {
+                    push_ref_raw(&mut body_acc, &r);
+                }
+                Event::End(e) if e.name().as_ref() == b"f" && pending_si.is_some() => {
                     if let Some((c, r)) = cur {
-                        let body = t.unescape().unwrap_or_default().into_owned();
+                        // Reassembled master body -> logical formula.
+                        let body = logical_formula(&body_acc).unwrap_or_default();
                         masters.insert(pending_si.take().unwrap(), (c, r, body));
                     } else {
                         pending_si = None;
                     }
+                    body_acc.clear();
                 }
                 _ => {}
             }
@@ -495,6 +507,39 @@ fn text_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
+// --- Formula-body reassembly across quick-xml >=0.38 Text + GeneralRef events ---
+//
+// Since quick-xml 0.38 an entity reference (`&gt;` `&amp;` `&#60;` …) inside
+// element text is no longer part of `Event::Text` — it is emitted as a separate
+// `Event::GeneralRef`. A formula like `IF(A5>0,A5&"x")` therefore arrives as
+// Text("IF(A5") + GeneralRef("gt") + Text("0,A5") + GeneralRef("amp") + Text(...).
+// Each `<f>` body must be REASSEMBLED across all its Text+GeneralRef events, then
+// shifted ONCE — shifting the fragments independently would silently corrupt
+// exactly the formulas this tool promises never to corrupt. We accumulate the
+// original (still-escaped) bytes so an unchanged formula is written back
+// byte-identically, and derive the logical text via a single `unescape`.
+
+/// Append a formula-body `Event::Text` fragment to the raw (escaped) accumulator.
+fn push_text_raw(acc: &mut String, t: &BytesText) {
+    acc.push_str(&t.decode().unwrap_or_default());
+}
+
+/// Append a formula-body `Event::GeneralRef` (an entity like `gt`/`#60`) to the
+/// raw accumulator, reconstructing the exact `&name;` bytes it came from.
+fn push_ref_raw(acc: &mut String, r: &BytesRef) {
+    acc.push('&');
+    acc.push_str(&r.decode().unwrap_or_default());
+    acc.push(';');
+}
+
+/// Resolve a reassembled raw formula body (with XML entities) to its logical
+/// text for the reference-shift algebra. Returns `None` when it carries an
+/// entity outside the XML predefined set / char-refs (fail-closed: the caller
+/// writes the raw bytes back verbatim rather than mis-shift).
+fn logical_formula(raw: &str) -> Option<String> {
+    quick_xml::escape::unescape(raw).ok().map(|c| c.into_owned())
+}
+
 /// Build a BytesStart from raw inner bytes (name + attributes).
 fn tag_from_inner(inner: Vec<u8>, name_len: usize) -> BytesStart<'static> {
     BytesStart::from_content(String::from_utf8_lossy(&inner).into_owned(), name_len)
@@ -537,6 +582,9 @@ fn rewrite_edited_sheet(
     let mut inserted = false;
     let mut in_f = false;
     let mut f_residual = false;
+    // Reassembled formula body across quick-xml Text + GeneralRef events; the
+    // shift/writeback happens once, at the closing </f> (see push_text_raw).
+    let mut f_raw = String::new();
 
     loop {
         match reader.read_event_into(&mut buf)? {
@@ -566,6 +614,7 @@ fn rewrite_edited_sheet(
                 if is_formula_tag(e.name().as_ref()) {
                     in_f = true;
                     f_residual = detect_residual(&e).is_some();
+                    f_raw.clear();
                     if f_residual {
                         report.residuals.push(Residual {
                             part: part_name.into(),
@@ -590,37 +639,56 @@ fn rewrite_edited_sheet(
             }
             Event::End(e) => {
                 if is_formula_tag(e.name().as_ref()) {
+                    if in_f && !f_residual {
+                        // The whole <f> body has now been reassembled; shift once.
+                        let raw = std::mem::take(&mut f_raw);
+                        match logical_formula(&raw) {
+                            Some(logical)
+                                if !refshift::has_unquoted_non_ascii_qualifier(&logical) =>
+                            {
+                                let (nf, n) = refshift::shift_formula(&logical, &sheet, edit);
+                                report.refs_shifted += n;
+                                report.ref_errors += nf.matches("#REF!").count() as u32;
+                                if nf == logical {
+                                    // unchanged: preserve the ORIGINAL bytes exactly
+                                    // (do not let the writer re-escape e.g. ' -> &apos;)
+                                    writer.write_event(Event::Text(BytesText::from_escaped(raw)))?;
+                                } else {
+                                    writer.write_event(Event::Text(BytesText::from_escaped(
+                                        text_escape(&nf),
+                                    )))?;
+                                }
+                            }
+                            Some(_) => {
+                                // FAIL-CLOSED: unquoted non-ASCII sheet qualifiers are
+                                // outside the tokenizer's ASCII grammar — refuse rather
+                                // than mis-shift, and write the body back verbatim.
+                                report.residuals.push(Residual {
+                                    part: part_name.to_string(),
+                                    reason: "non_ascii_sheet_qualifier".into(),
+                                    detail: "a formula carries an UNQUOTED non-ASCII sheet qualifier, \
+                                             which the reference tokenizer cannot parse — edit refused \
+                                             (fail-closed)".into(),
+                                });
+                                writer.write_event(Event::Text(BytesText::from_escaped(raw)))?;
+                            }
+                            None => {
+                                // An entity outside the predefined/char-ref set: do not
+                                // shift, write the body back verbatim (fail-closed).
+                                writer.write_event(Event::Text(BytesText::from_escaped(raw)))?;
+                            }
+                        }
+                    }
                     in_f = false;
                     f_residual = false;
                 }
                 writer.write_event(Event::End(e.into_owned()))?;
             }
             Event::Text(t) if in_f && !f_residual => {
-                let raw = t.unescape().unwrap_or_default().into_owned();
-                // FAIL-CLOSED: unquoted non-ASCII sheet qualifiers are outside the
-                // tokenizer's ASCII grammar — refuse rather than mis-shift.
-                if refshift::has_unquoted_non_ascii_qualifier(&raw) {
-                    report.residuals.push(Residual {
-                        part: part_name.to_string(),
-                        reason: "non_ascii_sheet_qualifier".into(),
-                        detail: "a formula carries an UNQUOTED non-ASCII sheet qualifier, \
-                                 which the reference tokenizer cannot parse — edit refused \
-                                 (fail-closed)".into(),
-                    });
-                    writer.write_event(Event::Text(t.into_owned()))?;
-                    buf.clear();
-                    continue;
-                }
-                let (nf, n) = refshift::shift_formula(&raw, &sheet, edit);
-                report.refs_shifted += n;
-                report.ref_errors += nf.matches("#REF!").count() as u32;
-                if nf == raw {
-                    // unchanged: preserve the ORIGINAL bytes exactly (do not let
-                    // the writer re-escape e.g. ' -> &apos;)
-                    writer.write_event(Event::Text(t.into_owned()))?;
-                } else {
-                    writer.write_event(Event::Text(BytesText::from_escaped(text_escape(&nf))))?;
-                }
+                push_text_raw(&mut f_raw, &t);
+            }
+            Event::GeneralRef(r) if in_f && !f_residual => {
+                push_ref_raw(&mut f_raw, &r);
             }
             other => {
                 writer.write_event(other.into_owned())?;
@@ -665,6 +733,8 @@ fn rewrite_edited_sheet_move(
     let mut in_f = false;
     let mut f_residual = false;
     let mut straddle_flagged = false;
+    // Reassembled formula body across Text + GeneralRef; shifted once at </f>.
+    let mut f_raw = String::new();
 
     loop {
         let ev = reader.read_event_into(&mut buf)?;
@@ -719,6 +789,7 @@ fn rewrite_edited_sheet_move(
             Event::Start(e) if is_formula_tag(e.name().as_ref()) => {
                 in_f = true;
                 f_residual = detect_residual(&e).is_some();
+                f_raw.clear();
                 if f_residual {
                     report.residuals.push(Residual {
                         part: part_name.into(),
@@ -746,6 +817,53 @@ fn rewrite_edited_sheet_move(
                 }
             }
             Event::End(e) if is_formula_tag(e.name().as_ref()) => {
+                if in_f && !f_residual {
+                    // Whole <f> body reassembled across Text + GeneralRef; shift once.
+                    let raw = std::mem::take(&mut f_raw);
+                    let out_ev = match logical_formula(&raw) {
+                        Some(logical)
+                            if !refshift::has_unquoted_non_ascii_qualifier(&logical) =>
+                        {
+                            let before_ref = logical.matches("#REF!").count();
+                            let (nf, n) = refshift::shift_formula(&logical, &sheet, edit);
+                            let new_ref = nf.matches("#REF!").count().saturating_sub(before_ref);
+                            report.refs_shifted += n;
+                            report.ref_errors += new_ref as u32;
+                            if new_ref > 0 && !straddle_flagged {
+                                straddle_flagged = true;
+                                report.residuals.push(Residual {
+                                    part: part_name.into(),
+                                    reason: "move_straddles_range".into(),
+                                    detail: "a range reference reorders under the move \
+                                             (σ(head) > σ(tail)); it cannot be expressed as a shifted \
+                                             rectangle — edit refused (fail-closed)"
+                                        .into(),
+                                });
+                            }
+                            if nf == logical {
+                                Event::Text(BytesText::from_escaped(raw))
+                            } else {
+                                Event::Text(BytesText::from_escaped(text_escape(&nf)))
+                            }
+                        }
+                        Some(_) => {
+                            // FAIL-CLOSED: same non-ASCII-qualifier guard as insert/delete.
+                            report.residuals.push(Residual {
+                                part: part_name.to_string(),
+                                reason: "non_ascii_sheet_qualifier".into(),
+                                detail: "a formula carries an UNQUOTED non-ASCII sheet qualifier, \
+                                         which the reference tokenizer cannot parse — edit refused \
+                                         (fail-closed)".into(),
+                            });
+                            Event::Text(BytesText::from_escaped(raw))
+                        }
+                        None => Event::Text(BytesText::from_escaped(raw)),
+                    };
+                    match row_buf.as_mut() {
+                        Some((_, w)) => w.write_event(out_ev)?,
+                        None => main.write_event(out_ev)?,
+                    }
+                }
                 in_f = false;
                 f_residual = false;
                 match row_buf.as_mut() {
@@ -754,48 +872,10 @@ fn rewrite_edited_sheet_move(
                 }
             }
             Event::Text(t) if in_f && !f_residual => {
-                let raw = t.unescape().unwrap_or_default().into_owned();
-                // FAIL-CLOSED: same non-ASCII-qualifier guard as the insert/delete path.
-                if refshift::has_unquoted_non_ascii_qualifier(&raw) {
-                    report.residuals.push(Residual {
-                        part: part_name.to_string(),
-                        reason: "non_ascii_sheet_qualifier".into(),
-                        detail: "a formula carries an UNQUOTED non-ASCII sheet qualifier, \
-                                 which the reference tokenizer cannot parse — edit refused \
-                                 (fail-closed)".into(),
-                    });
-                    match row_buf.as_mut() {
-                        Some((_, w)) => w.write_event(Event::Text(t.into_owned()))?,
-                        None => main.write_event(Event::Text(t.into_owned()))?,
-                    }
-                    buf.clear();
-                    continue;
-                }
-                let before_ref = raw.matches("#REF!").count();
-                let (nf, n) = refshift::shift_formula(&raw, &sheet, edit);
-                let new_ref = nf.matches("#REF!").count().saturating_sub(before_ref);
-                report.refs_shifted += n;
-                report.ref_errors += new_ref as u32;
-                if new_ref > 0 && !straddle_flagged {
-                    straddle_flagged = true;
-                    report.residuals.push(Residual {
-                        part: part_name.into(),
-                        reason: "move_straddles_range".into(),
-                        detail: "a range reference reorders under the move \
-                                 (σ(head) > σ(tail)); it cannot be expressed as a shifted \
-                                 rectangle — edit refused (fail-closed)"
-                            .into(),
-                    });
-                }
-                let out_ev = if nf == raw {
-                    Event::Text(t.into_owned())
-                } else {
-                    Event::Text(BytesText::from_escaped(text_escape(&nf)))
-                };
-                match row_buf.as_mut() {
-                    Some((_, w)) => w.write_event(out_ev)?,
-                    None => main.write_event(out_ev)?,
-                }
+                push_text_raw(&mut f_raw, &t);
+            }
+            Event::GeneralRef(r) if in_f && !f_residual => {
+                push_ref_raw(&mut f_raw, &r);
             }
 
             // ---- any other start/empty element: attribute σ-shift ----
@@ -975,7 +1055,10 @@ fn shift_ref_attrs(
     for a in e.attributes().flatten() {
         let key = a.key.as_ref();
         if let Some(&sk) = ref_attrs.iter().find(|k| **k == key) {
-            let val = a.unescape_value().unwrap_or_default().into_owned();
+            let val = a
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .unwrap_or_default()
+                .into_owned();
             let (nv, n, c, _all) = shift_sqref(&val, sheet, edit);
             report.refs_shifted += n;
             report.ref_errors += c;
@@ -1123,6 +1206,8 @@ fn shift_text_in_element(
     let mut in_tag = false;
     let mut residual = false;
     let mut qualifier_risk = false;
+    // Reassembled element body across Text + GeneralRef; shifted once at </TAG>.
+    let mut f_raw = String::new();
     let (mut shifted, mut errs) = (0u32, 0u32);
     loop {
         // Fail closed: a mid-stream parse or write error must NOT commit a
@@ -1133,32 +1218,44 @@ fn shift_text_in_element(
             Event::Start(e) if tag_local_eq(e.name().as_ref(), tag) => {
                 in_tag = true;
                 residual = detect_residual(&e).is_some();
+                f_raw.clear();
                 writer.write_event(Event::Start(e.into_owned())).map_err(|e| anyhow!("xml write: {e}"))?;
             }
             Event::End(e) if tag_local_eq(e.name().as_ref(), tag) => {
+                if in_tag && !residual {
+                    // Whole element body reassembled across Text + GeneralRef; shift once.
+                    let raw = std::mem::take(&mut f_raw);
+                    let out_ev = match logical_formula(&raw) {
+                        Some(logical)
+                            if !refshift::has_unquoted_non_ascii_qualifier(&logical) =>
+                        {
+                            let (nf, n) = refshift::shift_formula(&logical, host, edit);
+                            shifted += n;
+                            errs += nf.matches("#REF!").count() as u32;
+                            if nf == logical {
+                                Event::Text(BytesText::from_escaped(raw))
+                            } else {
+                                Event::Text(BytesText::from_escaped(text_escape(&nf)))
+                            }
+                        }
+                        Some(_) => {
+                            // FAIL-CLOSED: unquoted non-ASCII qualifier — flag, do not shift.
+                            qualifier_risk = true;
+                            Event::Text(BytesText::from_escaped(raw))
+                        }
+                        None => Event::Text(BytesText::from_escaped(raw)),
+                    };
+                    writer.write_event(out_ev).map_err(|e| anyhow!("xml write: {e}"))?;
+                }
                 in_tag = false;
                 residual = false;
                 writer.write_event(Event::End(e.into_owned())).map_err(|e| anyhow!("xml write: {e}"))?;
             }
             Event::Text(t) if in_tag && !residual => {
-                let raw = t.unescape().unwrap_or_default().into_owned();
-                // FAIL-CLOSED: unquoted non-ASCII qualifier — flag, do not shift.
-                if refshift::has_unquoted_non_ascii_qualifier(&raw) {
-                    qualifier_risk = true;
-                    writer.write_event(Event::Text(t.into_owned())).map_err(|e| anyhow!("xml write: {e}"))?;
-                    buf.clear();
-                    continue;
-                }
-                let (nf, n) = refshift::shift_formula(&raw, host, edit);
-                shifted += n;
-                errs += nf.matches("#REF!").count() as u32;
-                if nf == raw {
-                    writer.write_event(Event::Text(t.into_owned())).map_err(|e| anyhow!("xml write: {e}"))?;
-                } else {
-                    writer
-                        .write_event(Event::Text(BytesText::from_escaped(text_escape(&nf))))
-                        .map_err(|e| anyhow!("xml write: {e}"))?;
-                }
+                push_text_raw(&mut f_raw, &t);
+            }
+            Event::GeneralRef(r) if in_tag && !residual => {
+                push_ref_raw(&mut f_raw, &r);
             }
             other => {
                 writer.write_event(other.into_owned()).map_err(|e| anyhow!("xml write: {e}"))?;
@@ -1450,6 +1547,69 @@ mod tests {
         assert!(s.contains("$A6"), "CF formula body shifts ($A5->$A6): {s}");
         assert!(s.contains(r#"sqref="C6:C21""#), "DV sqref shifts");
         assert!(s.contains("$D6"), "DV formula1 body shifts ($D5->$D6): {s}");
+    }
+
+    #[test]
+    fn main_formula_entities_reassemble_and_shift() {
+        // REGRESSION for the quick-xml >=0.38 entity split: a <f> body carrying
+        // multiple XML entities (>, &, <>) is delivered as Text + GeneralRef
+        // fragments; it must be reassembled and shifted as ONE formula, never
+        // per-fragment (which would silently corrupt it). Insert at row 3 shifts
+        // the row-5 refs (A5->A6, B5->B6) and re-escapes byte-exact.
+        let xml = br#"<worksheet><sheetData><row r="5"><c r="A5"><f>IF(A5&gt;0,A5&amp;"x",B5&lt;&gt;0)</f><v>1</v></c></row></sheetData></worksheet>"#;
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 3, 1);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            s.contains(r#"<f>IF(A6&gt;0,A6&amp;"x",B6&lt;&gt;0)</f>"#),
+            "multi-entity formula reassembled, shifted, re-escaped exactly: {s}"
+        );
+        assert_eq!(report.ref_errors, 0, "no #REF!: {s}");
+    }
+
+    #[test]
+    fn unchanged_entity_formula_is_byte_identical() {
+        // The no-op path must write the ORIGINAL entity-bearing bytes back
+        // verbatim (from_escaped(raw)), not re-normalize them. Insert far below
+        // the referenced rows leaves the formula unchanged.
+        let xml = br#"<worksheet><sheetData><row r="1"><c r="A1"><f>IF(A1&gt;0,A1&amp;"y",B1&lt;&gt;0)</f></c></row></sheetData></worksheet>"#;
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 50, 1);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            s.contains(r#"<f>IF(A1&gt;0,A1&amp;"y",B1&lt;&gt;0)</f>"#),
+            "unchanged entity formula preserved byte-exact: {s}"
+        );
+        assert_eq!(report.refs_shifted, 0, "nothing shifted below the edit");
+    }
+
+    #[test]
+    fn shared_master_with_entity_expands_correctly() {
+        // The shared-master body (A2>0) carries an entity; it must be captured
+        // whole across Text+GeneralRef so dependents expand to A3>0, A4>0.
+        let xml = br#"<worksheet><sheetData><row r="2"><c r="B2"><f t="shared" ref="B2:B4" si="0">A2&gt;0</f></c></row><row r="3"><c r="B3"><f t="shared" si="0"/></c></row><row r="4"><c r="B4"><f t="shared" si="0"/></c></row></sheetData></worksheet>"#;
+        let out = expand_shared_in_sheet(xml).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(s.contains("A2&gt;0"), "master body preserved: {s}");
+        assert!(s.contains("A3&gt;0"), "dependent B3 -> A3>0: {s}");
+        assert!(s.contains("A4&gt;0"), "dependent B4 -> A4>0: {s}");
+    }
+
+    #[test]
+    fn move_path_entity_formula_shifts() {
+        // The move path must also reassemble entity-bearing formula bodies.
+        let xml = br#"<worksheet><dimension ref="A1:C8"/><sheetData><row r="1"><c r="A1"><v>1</v></c></row><row r="2"><c r="A2"><v>2</v></c></row><row r="3"><c r="A3"><v>3</v></c></row><row r="4"><c r="A4"><v>4</v></c></row><row r="5"><c r="A5"><v>5</v></c></row><row r="6"><c r="A6"><v>6</v></c><c r="C6"><f>IF(A6&gt;0,A6,B6)</f><v>12</v></c></row><row r="7"><c r="A7"><v>7</v></c></row><row r="8"><c r="A8"><v>8</v></c></row></sheetData></worksheet>"#;
+        let e = move_edit("Sheet1", 6, 1, 3);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml, &e, "xl/worksheets/sheet1.xml", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            s.contains(r#"<c r="C3"><f>IF(A3&gt;0,A3,B3)</f>"#),
+            "move-path entity formula reassembled and shifted (row 6 -> 3): {s}"
+        );
+        assert!(report.residuals.is_empty(), "no residuals: {:?}", report.residuals);
     }
 
     #[test]

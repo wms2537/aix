@@ -196,7 +196,7 @@ pub(crate) fn all_sheets(input: &[u8]) -> Result<Vec<(String, String)>> {
                 let mut rid: Option<String> = None;
                 for a in e.attributes().flatten() {
                     match a.key.as_ref() {
-                        b"name" => nm = a.unescape_value().ok().map(|c| c.into_owned()),
+                        b"name" => nm = a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok().map(|c| c.into_owned()),
                         b"r:id" => rid = Some(String::from_utf8_lossy(&a.value).into_owned()),
                         _ => {}
                     }
@@ -226,7 +226,7 @@ fn sheet_rid(workbook_xml: &[u8], name: &str) -> Result<Option<String>> {
                 for a in e.attributes().flatten() {
                     match a.key.as_ref() {
                         b"name" => {
-                            nm = a.unescape_value().ok().map(|c| c.into_owned());
+                            nm = a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok().map(|c| c.into_owned());
                         }
                         b"r:id" => {
                             rid = Some(String::from_utf8_lossy(&a.value).into_owned());
@@ -257,7 +257,7 @@ fn rid_target(rels_xml: &[u8], rid: &str) -> Result<Option<String>> {
                     match a.key.as_ref() {
                         b"Id" => id = Some(String::from_utf8_lossy(&a.value).into_owned()),
                         b"Target" => {
-                            target = a.unescape_value().ok().map(|c| c.into_owned());
+                            target = a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok().map(|c| c.into_owned());
                         }
                         _ => {}
                     }
