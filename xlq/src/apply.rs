@@ -475,7 +475,7 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
     let resolved_actor = journal::resolve_actor(actor.or(patch.actor.as_deref()));
 
     let original_bytes = std::fs::read(file).with_context(|| format!("read {file_name}"))?;
-    let disk_hash = sha256_bytes(&original_bytes);
+    let disk_hash = crate::hash::sha256_bytes(&original_bytes);
     if disk_hash != patch.base_hash {
         return Ok(json!({
             "command": "apply",
@@ -510,7 +510,7 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
     };
 
     let new_bytes = ooxml::surgical_write(&original_bytes, &edits)?;
-    let result_hash = sha256_bytes(&new_bytes);
+    let result_hash = crate::hash::sha256_bytes(&new_bytes);
 
     // PROOF-CARRYING APPLY. Nothing is on disk yet (commit does the write), so
     // if this verification fails the original file is untouched. We re-load the
@@ -660,13 +660,6 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
             "seed": receipt.seed,
         },
     }))
-}
-
-fn sha256_bytes(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
 }
 
 /// Proof-carrying verification outcome.

@@ -25,6 +25,16 @@ pub fn sha256_file(path: &str) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// SHA-256 of an in-memory byte slice. Hex-encoded, lowercase. The single source
+/// for hashing produced bytes (result snapshots, backup-integrity checks) —
+/// consumed by apply/restructure/undo so the write path and the recovery path
+/// agree on exactly one digest function.
+pub fn sha256_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

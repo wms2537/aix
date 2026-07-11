@@ -89,7 +89,7 @@ pub fn run(
         }));
     }
 
-    let result_hash = sha256_bytes(&new_bytes);
+    let result_hash = crate::hash::sha256_bytes(&new_bytes);
     let timestamp = journal::iso_timestamp(None);
     let resolved_actor = journal::resolve_actor(actor);
 
@@ -197,13 +197,6 @@ fn reopen_ok(bytes: &[u8], near: &str) -> Result<(), String> {
     };
     let _ = std::fs::remove_file(&tmp);
     res
-}
-
-fn sha256_bytes(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut h = Sha256::new();
-    h.update(bytes);
-    format!("{:x}", h.finalize())
 }
 
 

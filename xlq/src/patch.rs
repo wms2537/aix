@@ -123,10 +123,118 @@ pub fn value_to_input(v: &serde_json::Value) -> Result<String> {
     }
 }
 
+/// JSON Schema (Draft-07) of the `xlq apply` patch format, printed by
+/// `xlq apply --schema`. Hand-written and co-located with the `Patch`/`Op` types
+/// so it doubles as the authoritative spec without pulling a schema-derivation
+/// crate into a deliberately lean, security-audited dependency set. The
+/// `schema_matches_the_deserializer` test keeps it in lockstep with the structs.
+pub fn schema() -> serde_json::Value {
+    serde_json::json!({
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "xlq apply patch",
+        "type": "object",
+        "required": ["base_hash", "ops"],
+        "additionalProperties": false,
+        "properties": {
+            "base_hash": {
+                "type": "string",
+                "description": "sha256 the target file must currently hash to; the write refuses on mismatch"
+            },
+            "actor": {
+                "type": "string",
+                "description": "actor recorded in the receipt (else --actor, then $XLQ_ACTOR, else \"unknown\")"
+            },
+            "ops": {
+                "type": "array",
+                "description": "ordered cell operations to apply",
+                "items": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "required": ["type", "sheet", "cell", "value"],
+                            "additionalProperties": false,
+                            "properties": {
+                                "type": {"const": "set_cell"},
+                                "sheet": {"type": "string"},
+                                "cell": {"type": "string", "description": "A1 reference, e.g. \"B7\""},
+                                "value": {
+                                    "description": "number|string|bool|null (null clears); a date is {\"type\":\"date\",\"iso\":\"YYYY-MM-DD\"}",
+                                    "oneOf": [
+                                        {"type": "number"},
+                                        {"type": "string"},
+                                        {"type": "boolean"},
+                                        {"type": "null"},
+                                        {
+                                            "type": "object",
+                                            "required": ["type", "iso"],
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "type": {"const": "date"},
+                                                "iso": {"type": "string", "description": "YYYY-MM-DD"}
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        },
+                        {
+                            "type": "object",
+                            "required": ["type", "sheet", "cell", "formula"],
+                            "additionalProperties": false,
+                            "properties": {
+                                "type": {"const": "set_formula"},
+                                "sheet": {"type": "string"},
+                                "cell": {"type": "string", "description": "A1 reference"},
+                                "formula": {"type": "string", "description": "e.g. \"=A1+1\""}
+                            }
+                        }
+                    ]
+                }
+            },
+            "watch": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "A1 refs whose before/after values --dry-run reports"
+            },
+            "clock": {
+                "type": "integer",
+                "description": "pinned epoch-ms for volatile functions (determinism)"
+            },
+            "seed": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "pinned RNG seed (determinism)"
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn schema_matches_the_deserializer() {
+        let s = schema();
+        let required = s["required"].as_array().expect("required is an array");
+        assert!(required.iter().any(|v| v == "base_hash"), "base_hash required");
+        assert!(required.iter().any(|v| v == "ops"), "ops required");
+        // Drift guard: an example conforming to the schema (both op kinds + a date
+        // wrapper) must deserialize through the REAL Patch deserializer, so the
+        // hand-written schema cannot silently diverge from the structs.
+        let example = r#"{
+            "base_hash": "h", "actor": "a",
+            "ops": [
+                {"type":"set_cell","sheet":"S","cell":"A1","value":1},
+                {"type":"set_cell","sheet":"S","cell":"A2","value":{"type":"date","iso":"2026-01-01"}},
+                {"type":"set_formula","sheet":"S","cell":"B1","formula":"=A1+1"}
+            ],
+            "watch": ["A1"], "clock": 0, "seed": 0
+        }"#;
+        let _p: Patch =
+            serde_json::from_str(example).expect("schema example must match the deserializer");
+    }
 
     #[test]
     fn parses_patch_with_both_ops() {

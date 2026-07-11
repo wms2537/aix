@@ -91,7 +91,7 @@ fn lock_path(book_path: &str) -> String {
     format!("{book_path}.xlq.lock")
 }
 
-fn rev_path(book_path: &str, rev: u64) -> String {
+pub(crate) fn rev_path(book_path: &str, rev: u64) -> String {
     format!("{book_path}.rev-{rev}.xlsx")
 }
 

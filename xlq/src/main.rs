@@ -6,12 +6,15 @@ mod diff;
 mod hash;
 mod inspect;
 mod journal;
+mod log;
 mod ooxml;
 mod patch;
 mod refshift;
 mod restructure;
 mod structural;
+mod undo;
 mod value;
+mod verify;
 
 use clap::{Parser, Subcommand};
 
@@ -55,16 +58,19 @@ enum Command {
     /// pivots, VBA, styles) byte-identical to the input. --dry-run predicts
     /// the effect without writing.
     Apply {
-        /// Path to the .xlsx file to modify
-        file: String,
-        /// Path to the patch JSON (base_hash + typed ops); see patch.rs
-        patch: String,
+        /// Path to the .xlsx file to modify (omit only with --schema)
+        file: Option<String>,
+        /// Path to the patch JSON (base_hash + typed ops); see patch.rs (omit only with --schema)
+        patch: Option<String>,
         /// Predict affected cells / new errors / watch values without writing
         #[arg(long)]
         dry_run: bool,
         /// Actor recorded in the receipt (falls back to $XLQ_ACTOR, else "unknown")
         #[arg(long)]
         actor: Option<String>,
+        /// Print the JSON Schema of the patch format and exit (no file needed)
+        #[arg(long)]
+        schema: bool,
     },
     /// Surgical structural edit: insert/delete rows or columns, shifting every
     /// reference (formulas, cross-sheet, defined names, charts, pivots) via the
@@ -120,6 +126,29 @@ enum Command {
         /// move-rows only: 1-based ORIGINAL-coordinate row the block was moved before
         #[arg(long, default_value_t = 0)]
         dest: u32,
+    },
+    /// Print the receipt history recorded in <file>.xlq.jsonl (rev, kind,
+    /// timestamp, hashes, actor, per-entry chain-linkage). Read-only.
+    Log {
+        /// Path to the .xlsx file
+        file: String,
+    },
+    /// Recompute <file>'s hash and check it against the latest receipt's
+    /// result_hash, plus the whole receipt hash-chain linkage. Detects
+    /// out-of-band tampering; exits 1 when verification fails.
+    Verify {
+        /// Path to the .xlsx file
+        file: String,
+    },
+    /// Transactionally restore the previous committed snapshot (records a new
+    /// 'undo' receipt). Fails closed on a missing/corrupt backup or an
+    /// out-of-band edit.
+    Undo {
+        /// Path to the .xlsx file
+        file: String,
+        /// Actor recorded in the receipt
+        #[arg(long)]
+        actor: Option<String>,
     },
     /// Test-only batch driver for the Lean↔Rust tokenizer differential
     /// (hidden from help; not part of the public CLI surface). Reads TSV
@@ -218,7 +247,25 @@ fn main() {
             patch,
             dry_run,
             actor,
-        } => apply::run(&file, &patch, dry_run, actor.as_deref()),
+            schema,
+        } => {
+            if schema {
+                // --schema needs no file: print the patch JSON Schema and exit 0.
+                Ok(serde_json::json!({ "command": "apply", "schema": patch::schema() }))
+            } else {
+                match (file, patch) {
+                    (Some(f), Some(p)) => apply::run(&f, &p, dry_run, actor.as_deref()),
+                    // Positionals are optional only so --schema can omit them;
+                    // otherwise both are required. bad_args -> exit 2 (usage),
+                    // preserving what clap's own required-arg error used to give.
+                    _ => Ok(serde_json::json!({
+                        "command": "apply",
+                        "error": "bad_args",
+                        "reason": "file and patch are required unless --schema is given",
+                    })),
+                }
+            }
+        }
         Command::Restructure {
             file,
             sheet,
@@ -255,6 +302,9 @@ fn main() {
             count,
             dest,
         } => certify::run(&original, &edited, &sheet, &op, at, count, dest),
+        Command::Log { file } => log::run(&file),
+        Command::Verify { file } => verify::run(&file),
+        Command::Undo { file, actor } => undo::run(&file, actor.as_deref()),
         Command::ShiftFormulaBatch => {
             shift_formula_batch();
             return;

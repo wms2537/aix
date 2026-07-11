@@ -349,3 +349,148 @@ mod exit_codes {
         assert_eq!(run(&["inspect", fx.as_str()]), 0, "normal inspect still succeeds");
     }
 }
+
+/// The read/recovery verbs over the transactional journal: log, verify, undo,
+/// and `apply --schema`. Each spawns the real binary; env/tempdirs are
+/// process- and pid-isolated so nothing races.
+mod journal_verbs {
+    use std::process::Command;
+
+    fn xlq(args: &[&str]) -> std::process::Output {
+        Command::new(env!("CARGO_BIN_EXE_xlq"))
+            .args(args)
+            .output()
+            .expect("spawn xlq")
+    }
+    fn code(args: &[&str]) -> i32 {
+        xlq(args).status.code().expect("exit code")
+    }
+    fn json(out: &std::process::Output) -> serde_json::Value {
+        serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|e| panic!("stdout not json ({e}): {}", String::from_utf8_lossy(&out.stdout)))
+    }
+    fn fixture(name: &str) -> String {
+        format!("{}/../fixtures/structural/{name}", env!("CARGO_MANIFEST_DIR"))
+    }
+    fn book(tag: &str) -> (std::path::PathBuf, String) {
+        let dir = std::env::temp_dir().join(format!("xlq-verbs-{}-{}", tag, std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let b = dir.join("book.xlsx");
+        std::fs::copy(fixture("refs.xlsx"), &b).unwrap();
+        let s = b.to_str().unwrap().to_string();
+        (dir, s)
+    }
+    fn restructure_at(b: &str, at: &str) -> i32 {
+        code(&["restructure", b, "--sheet", "Sheet1", "--op", "insert-rows", "--at", at, "--count", "1", "--actor", "t"])
+    }
+
+    #[test]
+    fn apply_schema_exits_0_prints_schema_without_a_file() {
+        let out = xlq(&["apply", "--schema"]);
+        assert_eq!(out.status.code(), Some(0), "apply --schema exits 0");
+        let v = json(&out);
+        assert_eq!(v["command"], "apply");
+        let required = v["schema"]["required"].as_array().expect("required array");
+        assert!(required.iter().any(|x| x == "base_hash"), "schema lists base_hash: {v}");
+    }
+
+    #[test]
+    fn apply_without_positionals_exits_2_bad_args() {
+        assert_eq!(code(&["apply"]), 2, "no file/patch and no --schema is a usage error");
+    }
+
+    #[test]
+    fn log_verify_undo_over_a_real_chain() {
+        let (dir, b) = book("chain");
+        assert_eq!(restructure_at(&b, "2"), 0, "rev 1");
+        assert_eq!(restructure_at(&b, "3"), 0, "rev 2");
+
+        // log: 2 receipts, all chain-linkage-verified, in order.
+        let lv = json(&xlq(&["log", &b]));
+        assert_eq!(lv["count"], 2);
+        let receipts = lv["receipts"].as_array().unwrap();
+        assert_eq!(receipts.len(), 2);
+        assert!(receipts.iter().all(|r| r["verified"] == true), "all linked: {lv}");
+        assert_eq!(receipts[0]["rev"], 1);
+        assert_eq!(receipts[1]["rev"], 2);
+
+        // verify: passes (exit 0).
+        assert_eq!(code(&["verify", &b]), 0, "clean chain verifies");
+
+        // undo: restores rev-1 state, records a new 'undo' receipt.
+        let uo = xlq(&["undo", &b]);
+        assert_eq!(uo.status.code(), Some(0), "undo exits 0: {}", String::from_utf8_lossy(&uo.stdout));
+        let uv = json(&uo);
+        assert_eq!(uv["undone_rev"], 2);
+        assert_eq!(uv["restored_rev"], 1);
+        // the file now byte-equals the rev-1 snapshot.
+        let rev1 = std::fs::read(format!("{b}.rev-1.xlsx")).unwrap();
+        assert_eq!(std::fs::read(&b).unwrap(), rev1, "undo restored rev-1 bytes");
+        // and verify still passes (the chain stayed linked through the undo).
+        assert_eq!(code(&["verify", &b]), 0, "verify passes after undo");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn verify_reports_no_journal_then_detects_tampering() {
+        let (dir, b) = book("verify");
+        // No journal yet -> exit 0, status no_journal.
+        let nj = xlq(&["verify", &b]);
+        assert_eq!(nj.status.code(), Some(0), "no journal is exit 0");
+        assert_eq!(json(&nj)["status"], "no_journal");
+
+        assert_eq!(restructure_at(&b, "2"), 0);
+        assert_eq!(code(&["verify", &b]), 0, "verify passes right after a write");
+        // Tamper with the file out-of-band.
+        {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new().append(true).open(&b).unwrap();
+            f.write_all(b"x").unwrap();
+        }
+        let t = xlq(&["verify", &b]);
+        assert_eq!(t.status.code(), Some(1), "tampered file fails verify (exit 1)");
+        assert_eq!(json(&t)["verified"], false);
+        assert_eq!(json(&t)["head"]["match"], false);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn undo_fails_closed_on_genesis_and_missing_backup() {
+        // Genesis: a single write leaves no prior snapshot to restore.
+        let (dir, b) = book("genesis");
+        assert_eq!(restructure_at(&b, "2"), 0);
+        let g = xlq(&["undo", &b]);
+        assert_eq!(g.status.code(), Some(1), "genesis undo refuses (exit 1)");
+        assert_eq!(json(&g)["error"], "no_prior_snapshot");
+
+        // Two writes, then delete the target snapshot: undo must fail closed and
+        // leave the file untouched.
+        let (dir2, b2) = book("missing");
+        assert_eq!(restructure_at(&b2, "2"), 0);
+        assert_eq!(restructure_at(&b2, "3"), 0);
+        let before = std::fs::read(&b2).unwrap();
+        std::fs::remove_file(format!("{b2}.rev-1.xlsx")).unwrap();
+        let m = xlq(&["undo", &b2]);
+        assert_eq!(m.status.code(), Some(1), "missing backup refuses");
+        assert_eq!(json(&m)["error"], "backup_missing");
+        assert_eq!(std::fs::read(&b2).unwrap(), before, "file untouched on refusal");
+
+        // Corrupt the target snapshot (present, but wrong bytes): the hash guard
+        // must refuse (distinct from backup_missing) and leave the file untouched.
+        let (dir3, b3) = book("corrupt");
+        assert_eq!(restructure_at(&b3, "2"), 0);
+        assert_eq!(restructure_at(&b3, "3"), 0);
+        let before3 = std::fs::read(&b3).unwrap();
+        std::fs::write(format!("{b3}.rev-1.xlsx"), b"not-the-real-snapshot").unwrap();
+        let c = xlq(&["undo", &b3]);
+        assert_eq!(c.status.code(), Some(1), "corrupt backup refuses");
+        assert_eq!(json(&c)["error"], "backup_corrupt");
+        assert_eq!(std::fs::read(&b3).unwrap(), before3, "file untouched on corrupt-backup refusal");
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir2);
+        let _ = std::fs::remove_dir_all(&dir3);
+    }
+}
