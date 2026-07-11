@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The xlq crate is a standalone package under xlq/; its [patch.crates-io] points
+# at the in-repo vendored IronCalc engine (../vendor), so a normal checkout is
+# self-sufficient and all cargo commands run from xlq/.
+defaults:
+  run:
+    working-directory: xlq
+
+jobs:
+  check:
+    name: fmt / clippy / build / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets --features devtools -- -D warnings
+
+      - name: Build (default features — the installable surface)
+        run: cargo build --release
+
+      - name: Test (full suite)
+        run: cargo test --release --features devtools
+
+  audit:
+    name: cargo audit (supply chain)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      # Scans xlq/Cargo.lock (including the vendored engine's transitive deps).
+      # This gate only passes because the quick-xml >=0.41 security bump cleared
+      # RUSTSEC-2026-0194/0195; keep it green by bumping flagged deps promptly.
+      - name: Audit
+        run: cargo audit
