@@ -108,6 +108,21 @@ is refused, not committed.
   enumeration are likewise matched by local name / case-insensitively so a rebound
   prefix or re-cased part cannot evade them.
 
+- **Absolute/mixed whole-row references shift.** `$5:$10` (and `5:$10`, `$5:$5`) were
+  left stale by a row edit — `parse_endpoint` mis-read the row's `$` as the column's — so
+  a stored reference silently pointed at the wrong rows; fixed.
+- **sortState / sortCondition ranges shift** instead of being refused, so a common
+  openpyxl autoFilter-with-sort is no longer over-refused.
+- **A fully-consumed range is dropped, not emptied.** A delete that consumes an entire
+  mergeCell/dataValidation/conditionalFormatting range emitted a malformed `ref=""`
+  (Excel repair); the element is now dropped.
+- **certify catches a dropped `_xlfn.` prefix.** Post-2007 functions (CONCAT, XLOOKUP, …)
+  require the `_xlfn.` prefix in stored XML, which the engine strips on load; a foreign
+  edit dropping it (→ Excel `#NAME?`) was invisible to the normalized cell diff and is now
+  caught by comparing the stored prefixed function tokens.
+- **certify compares drawing shape/image hyperlink targets.** A phishing retarget of an
+  `<a:hlinkClick>` on a shape (resolved through the drawing's own rels) was outside the
+  compared surface; now compared alongside worksheet hyperlinks.
 - **The VBA macro binary is compared byte-for-byte.** `xl/vbaProject.bin` was allowlisted
   as safe but never diffed, so a foreign edit that injected or swapped the auto-executing
   macro (arbitrary code) was certified — a security laundering. Its bytes and presence are

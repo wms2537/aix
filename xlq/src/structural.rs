@@ -452,6 +452,26 @@ fn cell_col_deleted(e: &BytesStart, edit: &StructuralEdit) -> bool {
     e.name().as_ref() == b"c"
         && cell_pos(e).is_some_and(|(col, _row)| col >= edit.at && col < edit.at + edit.count)
 }
+
+/// True if `e` is a `has_ref_attr` element whose entire `ref`/`sqref` is consumed by a
+/// delete — the element (mergeCell / dataValidation / conditionalFormatting / …) must be
+/// DROPPED, or shifting its range to the empty string emits a malformed `ref=""`/`sqref=""`
+/// that triggers Excel's repair.
+fn ref_fully_consumed(e: &BytesStart, sheet: &str, edit: &StructuralEdit) -> bool {
+    if edit.op != Op::Delete || !has_ref_attr(e.name().as_ref()) {
+        return false;
+    }
+    e.attributes().flatten().any(|a| {
+        let k = local_of(a.key.as_ref());
+        if k != b"ref" && k != b"sqref" {
+            return false;
+        }
+        let val = a
+            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+            .unwrap_or_default();
+        shift_sqref(&val, sheet, edit).3 // the all-consumed flag
+    })
+}
 fn is_shared_f(e: &BytesStart) -> bool {
     e.attributes()
         .flatten()
@@ -937,6 +957,30 @@ pub(crate) fn element_text_semantics(xml: &[u8], locals: &[&[u8]]) -> Vec<String
             _ => {}
         }
         buf.clear();
+    }
+    out.sort();
+    out
+}
+
+/// Every `_xlfn.`/`_xlfn._xlws.`-prefixed function token in a stored `<f>` body, sorted.
+/// The OOXML persisted format REQUIRES this prefix for post-2007 functions (CONCAT,
+/// XLOOKUP, TEXTJOIN, …); a consumer strips it on load and re-adds it on export. certify's
+/// cell diff compares the loaded (stripped) form, so a foreign edit that DROPS the prefix —
+/// which makes Excel render `#NAME?` — is invisible to it. Comparing these tokens catches
+/// the drop without over-refusing on cosmetic reformatting (the token itself is stable).
+pub(crate) fn xlfn_tokens(xml: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    for body in element_text_semantics(xml, &[b"f"]) {
+        let mut rest = body.as_str();
+        while let Some(p) = rest.find("_xlfn.") {
+            let after = &rest[p..];
+            let end = after[6..]
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+                .map(|e| 6 + e)
+                .unwrap_or(after.len());
+            out.push(after[..end].to_string());
+            rest = &after[end..];
+        }
     }
     out.sort();
     out
@@ -1798,6 +1842,19 @@ fn rewrite_edited_sheet(
                 continue;
             }
 
+            // A mergeCell / dataValidation / conditionalFormatting / … whose whole range a
+            // delete consumes is DROPPED — shifting it to an empty `ref=""`/`sqref=""` is
+            // malformed OOXML (Excel repair).
+            Event::Start(e) if ref_fully_consumed(&e, &sheet, edit) => {
+                reader.read_to_end(e.name())?;
+                buf.clear();
+                continue;
+            }
+            Event::Empty(e) if ref_fully_consumed(&e, &sheet, edit) => {
+                buf.clear();
+                continue;
+            }
+
             Event::Start(e) => {
                 if is_formula_tag(e.name().as_ref()) {
                     in_f = true;
@@ -2299,6 +2356,8 @@ fn has_ref_attr(name: &[u8]) -> bool {
             | b"selection"
             | b"pane"
             | b"autoFilter"
+            | b"sortState"
+            | b"sortCondition"
             | b"brk"
     )
 }
@@ -2311,7 +2370,8 @@ fn shift_ref_attrs(
 ) -> BytesStart<'static> {
     let name = e.name().as_ref().to_vec();
     let ref_attrs: &[&[u8]] = match name.as_slice() {
-        b"mergeCell" | b"hyperlink" | b"dimension" | b"autoFilter" => &[b"ref"],
+        b"mergeCell" | b"hyperlink" | b"dimension" | b"autoFilter" | b"sortState"
+        | b"sortCondition" => &[b"ref"],
         b"conditionalFormatting" | b"dataValidation" | b"selection" => &[b"sqref"],
         b"pane" => &[b"topLeftCell"],
         _ => &[],
@@ -3266,6 +3326,29 @@ mod tests {
     }
 
     #[test]
+    fn xlfn_tokens_extracts_prefixed_functions() {
+        assert_eq!(
+            xlfn_tokens(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>_xlfn.CONCAT(A1,A2)+_xlfn._xlws.FILTER(B1:B5,C1)</f></c></row></sheetData></worksheet>"#),
+            vec!["_xlfn.CONCAT".to_string(), "_xlfn._xlws.FILTER".to_string()]
+        );
+        // a plain (pre-2007) formula yields nothing.
+        assert!(xlfn_tokens(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#).is_empty());
+    }
+
+    #[test]
+    fn delete_drops_a_fully_consumed_mergecell() {
+        // deleting rows 5-6 fully consumes mergeCell A5:B6 -> the element is DROPPED (not
+        // emitted with a malformed ref="").
+        let xml = br#"<worksheet><sheetData><row r="1"><c r="A1"/></row></sheetData><mergeCells count="1"><mergeCell ref="A5:B6"/></mergeCells></worksheet>"#;
+        let e = edit("Sheet1", Axis::Row, Op::Delete, 5, 2);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(!s.contains("ref=\"\""), "no empty ref: {s}");
+        assert!(!s.contains("<mergeCell "), "the merge is dropped: {s}");
+    }
+
+    #[test]
     fn delete_cols_drops_deleted_cell_content() {
         // A1=10 B1=20 C1=30 D1=40; delete cols 2-3 (B,C). B/C content must be DROPPED (not
         // left stale), and D1 shifted to B1 — no duplicate coordinates (invalid OOXML).
@@ -3522,11 +3605,10 @@ mod tests {
             edited_sheet_body_unshifted_ref(br#"<worksheet><ignoredErrors><ignoredError sqref="A5:A9" numberStoredAsText="1"/></ignoredErrors></worksheet>"#).as_deref(),
             Some("ignoredError")
         );
-        // sortState nested inside an autoFilter (autoFilter's own ref IS shifted; the
-        // nested sortState ref is NOT).
-        assert_eq!(
-            edited_sheet_body_unshifted_ref(br#"<worksheet><autoFilter ref="A1:A9"><sortState ref="A2:A9"><sortCondition ref="A2:A9"/></sortState></autoFilter></worksheet>"#).as_deref(),
-            Some("sortState")
+        // sortState / sortCondition are now SHIFTED (in has_ref_attr) — a common openpyxl
+        // autoFilter+sort must not be over-refused — so they are NOT flagged.
+        assert!(
+            edited_sheet_body_unshifted_ref(br#"<worksheet><autoFilter ref="A1:A9"><sortState ref="A2:A9"><sortCondition ref="A2:A9"/></sortState></autoFilter></worksheet>"#).is_none()
         );
         // A namespace-prefixed CF the engine does NOT recognize (has_ref_attr is exact) is
         // also flagged — fail-closed rather than left stale.

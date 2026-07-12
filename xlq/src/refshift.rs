@@ -261,8 +261,12 @@ pub fn num_to_col(mut n: u32) -> String {
 fn parse_endpoint(s: &str) -> Option<(bool, Option<u32>, bool, Option<u32>)> {
     let b = s.as_bytes();
     let mut i = 0;
-    let col_abs = i < b.len() && b[i] == b'$';
-    if col_abs {
+    // Tentatively read a leading '$'. It is the COLUMN-absolute marker only if a column
+    // letter follows; for a whole-ROW endpoint (`$5`) there is no column, so that same '$'
+    // is the ROW-absolute marker. Attributing it eagerly to the column left `$5:$10`
+    // unparseable (col_abs with no col) and the whole range was committed STALE.
+    let first_dollar = i < b.len() && b[i] == b'$';
+    if first_dollar {
         i += 1;
     }
     let col_start = i;
@@ -274,9 +278,17 @@ fn parse_endpoint(s: &str) -> Option<(bool, Option<u32>, bool, Option<u32>)> {
     } else {
         None
     };
-    let row_abs = i < b.len() && b[i] == b'$';
-    if row_abs {
-        i += 1;
+    // If a column is present the leading '$' was its marker; otherwise it belongs to the row.
+    let (col_abs, mut row_abs) = if col.is_some() {
+        (first_dollar, false)
+    } else {
+        (false, first_dollar)
+    };
+    if col.is_some() {
+        row_abs = i < b.len() && b[i] == b'$';
+        if row_abs {
+            i += 1;
+        }
     }
     let row_start = i;
     while i < b.len() && b[i].is_ascii_digit() {
@@ -1675,6 +1687,25 @@ mod tests {
         assert_eq!(
             sf("SUM(A1:A10)", "Sheet1", &move_edit(10, 1, 3)),
             "SUM(A1:A10)"
+        );
+        // REGRESSION (round-11): an absolute/mixed whole-ROW range ($5:$10) was left stale
+        // (parse_endpoint mis-read the row's `$` as the column's). It now shifts.
+        assert_eq!(
+            sf("SUM($5:$10)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM($6:$11)"
+        );
+        assert_eq!(
+            sf("SUM(5:$10)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM(6:$11)"
+        );
+        assert_eq!(
+            sf("SUM($5:$5)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM($6:$6)"
+        );
+        // whole-COLUMN absolute is unaffected by a row op (asymmetry guard).
+        assert_eq!(
+            sf("SUM($A:$C)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM($A:$C)"
         );
     }
 

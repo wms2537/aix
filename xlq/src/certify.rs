@@ -216,6 +216,18 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
             "detail": "a chart data reference or drawing anchor differs from xlq's transform",
         }));
     }
+    // The `_xlfn.` prefix on post-2007 functions is REQUIRED in the persisted format but is
+    // stripped by the engine on load, so the cell diff (over the loaded model) cannot see a
+    // foreign edit that drops it — which makes Excel render `#NAME?`. Compare the stored
+    // prefixed function tokens per sheet.
+    if xlfn_tokens_all(expected) != xlfn_tokens_all(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "xlfn_prefix_mismatch",
+            "detail": "a required _xlfn. function prefix (post-2007 function) was added or \
+                       dropped — the stored formula differs from xlq's transform",
+        }));
+    }
     // The VBA macro binary is executable code the transform preserves verbatim. The cell
     // diff never sees it, so a foreign edit that injects or swaps it (arbitrary macro code)
     // would otherwise be certified — a security laundering. Compare the bytes and presence.
@@ -319,12 +331,44 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
         } else if low.starts_with("xl/drawings/") && low.ends_with(".xml") {
             if let Ok(x) = crate::ooxml::read_part(bytes, n) {
                 drawings.extend(structural::element_text_semantics(&x, &[b"col", b"row"]));
+                // A shape/image hyperlink (`<a:hlinkClick r:id>`) resolves through the
+                // drawing's own rels to an external URL — a phishing-swap target the cell
+                // diff and the worksheet hyperlink scan never see.
+                let rels = rels_targets(bytes, n);
+                for (_, attrs) in structural::element_attr_semantics(&x, &[b"hlinkClick"]) {
+                    if let Some(id) = attrs
+                        .split_whitespace()
+                        .find_map(|kv| kv.strip_prefix("id="))
+                    {
+                        drawings.push(format!(
+                            "hlink={}",
+                            rels.get(id).cloned().unwrap_or_default()
+                        ));
+                    }
+                }
             }
         }
     }
     charts.sort();
     drawings.sort();
     (charts, drawings)
+}
+
+/// The `_xlfn.` prefixed function tokens across every worksheet, keyed by sheet, sorted.
+fn xlfn_tokens_all(bytes: &[u8]) -> Vec<(String, String)> {
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (sheet_name, part) in sheets {
+        if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
+            for tok in structural::xlfn_tokens(&x) {
+                out.push((sheet_name.clone(), tok));
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 /// The bytes of every `xl/vbaProject*` part (macro binary + signature), keyed by name,
@@ -749,6 +793,42 @@ mod tests {
         let (n2, m) = draw("99");
         let refusal = verify_noncell_refs(&good, &wb("", &[(n2, m.as_str())]))
             .expect("mangled drawing anchor must be caught");
+        assert_eq!(refusal["reason"], "chart_drawing_mismatch");
+    }
+
+    #[test]
+    fn drawing_shape_hyperlink_target_is_compared() {
+        // A shape hyperlink (a:hlinkClick r:id) resolves via the drawing's rels to a URL;
+        // a foreign retarget (phishing swap) must be caught.
+        let parts = |url: &str| {
+            vec![
+                (
+                    "xl/drawings/drawing1.xml".to_string(),
+                    r#"<xdr:wsDr xmlns:xdr="urn:xdr" xmlns:a="urn:a"><xdr:sp><xdr:nvSpPr><xdr:cNvPr id="1"><a:hlinkClick xmlns:r="urn:r" r:id="rIdH"/></xdr:cNvPr></xdr:nvSpPr></xdr:sp></xdr:wsDr>"#.to_string(),
+                ),
+                (
+                    "xl/drawings/_rels/drawing1.xml.rels".to_string(),
+                    format!(r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdH" Type="x/hyperlink" Target="{url}" TargetMode="External"/></Relationships>"#),
+                ),
+            ]
+        };
+        let g = parts("https://good.example.com");
+        let good = wb(
+            "",
+            &g.iter()
+                .map(|(a, b)| (a.as_str(), b.as_str()))
+                .collect::<Vec<_>>(),
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let ev = parts("https://evil.example.com/phish");
+        let evil = wb(
+            "",
+            &ev.iter()
+                .map(|(a, b)| (a.as_str(), b.as_str()))
+                .collect::<Vec<_>>(),
+        );
+        let refusal =
+            verify_noncell_refs(&good, &evil).expect("drawing hyperlink retarget must be caught");
         assert_eq!(refusal["reason"], "chart_drawing_mismatch");
     }
 
