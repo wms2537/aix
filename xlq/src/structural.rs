@@ -681,38 +681,44 @@ fn edited_sheet_bad_attachment(input: &[u8], sheet_part: &str) -> Option<String>
     None
 }
 
-/// True if a worksheet carries value-bearing EXTENSION content inside `<extLst>` —
-/// x14 conditional formatting (`<xm:f>`/`<xm:sqref>`) or sparklines — which the base
-/// reference-shift never processes. Detected by an element with local name `f`,
-/// `sqref`, `sparkline`, or `sparklineGroup` nested inside an `extLst` subtree
-/// (namespace-prefix-agnostic; scoped to extLst so it never matches ordinary `<f>`).
-pub(crate) fn sheet_extlst_has_references(xml: &[u8]) -> bool {
-    // A reference-bearing extension element, by local name (prefix-agnostic).
-    let is_ref = |n: &[u8]| {
-        tag_local_eq(n, b"f")
-            || tag_local_eq(n, b"sqref")
-            || tag_local_eq(n, b"sparkline")
-            || tag_local_eq(n, b"sparklineGroup")
-    };
+/// True if an `<extLst>` reference on the edited sheet — an `<xm:sqref>` range for x14
+/// conditional formatting / data validation / a sparkline draw location — would be MOVED by
+/// this edit and the base shift does not rewrite it. AFFECT-based, not presence-based: Excel
+/// writes a data bar / color scale / icon set / sparkline as an x14 extLst on essentially
+/// every real workbook, so refusing on mere presence rejected almost every legitimate edit;
+/// an extLst whose ranges the edit does not touch is unaffected. (`<xm:f>` bodies have local
+/// name `f`, so they ARE shifted by the edited-sheet formula path; only `<xm:sqref>` is
+/// left stale.) Fail-closed on a parse error.
+pub(crate) fn sheet_extlst_affected(xml: &[u8], sheet: &str, edit: &StructuralEdit) -> bool {
     let mut reader = Reader::from_reader(xml);
     reader.config_mut().expand_empty_elements = false;
     let mut buf = Vec::new();
     let mut ext_depth = 0u32;
+    let mut cap = false;
+    let mut raw = String::new();
     loop {
         match reader.read_event_into(&mut buf) {
-            // Start and Empty must recognize the SAME element set, else a self-closing
-            // `<x14:sparklineGroup/>` would slip past.
             Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"extLst") => {
                 ext_depth += 1;
             }
-            Ok(Event::Start(e)) | Ok(Event::Empty(e))
-                if ext_depth > 0 && is_ref(e.name().as_ref()) =>
-            {
-                return true;
+            Ok(Event::Start(e)) if ext_depth > 0 && tag_local_eq(e.name().as_ref(), b"sqref") => {
+                cap = true;
+                raw.clear();
+            }
+            Ok(Event::End(e)) if cap && tag_local_eq(e.name().as_ref(), b"sqref") => {
+                let text = logical_formula(&raw).unwrap_or_else(|| raw.clone());
+                let (nv, _n, consumed, _all) = shift_sqref(&text, sheet, edit);
+                if nv != text || consumed > 0 {
+                    return true;
+                }
+                cap = false;
+                raw.clear();
             }
             Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"extLst") => {
                 ext_depth = ext_depth.saturating_sub(1);
             }
+            Ok(Event::Text(t)) if cap => push_text_raw(&mut raw, &t),
+            Ok(Event::GeneralRef(r)) if cap => push_ref_raw(&mut raw, &r),
             Ok(Event::Eof) => return false,
             Err(_) => return true, // unparseable -> fail closed
             _ => {}
@@ -734,7 +740,18 @@ pub(crate) fn sheet_extlst_has_references(xml: &[u8]) -> bool {
 /// parse error. (Cells/rows are handled by the row/cell path; formula tags by the formula
 /// path; pure view-state `pane topLeftCell`/`selection activeCell`/`sheetView topLeftCell`
 /// carries no `ref`/`sqref` and no `r`, so it is correctly not flagged.)
-fn edited_sheet_body_unshifted_ref(xml: &[u8]) -> Option<String> {
+fn edited_sheet_body_unshifted_ref(
+    xml: &[u8],
+    sheet: &str,
+    edit: &StructuralEdit,
+) -> Option<String> {
+    // AFFECT-based: a stale coordinate is a defect only if THIS edit would actually move it.
+    // A construct whose range is nowhere near the edit is unaffected, so refusing it is a
+    // spurious over-refusal (e.g. a protectedRange on A1:A5 while inserting at row 50).
+    let would_shift = |val: &str| -> bool {
+        let (nv, _n, consumed, _all) = shift_sqref(val, sheet, edit);
+        nv != val || consumed > 0
+    };
     let mut reader = Reader::from_reader(xml);
     reader.config_mut().expand_empty_elements = false;
     let mut buf = Vec::new();
@@ -750,24 +767,27 @@ fn edited_sheet_body_unshifted_ref(xml: &[u8]) -> Option<String> {
                     buf.clear();
                     continue;
                 }
-                // `ref`/`sqref` is shifted ONLY for the has_ref_attr elements; on anything
-                // else (or a namespace-prefixed variant the engine does not recognize) it is
-                // left stale.
-                let has_ref_or_sqref = e.attributes().flatten().any(|a| {
+                let flagged = e.attributes().flatten().any(|a| {
                     let k = local_of(a.key.as_ref());
-                    k == b"ref" || k == b"sqref"
+                    let val = a
+                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                        .unwrap_or_default();
+                    // `ref`/`sqref` is shifted ONLY for the has_ref_attr elements; on anything
+                    // else it is left stale — but flag it only if this edit would move it.
+                    if (k == b"ref" || k == b"sqref") && !has_ref_attr(full) {
+                        return would_shift(&val);
+                    }
+                    // Form-control / OLE data bindings — the cell a control reads/writes —
+                    // are references the shift never rewrites (and a dangling rel slips the
+                    // attachment whitelist). Flag if this edit would move them.
+                    if k == b"linkedCell" || k == b"fmlaLink" || k == b"listFillRange" {
+                        return would_shift(&val);
+                    }
+                    // A cell/range-shaped `r` on a NON-cell element (`<inputCells r>`,
+                    // `<cellWatch r>`) is never shifted — flag only if this edit moves it.
+                    k == b"r" && looks_like_cell_or_range(&val) && would_shift(&val)
                 });
-                if has_ref_or_sqref && !has_ref_attr(full) {
-                    return Some(String::from_utf8_lossy(local).into_owned());
-                }
-                // A cell/range-shaped `r` on a NON-cell element (e.g. `<inputCells r>`,
-                // `<cellWatch r>`) is never shifted — only `<c r>` is. Tolerant of `$`
-                // anchors and ranges so `$A$8` / `A8:B9` cannot slip through.
-                let cell_shaped_r = e.attributes().flatten().any(|a| {
-                    local_of(a.key.as_ref()) == b"r"
-                        && looks_like_cell_or_range(&String::from_utf8_lossy(&a.value))
-                });
-                if cell_shaped_r {
+                if flagged {
                     return Some(String::from_utf8_lossy(local).into_owned());
                 }
             }
@@ -1492,16 +1512,19 @@ fn scan_extra_residuals(
                         .into(),
                 });
             }
-            // EXTENSION-LIST value content on the EDITED sheet: x14 conditional
-            // formatting (<xm:f>/<xm:sqref>) and sparklines carry edited-sheet
-            // coordinates the base shift never processes.
-            if n == edited_part && sheet_extlst_has_references(&bytes) {
+            // EXTENSION-LIST value content on the EDITED sheet: x14 conditional formatting
+            // (<xm:f>/<xm:sqref>) and sparklines carry edited-sheet coordinates the base
+            // shift never processes. AFFECT-based: refuse ONLY when this edit would actually
+            // move one of those coordinates — a data bar / color scale / sparkline that the
+            // edit does not touch is unaffected, and Excel writes those on nearly every real
+            // workbook, so a presence-refuse would reject almost every legitimate edit.
+            if n == edited_part && sheet_extlst_affected(&bytes, &edit.sheet, edit) {
                 report.residuals.push(Residual {
                     part: n.clone(),
                     reason: "extension_construct_unsupported".into(),
                     detail: "the edited sheet has an extension-list construct (x14 conditional \
-                             formatting or sparklines) whose references we do not shift — edit \
-                             refused (fail-closed)"
+                             formatting or sparklines) whose reference this edit would move but \
+                             the base shift does not rewrite — edit refused (fail-closed)"
                         .into(),
                 });
             }
@@ -1510,7 +1533,7 @@ fn scan_extra_residuals(
             // <protectedRange sqref> (security), <inputCells r> (scenario write target),
             // <dataRef ref>, <ignoredError sqref>, <sortState ref>, … would be left stale.
             if n == edited_part {
-                if let Some(elem) = edited_sheet_body_unshifted_ref(&bytes) {
+                if let Some(elem) = edited_sheet_body_unshifted_ref(&bytes, &edit.sheet, edit) {
                     report.residuals.push(Residual {
                         part: n.clone(),
                         reason: "unshiftable_body_reference".into(),
@@ -3249,22 +3272,32 @@ mod tests {
     }
 
     #[test]
-    fn extlst_reference_detector_matches_x14_and_sparklines_only() {
-        // x14 conditional formatting inside <extLst> (namespaced <xm:f>/<xm:sqref>).
-        assert!(sheet_extlst_has_references(
-            br#"<worksheet><extLst><ext><x14:conditionalFormatting xmlns:x14="urn:x14"><x14:cfRule><xm:f>$A$5&gt;0</xm:f></x14:cfRule><xm:sqref>A5:A9</xm:sqref></x14:conditionalFormatting></ext></extLst></worksheet>"#
+    fn extlst_affected_is_affect_based_not_presence_based() {
+        let x14 = br#"<worksheet><extLst><ext><x14:conditionalFormatting xmlns:x14="urn:x14"><x14:cfRule><xm:f>$A$5&gt;0</xm:f></x14:cfRule><xm:sqref>A5:A9</xm:sqref></x14:conditionalFormatting></ext></extLst></worksheet>"#;
+        // an edit that MOVES the xm:sqref range (insert at row 1) -> affected -> refuse
+        assert!(sheet_extlst_affected(
+            x14,
+            "Sheet1",
+            &edit("Sheet1", Axis::Row, Op::Insert, 1, 1)
         ));
-        // Sparklines inside <extLst>.
-        assert!(sheet_extlst_has_references(
-            br#"<worksheet><extLst><ext><x14:sparklineGroups><x14:sparklineGroup/></x14:sparklineGroups></ext></extLst></worksheet>"#
+        // an edit far BELOW the range (insert at row 50) does NOT move it -> NOT affected
+        // (a data bar Excel writes on every workbook must not refuse an unrelated edit).
+        assert!(!sheet_extlst_affected(
+            x14,
+            "Sheet1",
+            &edit("Sheet1", Axis::Row, Op::Insert, 50, 1)
         ));
-        // An <extLst> WITHOUT references (a benign extension) is not flagged.
-        assert!(!sheet_extlst_has_references(
-            br#"<worksheet><extLst><ext uri="{x}"><foo:bar xmlns:foo="urn:foo"><foo:color rgb="FF0000"/></foo:bar></ext></extLst></worksheet>"#
+        // an <extLst> WITHOUT an xm:sqref is never affected.
+        assert!(!sheet_extlst_affected(
+            br#"<worksheet><extLst><ext uri="{x}"><foo:bar xmlns:foo="urn:foo"><foo:color rgb="FF0000"/></foo:bar></ext></extLst></worksheet>"#,
+            "Sheet1",
+            &edit("Sheet1", Axis::Row, Op::Insert, 1, 1)
         ));
-        // An `f`/`sqref` OUTSIDE any extLst (an ordinary cell formula) is not flagged.
-        assert!(!sheet_extlst_has_references(
-            br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#
+        // an sqref OUTSIDE any extLst (ordinary sheet content) is not considered.
+        assert!(!sheet_extlst_affected(
+            br#"<worksheet><conditionalFormatting sqref="A5:A9"><cfRule/></conditionalFormatting></worksheet>"#,
+            "Sheet1",
+            &edit("Sheet1", Axis::Row, Op::Insert, 1, 1)
         ));
     }
 
@@ -3575,55 +3608,62 @@ mod tests {
     }
 
     #[test]
-    fn edited_sheet_body_unshifted_ref_is_a_fail_closed_whitelist() {
+    fn edited_sheet_body_unshifted_ref_is_an_affect_based_whitelist() {
+        // insert at row 1 moves every row >= 1, so all the ranges below ARE affected.
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 1, 1);
+        let f = |xml: &[u8]| edited_sheet_body_unshifted_ref(xml, "Sheet1", &e);
         // Coordinate-bearing body constructs the engine copies verbatim -> flagged.
         assert_eq!(
-            edited_sheet_body_unshifted_ref(br#"<worksheet><protectedRanges><protectedRange sqref="A5:A9" name="x"/></protectedRanges></worksheet>"#).as_deref(),
+            f(br#"<worksheet><protectedRanges><protectedRange sqref="A5:A9" name="x"/></protectedRanges></worksheet>"#).as_deref(),
             Some("protectedRange")
         );
         assert_eq!(
-            edited_sheet_body_unshifted_ref(br#"<worksheet><scenarios><scenario name="s"><inputCells r="A8" val="1"/></scenario></scenarios></worksheet>"#).as_deref(),
+            f(br#"<worksheet><scenarios><scenario name="s"><inputCells r="A8" val="1"/></scenario></scenarios></worksheet>"#).as_deref(),
             Some("inputCells")
         );
         // `$`-anchored and range/qualified `r` values must not evade the cell-shape test.
         assert_eq!(
-            edited_sheet_body_unshifted_ref(br#"<worksheet><scenarios><scenario name="s"><inputCells r="$A$8" val="1"/></scenario></scenarios></worksheet>"#).as_deref(),
+            f(br#"<worksheet><scenarios><scenario name="s"><inputCells r="$A$8" val="1"/></scenario></scenarios></worksheet>"#).as_deref(),
             Some("inputCells")
         );
         assert_eq!(
-            edited_sheet_body_unshifted_ref(
-                br#"<worksheet><cellWatches><cellWatch r="A8:B9"/></cellWatches></worksheet>"#
-            )
-            .as_deref(),
+            f(br#"<worksheet><cellWatches><cellWatch r="A8:B9"/></cellWatches></worksheet>"#)
+                .as_deref(),
             Some("cellWatch")
         );
         assert_eq!(
-            edited_sheet_body_unshifted_ref(br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="A5:A9"/></dataRefs></dataConsolidate></worksheet>"#).as_deref(),
+            f(br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="A5:A9"/></dataRefs></dataConsolidate></worksheet>"#).as_deref(),
             Some("dataRef")
         );
         assert_eq!(
-            edited_sheet_body_unshifted_ref(br#"<worksheet><ignoredErrors><ignoredError sqref="A5:A9" numberStoredAsText="1"/></ignoredErrors></worksheet>"#).as_deref(),
+            f(br#"<worksheet><ignoredErrors><ignoredError sqref="A5:A9" numberStoredAsText="1"/></ignoredErrors></worksheet>"#).as_deref(),
             Some("ignoredError")
         );
-        // sortState / sortCondition are now SHIFTED (in has_ref_attr) — a common openpyxl
-        // autoFilter+sort must not be over-refused — so they are NOT flagged.
-        assert!(
-            edited_sheet_body_unshifted_ref(br#"<worksheet><autoFilter ref="A1:A9"><sortState ref="A2:A9"><sortCondition ref="A2:A9"/></sortState></autoFilter></worksheet>"#).is_none()
-        );
-        // A namespace-prefixed CF the engine does NOT recognize (has_ref_attr is exact) is
-        // also flagged — fail-closed rather than left stale.
+        // Form-control data binding (linkedCell/fmlaLink) is flagged.
         assert_eq!(
-            edited_sheet_body_unshifted_ref(br#"<worksheet><x:conditionalFormatting xmlns:x="urn:x" sqref="A5:A9"/></worksheet>"#).as_deref(),
+            f(br#"<worksheet><controls><control><controlPr linkedCell="A8" fmlaLink="A9"/></control></controls></worksheet>"#).as_deref(),
+            Some("controlPr")
+        );
+        // A namespace-prefixed CF the engine does NOT recognize is flagged.
+        assert_eq!(
+            f(br#"<worksheet><x:conditionalFormatting xmlns:x="urn:x" sqref="A5:A9"/></worksheet>"#).as_deref(),
             Some("conditionalFormatting")
         );
 
-        // Handled / benign constructs must NOT be flagged (no over-refusal).
-        // Cells and rows (row/cell path), formula bodies (formula path):
-        assert!(edited_sheet_body_unshifted_ref(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f><v>1</v></c></row></sheetData></worksheet>"#).is_none());
+        // AFFECT-based: the SAME protectedRange is NOT flagged when the edit is far away
+        // (insert at row 50 does not move A5:A9) — no spurious over-refusal.
+        let far = edit("Sheet1", Axis::Row, Op::Insert, 50, 1);
+        assert!(edited_sheet_body_unshifted_ref(br#"<worksheet><protectedRanges><protectedRange sqref="A5:A9" name="x"/></protectedRanges></worksheet>"#, "Sheet1", &far).is_none());
+
+        // Handled / benign constructs must NOT be flagged.
+        // sortState/sortCondition are shifted (in has_ref_attr).
+        assert!(f(br#"<worksheet><autoFilter ref="A1:A9"><sortState ref="A2:A9"><sortCondition ref="A2:A9"/></sortState></autoFilter></worksheet>"#).is_none());
+        // Cells/rows (row/cell path), formula bodies (formula path):
+        assert!(f(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f><v>1</v></c></row></sheetData></worksheet>"#).is_none());
         // has_ref_attr elements whose ref/sqref IS shifted:
-        assert!(edited_sheet_body_unshifted_ref(br#"<worksheet><mergeCells><mergeCell ref="A1:B2"/></mergeCells><conditionalFormatting sqref="C1:C9"><cfRule/></conditionalFormatting><dataValidations><dataValidation sqref="D1:D9"/></dataValidations><autoFilter ref="A1:D9"/><dimension ref="A1:D20"/></worksheet>"#).is_none());
-        // Pure view-state (topLeftCell / activeCell) carries no ref/sqref/r:
-        assert!(edited_sheet_body_unshifted_ref(br#"<worksheet><sheetViews><sheetView topLeftCell="B2"><selection activeCell="C3" sqref="C3"/><pane topLeftCell="B2"/></sheetView></sheetViews></worksheet>"#).is_none());
+        assert!(f(br#"<worksheet><mergeCells><mergeCell ref="A1:B2"/></mergeCells><conditionalFormatting sqref="C1:C9"><cfRule/></conditionalFormatting><dataValidations><dataValidation sqref="D1:D9"/></dataValidations><autoFilter ref="A1:D9"/><dimension ref="A1:D20"/></worksheet>"#).is_none());
+        // Pure view-state carries no ref/sqref/r:
+        assert!(f(br#"<worksheet><sheetViews><sheetView topLeftCell="B2"><selection activeCell="C3" sqref="C3"/><pane topLeftCell="B2"/></sheetView></sheetViews></worksheet>"#).is_none());
     }
 
     #[test]
@@ -3918,6 +3958,21 @@ mod tests {
         assert!(!crate::refshift::has_unverifiable_3d_span(
             r#"=IF(A1,"Sheet1:Sheet3!x","")"#,
             "Sheet2"
+        ));
+        // REGRESSION (round-12): a QUOTED span whose endpoint names contain a special char
+        // (hyphen, ampersand) must still be recognized — the interior-tab edit is refused.
+        assert!(crate::refshift::has_unverifiable_3d_span(
+            "=SUM('A-Sheet:B-Sheet'!A5)",
+            "Mid"
+        ));
+        assert!(crate::refshift::has_unverifiable_3d_span(
+            "=SUM('P&L:Q&R'!A5)",
+            "Mid"
+        ));
+        // ...but if the edited sheet IS a quoted endpoint, it is shifted (not refused).
+        assert!(!crate::refshift::has_unverifiable_3d_span(
+            "=SUM('A-Sheet:B-Sheet'!A5)",
+            "A-Sheet"
         ));
     }
 

@@ -127,7 +127,15 @@ pub fn run(
     // (3) Compare and classify every differing cell exactly as diff.rs does.
     let (counts, samples) = compare(&expected_snap, &edited_snap);
 
-    let disqualifying = counts.formula + counts.value + counts.added + counts.removed;
+    // A `cached_value` difference is treated as benign because Excel recomputes formula
+    // caches on load. That assumption breaks if the foreign file EXPLICITLY disables
+    // recalc-on-load (`<calcPr fullCalcOnLoad="0">`): a fabricated cache would then be shown
+    // verbatim. (Benign tools like openpyxl omit the attribute, so this does not over-refuse
+    // them.) When recalc is explicitly off and caches differ, the difference is disqualifying.
+    let mut disqualifying = counts.formula + counts.value + counts.added + counts.removed;
+    if counts.cached_value > 0 && recalc_on_load_disabled(&edited_bytes) {
+        disqualifying += counts.cached_value;
+    }
     let status = if disqualifying == 0 {
         "CERTIFIED"
     } else {
@@ -548,6 +556,27 @@ fn sheet_order_and_settings(bytes: &[u8]) -> (Vec<String>, Vec<(String, String)>
     }
     settings.sort();
     (order, settings)
+}
+
+/// True if `xl/workbook.xml`'s `<calcPr>` EXPLICITLY disables recalc-on-load
+/// (`fullCalcOnLoad="0"`/`"false"`) — the signal an attacker sets so a fabricated formula
+/// cache is displayed without recomputation. Absence (the benign default for most tools)
+/// returns false, so a normal cache-dropping edit is not over-refused.
+fn recalc_on_load_disabled(bytes: &[u8]) -> bool {
+    let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&wb);
+    let Some(p) = text.find("<calcPr") else {
+        return false;
+    };
+    let Some(gt) = text[p..].find('>') else {
+        return false;
+    };
+    matches!(
+        attr(&text[p..p + gt], "fullCalcOnLoad").as_deref(),
+        Some("0") | Some("false")
+    )
 }
 
 /// The relationship-id value of a start tag: a namespace-prefixed `*:id="..."` attribute.

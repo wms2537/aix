@@ -123,6 +123,18 @@ is refused, not committed.
 - **certify compares drawing shape/image hyperlink targets.** A phishing retarget of an
   `<a:hlinkClick>` on a shape (resolved through the drawing's own rels) was outside the
   compared surface; now compared alongside worksheet hyperlinks.
+- **Fail-closed scans are AFFECT-based, not presence-based.** The edited-sheet body scan
+  and the x14 `<extLst>` scan refused an edit whenever an unshiftable coordinate construct
+  was merely PRESENT — but Excel writes a data bar / color scale / icon set / sparkline as
+  an x14 extLst on nearly every real workbook, so this refused almost every legitimate
+  edit. They now refuse only when the edit would actually MOVE the construct's range.
+- **A 3D span with quoted special-character sheet names is recognized.** The interior-tab
+  3D-span guard's backward walk stopped at a special char inside a quoted endpoint name
+  (`'A-Sheet:B-Sheet'!`), so an interior edit committed a stale 3D reference; the walk now
+  handles quoted names.
+- **Form-control / OLE data bindings are checked.** A control's `linkedCell`/`fmlaLink`/
+  `listFillRange` (the cell it reads/writes) was left stale when the control's relationship
+  was dangling; these are now shifted-or-refused.
 - **The VBA macro binary is compared byte-for-byte.** `xl/vbaProject.bin` was allowlisted
   as safe but never diffed, so a foreign edit that injected or swapped the auto-executing
   macro (arbitrary code) was certified — a security laundering. Its bytes and presence are
@@ -143,6 +155,10 @@ is refused, not committed.
   unusable on ordinary modern files. Their `sqref`+formula references (and x14 `<extLst>`
   references) are now compared against xlq's transform: a faithful edit matches, a mangle
   differs.
+- **certify guards fabricated formula caches.** A `cached_value` difference is treated as
+  benign (Excel recomputes on load) unless the foreign file EXPLICITLY disables
+  recalc-on-load (`<calcPr fullCalcOnLoad="0">`), in which case a fabricated cache would be
+  shown verbatim and the difference is disqualifying.
 - **certify compares the date system and narrows the calc-settings compare.** A foreign
   `workbookPr@date1904` flip (which shifts every date value by 1462 days, invisible to a
   serial-vs-serial cell diff) is now caught; and the calc-settings compare was narrowed to

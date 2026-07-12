@@ -968,23 +968,37 @@ pub fn has_unverifiable_3d_span(formula: &str, edited_sheet: &str) -> bool {
         }
         // look for a bang; the token before it may be a 3D span "A:B"
         if b[i] == b'!' {
-            // walk back over the sheet qualifier (letters/digits/_/./:/space/')
             let mut j = i;
-            while j > 0 {
-                let c = b[j - 1];
-                if c.is_ascii_alphanumeric()
-                    || c == b'_'
-                    || c == b'.'
-                    || c == b':'
-                    || c == b' '
-                    || c == b'\''
-                {
+            if j > 0 && b[j - 1] == b'\'' {
+                // QUOTED qualifier: the whole span (`'A-Sheet:B-Sheet'`) may contain any
+                // char, so walk back to the matching opening quote (handling `''` escapes)
+                // rather than stopping at the first non-identifier char. Missing this let a
+                // quoted span with a special char (hyphen, ampersand, paren) slip the guard,
+                // committing a stale interior-tab 3D reference.
+                j -= 1; // the closing quote
+                while j > 0 {
                     j -= 1;
-                } else {
-                    break;
+                    if b[j] == b'\'' {
+                        if j > 0 && b[j - 1] == b'\'' {
+                            j -= 1; // an escaped '' — keep walking
+                            continue;
+                        }
+                        break; // the opening quote
+                    }
+                }
+            } else {
+                // unquoted qualifier: letters/digits/_/./:
+                while j > 0 {
+                    let c = b[j - 1];
+                    if c.is_ascii_alphanumeric() || c == b'_' || c == b'.' || c == b':' {
+                        j -= 1;
+                    } else {
+                        break;
+                    }
                 }
             }
             let qual = &formula[j..i];
+            let qual = qual.trim().trim_matches('\'');
             if let Some((s1, s2)) = qual.split_once(':') {
                 let s1 = s1.trim().trim_matches('\'');
                 let s2 = s2.trim().trim_matches('\'');
