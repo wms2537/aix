@@ -274,6 +274,16 @@ is refused, not committed.
   transform, which restructure commits without complaint. A comment carries only a display
   anchor and text (no value-affecting reference; an anchor on the EDITED sheet is caught
   upstream as an unshiftable attachment), so these parts are now known-safe.
+- **Internal hyperlink `location`s are SHIFTED, not refused (over-refusal fix + faithful
+  transform).** A table-of-contents / index link (`<hyperlink location="Data!A15">`) whose
+  in-workbook target the edit moves caused restructure to refuse the whole edit — and because
+  restructure refused, `certify` refused *both* a faithfully-shifted copy and a stale one,
+  unable to tell them apart. The engine already COMPUTED the shifted location just to detect
+  the hazard; it now APPLIES it (via the σ oracle, with the link's own sheet as host, so a
+  local link on the edited sheet, or one qualified to it, follows — `A15`→`A16` — while a link
+  to another sheet is untouched, on any sheet the link lives on). A delete that consumes the
+  target yields `#REF!`, mirroring Excel. certify then compares the shifted destination, so a
+  faithful edit certifies and a stale one is refused.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

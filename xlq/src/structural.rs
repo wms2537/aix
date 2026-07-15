@@ -120,6 +120,13 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
             // the row/cell coordinate + formula surgery on the explicit sheet.
             let expanded = expand_shared_in_sheet(&bytes)?;
             bytes = rewrite_edited_sheet(&expanded, edit, &name, &mut report)?;
+            // A hyperlink's `location` (its destination) is not touched by rewrite_edited_sheet
+            // (which shifts the `ref` it sits on); shift it here so a link into a moved cell
+            // follows. Host is the edited sheet, so an unqualified local location shifts too.
+            let (out, n, r) = shift_hyperlink_locations(&bytes, &edit.sheet, edit)?;
+            bytes = out;
+            report.refs_shifted += n;
+            report.ref_errors += r;
         } else if name.starts_with("xl/worksheets/sheet") && name.ends_with(".xml") {
             // Only touch a foreign sheet if it cross-references the edited sheet.
             // Sheets that do not stay byte-identical (unexpanded) — a shared formula
@@ -149,6 +156,15 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
                     });
                 }
             }
+            // A hyperlink on this foreign sheet whose `location` is qualified to the edited
+            // sheet moves too — shift it (host = this sheet, so its own unqualified links stay
+            // local and untouched). Runs regardless of the `<f>` gate: a sheet whose ONLY
+            // cross-reference is such a hyperlink still needs it shifted.
+            let host = part_sheet.get(&name).cloned().unwrap_or_default();
+            let (out, n, r) = shift_hyperlink_locations(&bytes, &host, edit)?;
+            bytes = out;
+            report.refs_shifted += n;
+            report.ref_errors += r;
         } else if name == "xl/workbook.xml" {
             let (out, n, r, qrisk) = shift_defined_names(&bytes, edit, &sheet_names)?;
             bytes = out;
@@ -629,18 +645,6 @@ fn tables_attached_to(input: &[u8], sheet_part: &str) -> Vec<String> {
         None => return Vec::new(),
     };
     table_targets_in_rels(input, &format!("{dir}/_rels/{file}.rels"))
-}
-
-/// The sheet-qualifier of a hyperlink `location` (`Sheet1!A11` -> `Sheet1`,
-/// `'My Sheet'!A1` -> `My Sheet`), or None for a bare local ref (`A11`).
-fn location_sheet(location: &str) -> Option<String> {
-    let (qual, _cell) = location.rsplit_once('!')?;
-    let q = qual.trim();
-    let q = q
-        .strip_prefix('\'')
-        .and_then(|s| s.strip_suffix('\''))
-        .unwrap_or(q);
-    Some(q.replace("''", "'"))
 }
 
 /// The edited sheet's coordinate-bearing ATTACHMENTS (drawings, comments, pivot
@@ -1370,58 +1374,6 @@ fn foreign_sheet_cross_ref_unshifted(xml: &[u8], edit: &StructuralEdit) -> bool 
     }
 }
 
-/// True if a worksheet part carries an INTERNAL hyperlink (`<hyperlink location=…>`,
-/// an in-workbook cell/range target) whose target is INVALIDATED by editing
-/// `edited_sheet`. The shift engine rewrites only a hyperlink's `ref`, never its
-/// `location`, so such a link would silently mispoint after a row/column edit. A
-/// hyperlink is a hazard when it is ON the edited sheet (its local `location` moves)
-/// or its `location` explicitly targets the edited sheet by name. External (URL)
-/// hyperlinks use `r:id`, have no `location`, and are never flagged. Namespace-aware;
-/// an unparseable sheet part fails closed.
-fn sheet_hyperlink_hazard(
-    xml: &[u8],
-    edited_sheet: &str,
-    is_edited_sheet: bool,
-    edit: &StructuralEdit,
-) -> bool {
-    let mut reader = Reader::from_reader(xml);
-    reader.config_mut().expand_empty_elements = false;
-    let mut buf = Vec::new();
-    loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) | Ok(Event::Empty(e))
-                if tag_local_eq(e.name().as_ref(), b"hyperlink") =>
-            {
-                if let Some(loc) = attr_by_local(&e, b"location") {
-                    // The location is NOT rewritten by the shift engine, so it is a hazard
-                    // only if THIS edit would actually move the cell it points at — a link
-                    // to Sheet1!A1 under an insert at row 5 is unaffected and must NOT refuse.
-                    let hazard = match location_sheet(&loc) {
-                        // Qualified: a hazard iff it names the edited sheet AND σ moves it.
-                        Some(s) if s.eq_ignore_ascii_case(edited_sheet) => {
-                            refshift::shift_formula(&loc, "\u{0}", edit).0 != loc
-                        }
-                        Some(_) => false, // targets another sheet — unaffected
-                        // Bare local target: belongs to THIS sheet; a hazard iff this is the
-                        // edited sheet AND σ moves it.
-                        None => {
-                            is_edited_sheet
-                                && refshift::shift_formula(&loc, edited_sheet, edit).0 != loc
-                        }
-                    };
-                    if hazard {
-                        return true;
-                    }
-                }
-            }
-            Ok(Event::Eof) => return false,
-            Err(_) => return true,
-            _ => {}
-        }
-        buf.clear();
-    }
-}
-
 /// Does this table part carry its own formula? `calculatedColumnFormula` and
 /// `totalsRowFormula` can hold a CROSS-SHEET reference, and we never rewrite table
 /// parts — so such a table is refused even when it sits on an unrelated sheet.
@@ -1777,21 +1729,8 @@ fn scan_extra_residuals(
                         .into(),
                 });
             }
-            // INTERNAL HYPERLINKS whose target the edit invalidates: the shift engine
-            // rewrites a hyperlink's `ref` but never its `location`, so an in-workbook
-            // link that points at (or sits on) the edited sheet would silently mispoint.
-            if n.starts_with("xl/worksheets/")
-                && sheet_hyperlink_hazard(&bytes, &edit.sheet, n == edited_part, edit)
-            {
-                report.residuals.push(Residual {
-                    part: n.clone(),
-                    reason: "internal_hyperlink_unsupported".into(),
-                    detail: "an internal hyperlink's location targets the edited sheet and is \
-                             not shifted; it would mispoint after the edit — edit refused \
-                             (fail-closed)"
-                        .into(),
-                });
-            }
+            // (Internal hyperlink `location`s are SHIFTED, not refused — see
+            // shift_hyperlink_locations in the per-sheet rewrite above.)
             // EXTENSION-LIST value content on the EDITED sheet: x14 conditional formatting
             // (<xm:f>/<xm:sqref>) and sparklines carry edited-sheet coordinates the base
             // shift never processes. AFFECT-based: refuse ONLY when this edit would actually
@@ -2666,6 +2605,76 @@ fn has_ref_attr(name: &[u8]) -> bool {
             | b"brk"
             | b"ignoredError"
     )
+}
+
+/// Shift the `location` (in-workbook target) of every `<hyperlink>` on a sheet. A hyperlink's
+/// `ref` (the cell it sits on) is shifted by `shift_ref_attrs`, but its `location` points at a
+/// DESTINATION cell/range that a row/column edit also moves — the ubiquitous table-of-contents
+/// link `location="Data!A15"` must follow to `Data!A16` after an insert. The σ oracle with
+/// `host` as the context sheet shifts it exactly: an unqualified location on the edited sheet,
+/// or one qualified to the edited sheet, moves; a location targeting another sheet is
+/// untouched (host makes an unqualified foreign-sheet location local, so it is not moved).
+/// Returns (bytes, shifted, ref_errors); a target a delete CONSUMES becomes `#REF!`, mirroring
+/// the cell-formula path and Excel. When nothing shifts, the ORIGINAL bytes are returned
+/// verbatim so a no-op does not re-serialize the part (which would spuriously mark it touched).
+fn shift_hyperlink_locations(
+    xml: &[u8],
+    host: &str,
+    edit: &StructuralEdit,
+) -> Result<(Vec<u8>, u32, u32)> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut writer = Writer::new(Cursor::new(Vec::new()));
+    let mut buf = Vec::new();
+    let (mut shifted, mut errs) = (0u32, 0u32);
+    loop {
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| anyhow!("xml: {e}"))?;
+        match ev {
+            Event::Eof => break,
+            Event::Start(e) if tag_local_eq(e.name().as_ref(), b"hyperlink") => {
+                let (t, n, r) = shift_hyperlink_tag(&e, host, edit);
+                shifted += n;
+                errs += r;
+                writer
+                    .write_event(Event::Start(t))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
+            }
+            Event::Empty(e) if tag_local_eq(e.name().as_ref(), b"hyperlink") => {
+                let (t, n, r) = shift_hyperlink_tag(&e, host, edit);
+                shifted += n;
+                errs += r;
+                writer
+                    .write_event(Event::Empty(t))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
+            }
+            other => writer
+                .write_event(other)
+                .map_err(|e| anyhow!("xml write: {e}"))?,
+        }
+        buf.clear();
+    }
+    if shifted == 0 {
+        return Ok((xml.to_vec(), 0, 0));
+    }
+    Ok((writer.into_inner().into_inner(), shifted, errs))
+}
+
+fn shift_hyperlink_tag(
+    e: &BytesStart,
+    host: &str,
+    edit: &StructuralEdit,
+) -> (BytesStart<'static>, u32, u32) {
+    let Some(loc) = attr_by_local(e, b"location") else {
+        return (e.to_owned(), 0, 0);
+    };
+    let (nl, _n) = refshift::shift_formula(&loc, host, edit);
+    if nl == loc {
+        return (e.to_owned(), 0, 0);
+    }
+    let errs = nl.matches("#REF!").count() as u32;
+    (set_attrs(e, &[(b"location", nl)]), 1, errs)
 }
 
 /// A what-if data table cell formula: `<f t="dataTable" ref="C2:C5" r1="A1" r2="B1"/>`.
@@ -4116,80 +4125,50 @@ mod tests {
     }
 
     #[test]
-    fn internal_hyperlink_hazard_is_scoped_to_the_edited_sheet() {
-        // REGRESSION (round-2 review, finding 1): <hyperlink location=…> is not shifted.
-        // A local link ON the edited sheet, or any link whose location TARGETS the
-        // edited sheet, is a hazard; a link to another sheet is not.
+    fn hyperlink_location_is_shifted_not_refused() {
+        // A hyperlink's `location` (its in-workbook destination) is SHIFTED by the edit — a
+        // TOC/index link into a moved cell follows it — rather than refusing the edit.
         let hl = |loc: &str| {
             format!(
                 r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/><hyperlinks><hyperlink ref="A1" location="{loc}"/></hyperlinks></worksheet>"#
             )
         };
-        // insert at row 1 moves every row >= 1, so a link to A11 IS a hazard.
+        let loc_of = |out: &[u8]| {
+            let s = String::from_utf8_lossy(out).into_owned();
+            let i = s.find("location=\"").unwrap() + "location=\"".len();
+            s[i..i + s[i..].find('"').unwrap()].to_string()
+        };
         let e = edit("Sheet1", Axis::Row, Op::Insert, 1, 1);
-        // local link on the edited sheet -> hazard
-        assert!(sheet_hyperlink_hazard(
-            hl("A11").as_bytes(),
-            "Sheet1",
-            true,
-            &e
-        ));
-        // link (on any sheet) targeting the edited sheet by name -> hazard
-        assert!(sheet_hyperlink_hazard(
-            hl("Sheet1!A11").as_bytes(),
-            "Sheet1",
-            false,
-            &e
-        ));
-        assert!(sheet_hyperlink_hazard(
-            hl("'Sheet1'!A11").as_bytes(),
-            "Sheet1",
-            false,
-            &e
-        ));
-        // local link on a NON-edited sheet -> not a hazard for this edit
-        assert!(!sheet_hyperlink_hazard(
-            hl("A11").as_bytes(),
-            "Sheet1",
-            false,
-            &e
-        ));
-        // link targeting a DIFFERENT sheet -> not a hazard
-        assert!(!sheet_hyperlink_hazard(
-            hl("Other!A11").as_bytes(),
-            "Sheet1",
-            true,
-            &e
-        ));
-        // an external (URL) hyperlink has no location -> never flagged
-        assert!(!sheet_hyperlink_hazard(
-            br#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><hyperlinks><hyperlink ref="A1" r:id="rId1"/></hyperlinks></worksheet>"#,
-            "Sheet1",
-            true,
-            &e
-        ));
-        // OVER-REFUSAL guard (round-9): a link to a cell ABOVE the insert point does not
-        // move, so it must NOT be flagged (link to A1 while inserting at row 5).
+        // On the edited sheet (host=Sheet1): an unqualified local location shifts A11 -> A12.
+        let (out, n, _r) = shift_hyperlink_locations(hl("A11").as_bytes(), "Sheet1", &e).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(loc_of(&out), "A12");
+        // A location qualified to the edited sheet shifts, from ANY host sheet (host=Notes).
+        let (out, n, _r) =
+            shift_hyperlink_locations(hl("Sheet1!A11").as_bytes(), "Notes", &e).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(loc_of(&out), "Sheet1!A12");
+        // A location targeting a DIFFERENT sheet is untouched.
+        let (out, n, _r) =
+            shift_hyperlink_locations(hl("Other!A11").as_bytes(), "Sheet1", &e).unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(loc_of(&out), "Other!A11");
+        // An unqualified location on a NON-edited (foreign) sheet is local -> not shifted.
+        let (_out, n, _r) = shift_hyperlink_locations(hl("A11").as_bytes(), "Notes", &e).unwrap();
+        assert_eq!(n, 0);
+        // A link to a cell ABOVE an insert at row 5 does not move -> no shift.
         let e5 = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
-        assert!(!sheet_hyperlink_hazard(
-            hl("Sheet1!A1").as_bytes(),
+        let (_out, n, _r) =
+            shift_hyperlink_locations(hl("Sheet1!A1").as_bytes(), "Notes", &e5).unwrap();
+        assert_eq!(n, 0);
+        // An external (URL) hyperlink has no `location` -> untouched.
+        let (_out, n, _r) = shift_hyperlink_locations(
+            br#"<worksheet><hyperlinks><hyperlink ref="A1" r:id="rId1"/></hyperlinks></worksheet>"#,
             "Sheet1",
-            false,
-            &e5
-        ));
-        assert!(!sheet_hyperlink_hazard(
-            hl("A1").as_bytes(),
-            "Sheet1",
-            true,
-            &e5
-        ));
-    }
-
-    #[test]
-    fn location_sheet_parses_the_qualifier() {
-        assert_eq!(location_sheet("Sheet1!A11").as_deref(), Some("Sheet1"));
-        assert_eq!(location_sheet("'My Sheet'!A1").as_deref(), Some("My Sheet"));
-        assert_eq!(location_sheet("A11"), None);
+            &e,
+        )
+        .unwrap();
+        assert_eq!(n, 0);
     }
 
     #[test]
