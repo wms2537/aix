@@ -1488,17 +1488,18 @@ fn foreign_sheet_cross_ref_unshifted(xml: &[u8], edit: &StructuralEdit) -> bool 
     }
 }
 
-/// Does this table part carry its own formula? `calculatedColumnFormula` and
-/// `totalsRowFormula` can hold a CROSS-SHEET reference, and we never rewrite table
-/// parts — so such a table is refused even when it sits on an unrelated sheet.
-/// Namespace-aware (a prefixed `<x:calculatedColumnFormula>` must not evade this);
-/// an unparseable table part fails closed (treated as carrying a formula -> refuse).
-fn table_part_has_formula(xml: &[u8]) -> bool {
-    xml_has_local_element(
-        xml,
-        &[b"calculatedColumnFormula", b"totalsRowFormula"],
-        true,
-    )
+/// True if this table part's OWN formula (`calculatedColumnFormula`/`totalsRowFormula`) carries
+/// a reference to the EDITED sheet that THIS edit would MOVE. We never rewrite a table part, so
+/// such a formula would be left stale — refuse. But a purely STRUCTURED calculated column
+/// (`[@Price]*[@Qty]`) or a totals row (`SUBTOTAL(109,Tbl[Amount])`) is table-local — it names
+/// no sheet coordinate, so the σ oracle (phantom host) leaves it unchanged and it is allowed.
+/// This stops over-refusing the ubiquitous computed-column table on an unrelated sheet.
+/// Namespace-aware and fail-closed: a formula element the parser cannot read surfaces a
+/// `parse_error` sentinel body, treated as crossing.
+fn table_formula_crosses_edited(xml: &[u8], edit: &StructuralEdit) -> bool {
+    element_text_semantics(xml, &[b"calculatedColumnFormula", b"totalsRowFormula"])
+        .iter()
+        .any(|f| f == "parse_error" || formula_would_shift(f, edit))
 }
 
 /// True if a cell-ref-shaped defined name is a real mis-shift hazard for THIS edit. Two
@@ -1819,20 +1820,21 @@ fn scan_extra_residuals(
             });
             continue;
         }
-        // Any table (edited or foreign) carrying its OWN formula (calculated column / totals
-        // row) may reference the edited sheet and is not rewritten — refuse conservatively. A
-        // table part we cannot read is one we cannot clear.
-        let has_formula = match crate::ooxml::read_part(input, t) {
-            Ok(bytes) => table_part_has_formula(&bytes),
+        // A table's OWN formula (calculated column / totals row) that REFERENCES the edited
+        // sheet at a moved cell is not rewritten — refuse. A table-local structured formula
+        // (`[@Price]*[@Qty]`, `SUBTOTAL(109,Tbl[Amount])`) references no sheet coordinate and is
+        // safe, even on the edited sheet. A table part we cannot read is one we cannot clear.
+        let refuse_formula = match crate::ooxml::read_part(input, t) {
+            Ok(bytes) => table_formula_crosses_edited(&bytes, edit),
             Err(_) => true,
         };
-        if has_formula {
+        if refuse_formula {
             report.residuals.push(Residual {
                 part: t.clone(),
                 reason: "table_formula_unsupported".into(),
-                detail: "a structured table carries its own formula (calculated column / \
-                         totals row), which may reference the edited sheet and is not \
-                         rewritten; edit refused"
+                detail: "a structured table's own formula (calculated column / totals row) \
+                         references the edited sheet at a cell this edit moves, and is not \
+                         rewritten; edit refused (fail-closed)"
                     .into(),
             });
         }
@@ -4558,27 +4560,40 @@ mod tests {
     }
 
     #[test]
-    fn table_carrying_its_own_formula_is_still_refused() {
-        // A calculatedColumnFormula / totalsRowFormula inside a TABLE part can hold a
-        // cross-sheet reference, and we never rewrite table parts — so such a table is
-        // refused even on an unrelated sheet (conservative, fail-closed).
-        assert!(table_part_has_formula(
-            br#"<table ref="A1:B2"><tableColumns><tableColumn name="x"><calculatedColumnFormula>Sheet1!A1*2</calculatedColumnFormula></tableColumn></tableColumns></table>"#
+    fn table_formula_crossing_edited_sheet_is_refused_affect_based() {
+        let e = |sh: &str, at: u32| edit(sh, Axis::Row, Op::Insert, at, 1);
+        // A calculatedColumnFormula referencing the EDITED sheet at a MOVED cell -> refuse.
+        let cc = br#"<table ref="A1:B2"><tableColumns><tableColumn name="x"><calculatedColumnFormula>Sheet1!A5*2</calculatedColumnFormula></tableColumn></tableColumns></table>"#;
+        assert!(table_formula_crosses_edited(cc, &e("Sheet1", 1)));
+        // ...but NOT when the edit is on a DIFFERENT sheet (Sheet1!A5 unaffected).
+        assert!(!table_formula_crosses_edited(cc, &e("Other", 1)));
+        // ...nor when the edit moves nothing it references (insert below A5).
+        assert!(!table_formula_crosses_edited(cc, &e("Sheet1", 50)));
+        // A purely STRUCTURED calculated column / totals row is table-local -> allowed (the
+        // round-25 over-refusal fix), even on the edited sheet.
+        assert!(!table_formula_crosses_edited(
+            br#"<table ref="A1:C5"><tableColumns><tableColumn name="Total"><calculatedColumnFormula>Cat[[#This Row],[Price]]*Cat[[#This Row],[Qty]]</calculatedColumnFormula></tableColumn></tableColumns></table>"#,
+            &e("Sheet1", 1)
         ));
-        assert!(table_part_has_formula(
-            br#"<table ref="A1:B2"><tableColumn name="t"><totalsRowFormula>SUBTOTAL(109,T[x])</totalsRowFormula></tableColumn></table>"#
+        assert!(!table_formula_crosses_edited(
+            br#"<table ref="A1:B2"><tableColumn name="t"><totalsRowFormula>SUBTOTAL(109,T[Amount])</totalsRowFormula></tableColumn></table>"#,
+            &e("Sheet1", 1)
         ));
-        // REGRESSION (adversarial review): a NAMESPACE-PREFIXED form must not evade the
-        // scan — a substring match on "<calculatedColumnFormula" missed "<x:...".
-        assert!(table_part_has_formula(
-            br#"<x:table xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:tableColumn name="x"><x:calculatedColumnFormula>Sheet2!A2*2</x:calculatedColumnFormula></x:tableColumn></x:table>"#
+        // A NAMESPACE-PREFIXED crossing formula is caught (matched by local name).
+        assert!(table_formula_crosses_edited(
+            br#"<x:table xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:tableColumn name="x"><x:calculatedColumnFormula>Sheet2!A2*2</x:calculatedColumnFormula></x:tableColumn></x:table>"#,
+            &e("Sheet2", 1)
         ));
-        // A plain table (no own formula) carries only sheet-local coordinates.
-        assert!(!table_part_has_formula(
-            br#"<table ref="A1:D4" name="Table1"><autoFilter ref="A1:D4"/><tableColumns count="1"><tableColumn id="1" name="Cars"/></tableColumns></table>"#
+        // A plain table (no own formula) -> allowed.
+        assert!(!table_formula_crosses_edited(
+            br#"<table ref="A1:D4" name="Table1"><autoFilter ref="A1:D4"/><tableColumns count="1"><tableColumn id="1" name="Cars"/></tableColumns></table>"#,
+            &e("Sheet1", 1)
         ));
-        // An unparseable table part fails CLOSED (treated as carrying a formula).
-        assert!(table_part_has_formula(b"<table <<< not xml"));
+        // An unparseable table part fails CLOSED.
+        assert!(table_formula_crosses_edited(
+            b"<table <<< not xml",
+            &e("Sheet1", 1)
+        ));
     }
 
     #[test]

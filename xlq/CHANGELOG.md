@@ -375,6 +375,14 @@ is refused, not committed.
   read as a cell, would actually MOVE under this edit, AND it is used in a formula the edit
   SHIFTS (the edited sheet, a chart, or another defined name). A name used only on an unrelated
   sheet, or whose aliased coordinate the edit doesn't touch, no longer blocks the edit.
+- **A Table's computed column / totals-row formula is refused only when it references the
+  edited sheet (over-refusal fix).** A table with a `<calculatedColumnFormula>` or
+  `<totalsRowFormula>` (`Total = [@Price]*[@Qty]`, `SUBTOTAL(109,Tbl[Amount])` — one of the most
+  common table features) was refused on PRESENCE, disabling edits even on an unrelated sheet.
+  These formulas are usually STRUCTURED references (table-local, by column name), which name no
+  sheet coordinate. The guard now runs the σ oracle over the table formula and refuses only when
+  it carries a reference to the edited sheet that the edit would MOVE (a table part is never
+  rewritten); a table-local structured formula is left alone.
 - **`certify` treats a number-format change as value-affecting under "precision as displayed".**
   A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
   computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input
