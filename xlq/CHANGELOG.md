@@ -440,6 +440,25 @@ is refused, not committed.
   and `xl/ctrlProps/*` form-control bindings are now compared like their VML/inline
   counterparts — all three were missing from the allowlist, so certify refused its own transform
   of any workbook using them.
+- **A modern form-control binding (`xl/ctrlProps/`) that references the edited sheet is now
+  refused, not left stale (silent-wrong + certify-inversion fix).** A `<formControlPr fmlaLink>`
+  in a `xl/ctrlProps/*` part lives outside the worksheet, so restructure's foreign-sheet scans
+  skipped it and committed it STALE with no residual — and because certify DOES compare these
+  bindings (added the previous round), xlq's own stale transform inverted certify: it refused the
+  FAITHFUL edit and certified the value-wrong one. restructure now scans `xl/ctrlProps/*` for a
+  binding qualified to the edited sheet that the edit would move and fails closed, exactly like
+  the inline `<controlPr>` case — so restructure never commits a stale binding and certify never
+  inverts.
+- **`certify` catches a WITHIN-cell relocation of the implicit-intersection `@` operator.** The
+  engine-normalized-token signature counted `@` per cell rather than recording positions, so
+  moving `@` between operands in one cell (`@A1:A3-A1:A3` → `A1:A3-@A1:A3` — same count, a
+  different spill) was certified. The signature now records each `@`'s position in the
+  `@`-stripped body, so a same-count relocation differs.
+- **`certify` tolerates a benign hyperlink-URL trailing slash (over-refusal fix).** A foreign
+  tool (openpyxl/Excel) that renormalizes a bare-authority external target (`https://example.com`
+  → `https://example.com/`) — the same resource — was a spurious refusal, since the target was
+  byte-compared. A single trailing `/` is now stripped before comparison; a real retarget (a
+  different host or path) still differs.
 - **`certify` treats a number-format change as value-affecting under "precision as displayed".**
   A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
   computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input

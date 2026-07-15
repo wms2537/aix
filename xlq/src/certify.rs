@@ -721,6 +721,11 @@ fn structural_ref_attrs(bytes: &[u8]) -> Vec<(String, String, String)> {
                         let target = attr_relid(tag)
                             .and_then(|id| rels.get(&id).cloned())
                             .unwrap_or_default();
+                        // A trailing slash on a URL navigates to the same resource; openpyxl/Excel
+                        // add one to a bare authority (`https://example.com` -> `…/`). Strip a
+                        // single trailing `/` so a benign renormalization is not a spurious
+                        // mismatch — a real retarget (different host/path) still differs.
+                        let target = target.strip_suffix('/').unwrap_or(&target);
                         format!("ref={r}|loc={location}|tgt={target}")
                     } else {
                         format!("ref={r}")

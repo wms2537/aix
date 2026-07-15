@@ -1271,17 +1271,21 @@ fn xlfn_tokens_in(body: &str) -> Vec<String> {
     out
 }
 
-/// The number of IMPLICIT-INTERSECTION `@` operators in one stored `<f>` body. `@` is the
-/// dynamic-array implicit-intersection operator: `@A1:A10` coerces a range to the single
-/// intersecting cell (a scalar), whereas the bare `A1:A10` SPILLS the whole range — a
+/// The POSITIONS of the IMPLICIT-INTERSECTION `@` operators in one stored `<f>` body, as
+/// their character index in the `@`-STRIPPED body (so the operators do not offset each other).
+/// `@` is the dynamic-array implicit-intersection operator: `@A1:A10` coerces a range to the
+/// single intersecting cell (a scalar), whereas the bare `A1:A10` SPILLS the whole range — a
 /// different computed value AND footprint. A consumer normalizes `@` away on load (IronCalc
-/// does), so certify's cell diff — over the loaded, normalized form — is blind to a drop/add.
+/// does), so certify's cell diff — over the loaded, normalized form — is blind to it.
 ///
-/// A `@` inside a `[...]` structured (table) reference (`Table1[@Col]`) is a column
-/// specifier, NOT the intersection operator, so bracket-interior `@` is excluded; `@` and
-/// `[` inside a quoted string literal or quoted sheet name are likewise ignored.
-fn count_implicit_at(body: &str) -> usize {
-    let mut count = 0;
+/// Positions, not a bare count, so a WITHIN-cell relocation of `@` between operands
+/// (`@A1:A3-A1:A3` → `A1:A3-@A1:A3`, same count but a different spill) is caught. A `@` inside
+/// a `[...]` structured (table) reference (`Table1[@Col]`) is a column specifier, NOT the
+/// intersection operator, so bracket-interior `@` is excluded; `@`/`[` inside a quoted string
+/// literal or quoted sheet name are likewise ignored.
+fn implicit_at_positions(body: &str) -> Vec<usize> {
+    let mut positions = Vec::new();
+    let mut stripped_len = 0usize; // chars emitted so far excluding `@`
     let mut bracket_depth: u32 = 0;
     let mut in_dquote = false;
     let mut in_squote = false;
@@ -1290,12 +1294,14 @@ fn count_implicit_at(body: &str) -> usize {
             if c == '"' {
                 in_dquote = false;
             }
+            stripped_len += 1;
             continue;
         }
         if in_squote {
             if c == '\'' {
                 in_squote = false;
             }
+            stripped_len += 1;
             continue;
         }
         match c {
@@ -1303,11 +1309,15 @@ fn count_implicit_at(body: &str) -> usize {
             '\'' => in_squote = true,
             '[' => bracket_depth += 1,
             ']' => bracket_depth = bracket_depth.saturating_sub(1),
-            '@' if bracket_depth == 0 => count += 1,
+            '@' if bracket_depth == 0 => {
+                positions.push(stripped_len); // index into the @-stripped body
+                continue; // do NOT count the `@` toward stripped_len
+            }
             _ => {}
         }
+        stripped_len += 1;
     }
-    count
+    positions
 }
 
 /// Per formula cell (a `<c r>` carrying an `<f>`), the tokens IronCalc NORMALIZES AWAY on
@@ -1340,11 +1350,11 @@ pub(crate) fn formula_hidden_tokens(xml: &[u8]) -> std::collections::BTreeMap<St
             Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
                 in_f = false;
                 let body = logical_formula(&raw).unwrap_or_else(|| raw.clone());
-                let at = count_implicit_at(&body);
+                let at = implicit_at_positions(&body);
                 let xlfn = xlfn_tokens_in(&body);
                 if let Some(r) = cell_ref.clone() {
-                    if at > 0 || !xlfn.is_empty() {
-                        out.insert(r, format!("@{at};{}", xlfn.join(",")));
+                    if !at.is_empty() || !xlfn.is_empty() {
+                        out.insert(r, format!("@{at:?};{}", xlfn.join(",")));
                     }
                 }
                 raw.clear();
@@ -2107,6 +2117,28 @@ fn scan_extra_residuals(
                     detail: "a foreign sheet has a ref/sqref attribute qualified to the edited \
                              sheet (e.g. a consolidation dataRef) that is not shifted — edit \
                              refused (fail-closed)"
+                        .into(),
+                });
+            }
+        }
+    }
+    // MODERN FORM CONTROL bindings (`xl/ctrlProps/*`): a `<formControlPr fmlaLink=…>` (or
+    // linkedCell/fmlaRange/sourceRef) qualified to the edited sheet is copied verbatim — a
+    // ctrlProps part is NOT a worksheet, so the worksheet cross-ref scans above skip it. certify
+    // DOES compare ctrlProps bindings, so leaving one stale both silently mis-binds the control
+    // AND inverts certify (it would refuse the faithful edit and certify xlq's stale one). Refuse
+    // it — fail-closed and consistent with the inline `<controlPr>` case.
+    for n in names.iter().filter(|n| {
+        let low = n.to_ascii_lowercase();
+        low.starts_with("xl/ctrlprops/") && low.ends_with(".xml")
+    }) {
+        if let Ok(bytes) = crate::ooxml::read_part(input, n) {
+            if foreign_sheet_ref_attr_crosses(&bytes, edit) {
+                report.residuals.push(Residual {
+                    part: n.clone(),
+                    reason: "cross_sheet_reference_unsupported".into(),
+                    detail: "a modern form control (xl/ctrlProps) has a data binding qualified to \
+                             the edited sheet that is not shifted — edit refused (fail-closed)"
                         .into(),
                 });
             }
@@ -4235,11 +4267,11 @@ mod tests {
         let m = formula_hidden_tokens(
             br#"<worksheet><sheetData><row r="1"><c r="C1"><f>@A1:A10</f></c><c r="D1"><f>_xlfn.CONCAT(A1,A2)+_xlfn._xlws.FILTER(B1:B5,C1)</f></c><c r="E1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#,
         );
-        // `@` cell keyed by ref; a plain formula (E1) is excluded.
-        assert_eq!(m.get("C1").map(String::as_str), Some("@1;"));
+        // `@` cell keyed by ref (signature is the `@` POSITION list); a plain formula excluded.
+        assert_eq!(m.get("C1").map(String::as_str), Some("@[0];"));
         assert_eq!(
             m.get("D1").map(String::as_str),
-            Some("@0;_xlfn.CONCAT,_xlfn._xlws.FILTER")
+            Some("@[];_xlfn.CONCAT,_xlfn._xlws.FILTER")
         );
         assert_eq!(m.get("E1"), None);
         assert_eq!(m.len(), 2);
@@ -4248,6 +4280,19 @@ mod tests {
             br#"<worksheet><sheetData><row r="1"><c r="C5"><f>Table1[@Amount]*"a@b"&amp;'x@y'!A1</f></c></row></sheetData></worksheet>"#,
         );
         assert!(bracket.is_empty());
+        // WITHIN-cell relocation of `@` between operands (round-30): same count, DIFFERENT
+        // position -> different signature.
+        let a = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="E1"><f>@A1:A3-A1:A3</f></c></row></sheetData></worksheet>"#,
+        );
+        let b = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="E1"><f>A1:A3-@A1:A3</f></c></row></sheetData></worksheet>"#,
+        );
+        assert_ne!(
+            a.get("E1"),
+            b.get("E1"),
+            "within-cell @ move changes signature"
+        );
     }
 
     #[test]
