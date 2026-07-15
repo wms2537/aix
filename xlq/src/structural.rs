@@ -777,10 +777,14 @@ fn edited_sheet_body_unshifted_ref(
                     if (k == b"ref" || k == b"sqref") && !has_ref_attr(full) {
                         return would_shift(&val);
                     }
-                    // Form-control / OLE data bindings — the cell a control reads/writes —
-                    // are references the shift never rewrites (and a dangling rel slips the
-                    // attachment whitelist). Flag if this edit would move them.
-                    if k == b"linkedCell" || k == b"fmlaLink" || k == b"listFillRange" {
+                    // Other cell-range attributes the shift never rewrites: form-control / OLE
+                    // data bindings (linkedCell/fmlaLink/listFillRange — the cell a control
+                    // reads/writes) and a web-publish source range (sourceRef). Flag if this
+                    // edit would move them.
+                    if matches!(
+                        k,
+                        b"linkedCell" | b"fmlaLink" | b"listFillRange" | b"sourceRef"
+                    ) {
                         return would_shift(&val);
                     }
                     // A cell/range-shaped `r` on a NON-cell element (`<inputCells r>`,
@@ -3643,6 +3647,11 @@ mod tests {
         assert_eq!(
             f(br#"<worksheet><controls><control><controlPr linkedCell="A8" fmlaLink="A9"/></control></controls></worksheet>"#).as_deref(),
             Some("controlPr")
+        );
+        // A web-publish source range (sourceRef, ST_Ref in a non-ref/sqref/r attr) is flagged.
+        assert_eq!(
+            f(br#"<worksheet><webPublishItems><webPublishItem sourceType="range" sourceRef="A8:A10"/></webPublishItems></worksheet>"#).as_deref(),
+            Some("webPublishItem")
         );
         // A namespace-prefixed CF the engine does NOT recognize is flagged.
         assert_eq!(

@@ -213,6 +213,18 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        from xlq's transform — it was not shifted faithfully",
         }));
     }
+    // AutoFilter FILTER CRITERIA (the customFilter/filter/… predicate) are a value input:
+    // SUBTOTAL(1xx,…) and AGGREGATE exclude autofilter-hidden rows, so changing which rows
+    // the filter hides changes those formulas' results. The transform preserves the criteria
+    // verbatim (it shifts only the autoFilter `ref`), so compare them.
+    if autofilter_criteria(expected) != autofilter_criteria(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "autofilter_criteria_mismatch",
+            "detail": "an autoFilter filter criterion differs from xlq's transform — it changes \
+                       which rows are hidden, a value input to SUBTOTAL/AGGREGATE",
+        }));
+    }
     // CHART data references (which the transform shifts) and DRAWING cell anchors are
     // COMPARED, not refused on presence — refusing them rejected xlq's own transform of any
     // charted or logo-bearing workbook. A faithful edit's chart refs / anchors match the
@@ -372,6 +384,37 @@ fn xlfn_tokens_all(bytes: &[u8]) -> Vec<(String, String)> {
         if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
             for tok in structural::xlfn_tokens(&x) {
                 out.push((sheet_name.clone(), tok));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The autoFilter FILTER-CRITERION elements across every worksheet, keyed by sheet, as
+/// sorted attribute strings. The transform preserves these verbatim, so a foreign change to
+/// which rows the filter hides (a value input to SUBTOTAL/AGGREGATE) is caught.
+fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (sheet_name, part) in sheets {
+        if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
+            for (elem, attrs) in structural::element_attr_semantics(
+                &x,
+                &[
+                    b"filterColumn",
+                    b"customFilter",
+                    b"filter",
+                    b"dynamicFilter",
+                    b"top10",
+                    b"dateGroupItem",
+                    b"colorFilter",
+                    b"iconFilter",
+                ],
+            ) {
+                out.push((sheet_name.clone(), elem, attrs));
             }
         }
     }
@@ -541,6 +584,21 @@ fn sheet_order_and_settings(bytes: &[u8]) -> (Vec<String>, Vec<(String, String)>
         ));
         let iterate = truthy(attr(&calcpr, "iterate"));
         settings.push(("iterate".into(), if iterate { "1" } else { "0" }.into()));
+        // fullPrecision="0" ("precision as displayed") makes every formula compute on the
+        // ROUNDED displayed values instead of the stored values — a workbook-global value
+        // change. Default is full precision (true).
+        settings.push((
+            "full_precision".into(),
+            if matches!(
+                attr(&calcpr, "fullPrecision").as_deref(),
+                Some("0") | Some("false")
+            ) {
+                "0"
+            } else {
+                "1"
+            }
+            .into(),
+        ));
         // When iterative calc is ON, iterateCount / iterateDelta control which value a
         // circular reference converges to — a foreign change alters computed values.
         if iterate {
@@ -573,10 +631,14 @@ fn recalc_on_load_disabled(bytes: &[u8]) -> bool {
     let Some(gt) = text[p..].find('>') else {
         return false;
     };
+    let tag = &text[p..p + gt];
+    // Recalc-on-load is off if it is explicitly disabled OR the workbook is in manual calc
+    // mode — Excel shows stored formula caches verbatim in both cases, so a fabricated cache
+    // would be displayed. (`autoNoTable` still recomputes ordinary cells, so it is not off.)
     matches!(
-        attr(&text[p..p + gt], "fullCalcOnLoad").as_deref(),
+        attr(tag, "fullCalcOnLoad").as_deref(),
         Some("0") | Some("false")
-    )
+    ) || attr(tag, "calcMode").as_deref() == Some("manual")
 }
 
 /// The relationship-id value of a start tag: a namespace-prefixed `*:id="..."` attribute.
@@ -823,6 +885,21 @@ mod tests {
         let refusal = verify_noncell_refs(&good, &wb("", &[(n2, m.as_str())]))
             .expect("mangled drawing anchor must be caught");
         assert_eq!(refusal["reason"], "chart_drawing_mismatch");
+    }
+
+    #[test]
+    fn autofilter_criteria_is_compared() {
+        // The filter PREDICATE (customFilter val) is a value input to SUBTOTAL/AGGREGATE.
+        let af = |v: &str| {
+            format!(
+                r#"<autoFilter ref="A1:A10"><filterColumn colId="0"><customFilters><customFilter operator="lessThanOrEqual" val="{v}"/></customFilters></filterColumn></autoFilter>"#
+            )
+        };
+        let good = wb(&af("5"), &[]);
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let refusal =
+            verify_noncell_refs(&good, &wb(&af("9"), &[])).expect("criterion change must refuse");
+        assert_eq!(refusal["reason"], "autofilter_criteria_mismatch");
     }
 
     #[test]

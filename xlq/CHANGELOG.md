@@ -166,6 +166,23 @@ is refused, not committed.
   `iterateCount`/`iterateDelta`, which set a circular reference's converged value) so a
   benign `calcId` build-stamp or `fullCalcOnLoad` no longer spuriously refuses a faithful
   edit.
+- **certify compares autoFilter criteria.** A foreign edit that preserved an autoFilter's
+  `ref` but altered a filter *criterion* (`<customFilter val>`, `<filter>`, `<top10>`,
+  `<dynamicFilter>`, `<dateGroupItem>`, `<colorFilter>`, `<iconFilter>`) changed which rows
+  the sheet shows without touching any cell — invisible to the cell diff; the criteria are
+  now compared per sheet.
+- **certify compares `<workbookPr fullPrecision>`.** Turning off precision-as-displayed
+  (`fullPrecision="0"`) silently rounds every formula input to its displayed digits,
+  changing recomputed values with no cell-level edit; the flag is now part of the compared
+  workbook settings.
+- **`fabricated-cache` guard also covers `calcMode="manual"`.** A foreign workbook set to
+  manual calculation likewise shows stored caches verbatim (Excel does not recompute on
+  load), so a differing cache under manual calc is now disqualifying, matching the
+  `fullCalcOnLoad="0"` gate.
+- **Web-publish source ranges shift-or-refuse.** A `<webPublishItem sourceRef>` (the cell
+  range a sheet publishes to HTML) is a coordinate the engine copies verbatim; it is now
+  refused when the edit would move it, closing another verbatim-copy gap in the edited-sheet
+  body scan.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
