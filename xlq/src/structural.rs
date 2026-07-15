@@ -1012,6 +1012,7 @@ pub(crate) fn formula_cache_map(xml: &[u8]) -> std::collections::BTreeMap<String
     let mut buf = Vec::new();
     let mut out = std::collections::BTreeMap::new();
     let mut cell_ref: Option<String> = None;
+    let mut cell_type = String::from("n");
     let mut has_f = false;
     let mut cap_v = false;
     let mut v_text = String::new();
@@ -1019,6 +1020,10 @@ pub(crate) fn formula_cache_map(xml: &[u8]) -> std::collections::BTreeMap<String
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
                 cell_ref = attr_by_local(&e, b"r");
+                // The cell TYPE (`t`): absent/"n" = number, "str" = formula string result,
+                // "b" = boolean, "e" = error. Part of the cache signature so a number→text
+                // retype of the same digit string (`<v>55</v>` n vs str) is caught.
+                cell_type = attr_by_local(&e, b"t").unwrap_or_else(|| "n".into());
                 has_f = false;
                 v_text.clear();
             }
@@ -1040,10 +1045,11 @@ pub(crate) fn formula_cache_map(xml: &[u8]) -> std::collections::BTreeMap<String
             Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
                 if has_f && !v_text.trim().is_empty() {
                     if let Some(r) = cell_ref.take() {
-                        out.insert(r, v_text.trim().to_string());
+                        out.insert(r, format!("{cell_type}:{}", v_text.trim()));
                     }
                 }
                 cell_ref = None;
+                cell_type = String::from("n");
                 has_f = false;
                 v_text.clear();
             }
@@ -4073,16 +4079,22 @@ mod tests {
         let m = formula_cache_map(
             br#"<worksheet><sheetData><row r="1"><c r="A1" t="n"><v>1</v></c><c r="B1"><f>SUM(A1:A1)</f><v>1</v></c></row><row r="2"><c r="B2"><f>A1</f><v /></c><c r="B3"><f>A1</f></c></row></sheetData></worksheet>"#,
         );
-        // B1: formula cell with a present cache -> kept. A1: a data cell (no <f>) -> excluded.
-        // B2: empty <v/> -> excluded (Excel recomputes). B3: no <v> at all -> excluded.
+        // B1: formula cell with a present cache -> kept (signature is `type:value`, default
+        // type "n"). A1: a data cell (no <f>) -> excluded. B2: empty <v/> -> excluded (Excel
+        // recomputes). B3: no <v> at all -> excluded.
         assert_eq!(m.len(), 1);
-        assert_eq!(m.get("B1").map(String::as_str), Some("1"));
+        assert_eq!(m.get("B1").map(String::as_str), Some("n:1"));
         // A shared-formula dependent (`<f .../>` empty element) with a present cache is a
         // formula cell too.
         let s = formula_cache_map(
             br#"<worksheet><sheetData><row r="1"><c r="C1"><f t="shared" si="0"/><v>7</v></c></row></sheetData></worksheet>"#,
         );
-        assert_eq!(s.get("C1").map(String::as_str), Some("7"));
+        assert_eq!(s.get("C1").map(String::as_str), Some("n:7"));
+        // A number->text RETYPE (same <v> digits) yields a DIFFERENT signature (round-26).
+        let text = formula_cache_map(
+            br#"<worksheet><sheetData><row r="1"><c r="C1" t="str"><f>x</f><v>7</v></c></row></sheetData></worksheet>"#,
+        );
+        assert_eq!(text.get("C1").map(String::as_str), Some("str:7"));
     }
 
     #[test]

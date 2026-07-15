@@ -414,6 +414,8 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
         || low == "xl/calcchain.xml"                 // rebuildable calc order, no semantic ref
         || low == "xl/metadata.xml"                  // dynamic-array/rich-value metadata: index-
                                                      // linked to cells (cm/vm), no shiftable coord
+        || low.starts_with("xl/richdata/")           // rich values (=IMAGE(), Stocks/Geography):
+                                                     // index-linked from cells via `vm`, no coord
         || low.starts_with("xl/theme/")              // colors/fonts
         || low.starts_with("docprops/")              // document metadata
         || low.starts_with("customxml/")             // inert custom-XML data island: Excel
@@ -593,7 +595,13 @@ fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
                 &x,
                 &[
                     b"filterColumn",
+                    // Container attributes that change WHICH rows are hidden: `<customFilters
+                    // and>` (the AND/OR combinator over two predicates) and `<filters blank>`
+                    // (show-blanks). Comparing only the leaf predicates missed a combinator flip
+                    // — a value input to SUBTOTAL(101-111)/hidden-ignoring AGGREGATE.
+                    b"customFilters",
                     b"customFilter",
+                    b"filters",
                     b"filter",
                     b"dynamicFilter",
                     b"top10",
@@ -914,15 +922,19 @@ fn unverified_formula_caches(expected: &[u8], edited: &[u8], expected_forced: bo
     count
 }
 
-/// Two stored cache values are equal if their text matches, or (for numeric caches) their
-/// parsed magnitudes match — so a benign renumbering of the same value (`55` vs `55.0`) is
-/// not counted as a divergence.
+/// Two stored formula caches are equal. Each is `type:value` (the cell `t` plus its `<v>`
+/// text). The TYPE must match exactly — a number→text retype (`n:55` vs `str:55`) is a real
+/// stored-value-type change — while the value tolerates a benign numeric renumbering (`55` vs
+/// `55.0`). The type prefix has no colon, so the first `:` cleanly separates it.
 fn caches_equal(a: &str, b: &str) -> bool {
-    a == b
-        || matches!(
-            (a.parse::<f64>(), b.parse::<f64>()),
-            (Ok(x), Ok(y)) if x == y
-        )
+    let (ta, va) = a.split_once(':').unwrap_or(("n", a));
+    let (tb, vb) = b.split_once(':').unwrap_or(("n", b));
+    ta == tb
+        && (va == vb
+            || matches!(
+                (va.parse::<f64>(), vb.parse::<f64>()),
+                (Ok(x), Ok(y)) if x == y
+            ))
 }
 
 /// Parse a quoted attribute value beginning at `name_end` — the byte index just past an
@@ -1223,16 +1235,49 @@ mod tests {
         let refusal =
             verify_noncell_refs(&good, &wb(&af("9"), &[])).expect("criterion change must refuse");
         assert_eq!(refusal["reason"], "autofilter_criteria_mismatch");
+        // The AND/OR COMBINATOR on the <customFilters and> CONTAINER is also a value input
+        // (round-26): flipping it changes which rows are filter-hidden.
+        let comb = |and: &str| {
+            format!(
+                r#"<autoFilter ref="A1:A10"><filterColumn colId="0"><customFilters and="{and}"><customFilter operator="greaterThan" val="3"/><customFilter operator="lessThan" val="8"/></customFilters></filterColumn></autoFilter>"#
+            )
+        };
+        let and_on = wb(&comb("1"), &[]);
+        assert!(verify_noncell_refs(&and_on, &and_on).is_none());
+        assert_eq!(
+            verify_noncell_refs(&and_on, &wb(&comb("0"), &[]))
+                .expect("combinator flip must refuse")["reason"],
+            "autofilter_criteria_mismatch"
+        );
     }
 
     #[test]
-    fn caches_equal_matches_text_or_number() {
-        assert!(caches_equal("55", "55"));
-        assert!(caches_equal("55", "55.0")); // benign renumber of the same value
-        assert!(caches_equal("5.5E1", "55"));
-        assert!(!caches_equal("55", "56"));
-        assert!(caches_equal("hello", "hello"));
-        assert!(!caches_equal("hello", "world"));
+    fn caches_equal_type_and_value() {
+        // `type:value` — type must match, value tolerates a numeric renumber.
+        assert!(caches_equal("n:55", "n:55"));
+        assert!(caches_equal("n:55", "n:55.0")); // benign renumber of the same value
+        assert!(caches_equal("n:5.5E1", "n:55"));
+        assert!(!caches_equal("n:55", "n:56"));
+        assert!(caches_equal("str:hello", "str:hello"));
+        assert!(!caches_equal("str:hello", "str:world"));
+        // a number->text retype of the same digit string is NOT equal (round-26).
+        assert!(!caches_equal("n:55", "str:55"));
+        // a string value containing a colon splits only on the FIRST colon.
+        assert!(caches_equal("str:9:30", "str:9:30"));
+    }
+
+    #[test]
+    fn rich_data_part_is_certify_safe() {
+        // In-cell images / linked data types (xl/richData/*) are index-linked from cells via
+        // `vm`, carry no shiftable coordinate; certify must not refuse xlq's own transform.
+        let bytes = wb(
+            "",
+            &[(
+                "xl/richData/rdrichvalue.xml",
+                r#"<rvData xmlns="urn:x"><rv><v>0</v></rv></rvData>"#,
+            )],
+        );
+        assert!(verify_noncell_refs(&bytes, &bytes).is_none());
     }
 
     #[test]

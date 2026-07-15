@@ -383,6 +383,24 @@ is refused, not committed.
   sheet coordinate. The guard now runs the σ oracle over the table formula and refuses only when
   it carries a reference to the edited sheet that the edit would MOVE (a table part is never
   rewritten); a table-local structured formula is left alone.
+- **`certify` compares the autoFilter AND/OR combinator, not just the leaf predicates.** The
+  criteria compare captured only the leaf filter elements (`customFilter`, `filter`, …), missing
+  the `<customFilters and>` container attribute (the AND/OR combinator over two predicates) and
+  `<filters blank>`. Flipping `and="1"`→`"0"` changes which rows the filter hides — a value input
+  to `SUBTOTAL(101–111)`/hidden-ignoring `AGGREGATE` — and certified. The container attributes are
+  now compared.
+- **`certify` compares a formula cache's cell TYPE, not just its text.** The stored-cache guard
+  recorded only the `<v>` text keyed by cell, so a foreign edit that retyped a formula result
+  from number to text (`<v>55</v>` with `t="str"` — same digits) matched and certified; under
+  manual/`fullCalcOnLoad="0"` Excel then aggregates `A11` as text (`SUM` treats it as 0). The
+  cache signature now includes the cell `t` type (`n`/`str`/`b`/`e`), with the value still
+  tolerating a benign numeric renumber.
+- **`certify` no longer refuses a workbook with rich-value data (over-refusal fix).** In-cell
+  images (`=IMAGE()`) and linked data types (Stocks/Geography) emit `xl/richData/*` parts that
+  are index-linked from cells via the cell `vm` attribute and carry no shiftable coordinate — the
+  same property as the already-allowlisted `xl/metadata.xml`. They were missing from the part
+  allowlist, so certify refused xlq's own transform of any such (common, modern) workbook; now
+  known-safe.
 - **`certify` treats a number-format change as value-affecting under "precision as displayed".**
   A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
   computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input
