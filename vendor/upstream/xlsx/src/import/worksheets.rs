@@ -433,7 +433,7 @@ fn get_cell_from_excel(
             }
             "d" => {
                 // Not implemented
-                println!("Invalid type (d) in {sheet_name}!{cell_ref}");
+                eprintln!("Invalid type (d) in {sheet_name}!{cell_ref}");
                 Cell::ErrorCell {
                     ei: Error::NIMPL,
                     s: cell_style,
@@ -453,7 +453,7 @@ fn get_cell_from_excel(
             "empty" => Cell::EmptyCell { s: cell_style },
             _ => {
                 // error
-                println!("Unexpected type ({cell_type}) in {sheet_name}!{cell_ref}");
+                eprintln!("Unexpected type ({cell_type}) in {sheet_name}!{cell_ref}");
                 Cell::ErrorCell {
                     ei: Error::ERROR,
                     s: cell_style,
@@ -506,7 +506,7 @@ fn get_cell_from_excel(
             }
             "s" => {
                 // Not implemented
-                println!("Invalid type (s) in {sheet_name}!{cell_ref}");
+                eprintln!("Invalid type (s) in {sheet_name}!{cell_ref}");
                 make_cell(FormulaValue::Error {
                     ei: Error::NIMPL,
                     o: format!("{sheet_name}!{cell_ref}"),
@@ -521,7 +521,7 @@ fn get_cell_from_excel(
             }
             "d" => {
                 // Not implemented
-                println!("Invalid type (d) in {sheet_name}!{cell_ref}");
+                eprintln!("Invalid type (d) in {sheet_name}!{cell_ref}");
                 make_cell(FormulaValue::Error {
                     ei: Error::NIMPL,
                     o: format!("{sheet_name}!{cell_ref}"),
@@ -536,7 +536,7 @@ fn get_cell_from_excel(
             }
             _ => {
                 // error
-                println!("Unexpected type ({cell_type}) in {sheet_name}!{cell_ref}");
+                eprintln!("Unexpected type ({cell_type}) in {sheet_name}!{cell_ref}");
                 make_cell(FormulaValue::Error {
                     ei: Error::ERROR,
                     o: format!("{sheet_name}!{cell_ref}"),
