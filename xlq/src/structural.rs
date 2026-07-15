@@ -2089,7 +2089,28 @@ pub(crate) fn defined_names(workbook_xml: &[u8]) -> Vec<(String, String, String)
     let mut cur_name: Option<String> = None;
     let mut cur_scope = String::new();
     let mut body = String::new();
-    let scope_of = |e: &BytesStart| attr_by_local(e, b"localSheetId").unwrap_or_default();
+    // The name's SCOPE plus its value/security-affecting attributes: `localSheetId`, then a
+    // `|function`/`|vbProcedure`/`|hidden` suffix for each set flag. `function`/`vbProcedure`
+    // reclassify a name from a data-range reference into a VBA UDF/macro binding (a computed-
+    // value + macro-execution change); `hidden` conceals it. A no-flag name keeps just its
+    // localSheetId, so the common case is unchanged.
+    let scope_of = |e: &BytesStart| {
+        let mut sig = attr_by_local(e, b"localSheetId").unwrap_or_default();
+        for k in [
+            b"function".as_slice(),
+            b"vbProcedure".as_slice(),
+            b"hidden".as_slice(),
+        ] {
+            if attr_by_local(e, k)
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
+            {
+                sig.push('|');
+                sig.push_str(&String::from_utf8_lossy(k));
+            }
+        }
+        sig
+    };
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"definedName") => {
@@ -2434,7 +2455,54 @@ fn rewrite_edited_sheet(
         out = inject_blanks_at_end(&out, edit)?;
         report.rows_inserted = edit.count;
     }
+    // A delete that consumes EVERY child of `<mergeCells>`/`<dataValidations>` drops the
+    // children but leaves the parent container empty — schema-invalid (CT_MergeCells /
+    // CT_DataValidations declare their child with minOccurs=1), which Excel opens with a repair
+    // prompt. Omit an emptied container (the `<cols>` path already does this for its children).
+    for c in ["mergeCells", "dataValidations"] {
+        out = omit_empty_container(out, c);
+    }
     Ok(out)
+}
+
+/// Remove an EMPTY `<container …></container>` (start tag immediately followed, modulo
+/// whitespace, by its end tag) from a worksheet part. A worksheet has at most one `<mergeCells>`
+/// / `<dataValidations>`, so the first match suffices. Non-empty containers, a self-closing tag,
+/// or invalid UTF-8 are returned unchanged.
+fn omit_empty_container(xml: Vec<u8>, container: &str) -> Vec<u8> {
+    let Ok(s) = std::str::from_utf8(&xml) else {
+        return xml;
+    };
+    let open = format!("<{container}");
+    let Some(start) = s.find(&open) else {
+        return xml;
+    };
+    // `<mergeCells` must not match the child `<mergeCell ` — require a name boundary next.
+    let after = start + open.len();
+    if !s[after..]
+        .chars()
+        .next()
+        .is_some_and(|c| c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '>' || c == '/')
+    {
+        return xml;
+    }
+    let Some(gt) = s[start..].find('>').map(|i| start + i) else {
+        return xml;
+    };
+    if s.as_bytes().get(gt.wrapping_sub(1)) == Some(&b'/') {
+        return xml; // self-closing (already empty-and-valid, nothing to drop)
+    }
+    let close = format!("</{container}>");
+    let trimmed = s[gt + 1..].trim_start();
+    if let Some(after_close) = trimmed.strip_prefix(&close) {
+        // `after_close` is a suffix of `s`, so its byte offset is `s.len() - after_close.len()`.
+        let close_end = s.len() - after_close.len();
+        let mut result = String::with_capacity(start + after_close.len());
+        result.push_str(&s[..start]);
+        result.push_str(&s[close_end..]);
+        return result.into_bytes();
+    }
+    xml
 }
 
 /// Buffered rewrite for `Op::Move`. Row σ REORDERS rows, so we cannot stream in
@@ -4211,14 +4279,48 @@ mod tests {
     #[test]
     fn delete_drops_a_fully_consumed_mergecell() {
         // deleting rows 5-6 fully consumes mergeCell A5:B6 -> the element is DROPPED (not
-        // emitted with a malformed ref="").
-        let xml = br#"<worksheet><sheetData><row r="1"><c r="A1"/></row></sheetData><mergeCells count="1"><mergeCell ref="A5:B6"/></mergeCells></worksheet>"#;
+        // emitted with a malformed ref="") AND the now-empty <mergeCells>/<dataValidations>
+        // container is OMITTED (schema-invalid otherwise — round-27).
+        let xml = br#"<worksheet><sheetData><row r="1"><c r="A1"/></row></sheetData><mergeCells count="1"><mergeCell ref="A5:B6"/></mergeCells><dataValidations count="1"><dataValidation type="whole" sqref="A5:A6"><formula1>1</formula1></dataValidation></dataValidations></worksheet>"#;
         let e = edit("Sheet1", Axis::Row, Op::Delete, 5, 2);
         let mut report = StructuralReport::default();
         let out = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
         let s = String::from_utf8_lossy(&out);
         assert!(!s.contains("ref=\"\""), "no empty ref: {s}");
         assert!(!s.contains("<mergeCell "), "the merge is dropped: {s}");
+        assert!(
+            !s.contains("<mergeCells"),
+            "empty mergeCells container omitted: {s}"
+        );
+        assert!(
+            !s.contains("<dataValidations"),
+            "empty dataValidations container omitted: {s}"
+        );
+        // A container that KEEPS a survivor is not omitted.
+        let keep = br#"<worksheet><sheetData/><mergeCells count="2"><mergeCell ref="A5:B6"/><mergeCell ref="A1:B1"/></mergeCells></worksheet>"#;
+        let out2 = rewrite_edited_sheet(keep, &e, "s", &mut report).unwrap();
+        assert!(
+            String::from_utf8_lossy(&out2).contains("<mergeCells"),
+            "non-empty container kept"
+        );
+    }
+
+    #[test]
+    fn defined_name_vba_flags_are_in_the_signature() {
+        // REGRESSION (round-27): function/vbProcedure/hidden reclassify a name into a VBA
+        // binding (a value/security change); they must be part of certify's compared signature.
+        let plain = defined_names(
+            br#"<workbook><definedName name="Total">Sheet1!$A$1</definedName></workbook>"#,
+        );
+        let vba = defined_names(
+            br#"<workbook><definedName name="Total" function="1" vbProcedure="1" hidden="1">Sheet1!$A$1</definedName></workbook>"#,
+        );
+        assert_ne!(
+            plain, vba,
+            "the VBA-flag rebinding must change the signature"
+        );
+        // the plain name's scope is unchanged (no localSheetId, no flags).
+        assert_eq!(plain[0].1, "");
     }
 
     #[test]

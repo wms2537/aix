@@ -810,8 +810,12 @@ fn offset_endpoint(ep: (bool, Option<u32>, bool, Option<u32>), dr: i64, dc: i64)
     let new_col = match (col, col_abs) {
         (Some(c), false) => {
             let v = c as i64 + dc;
-            if v < 1 {
-                return None; // driven off-sheet → #REF!
+            // Off-sheet in EITHER direction is #REF! — below column A, or past XFD (16384).
+            // The upper clamp mirrors shift_index/shift_span; without it a shared dependent
+            // materialized an off-grid token (XFE1) instead of #REF!, invalid output that also
+            // changed the error class #REF!→#NAME?.
+            if v < 1 || v > grid_max(Axis::Col) as i64 {
+                return None;
             }
             Some(v as u32)
         }
@@ -820,7 +824,7 @@ fn offset_endpoint(ep: (bool, Option<u32>, bool, Option<u32>), dr: i64, dc: i64)
     let new_row = match (row, row_abs) {
         (Some(r), false) => {
             let v = r as i64 + dr;
-            if v < 1 {
+            if v < 1 || v > grid_max(Axis::Row) as i64 {
                 return None;
             }
             Some(v as u32)
@@ -1649,6 +1653,15 @@ mod tests {
     fn offset_underflow_is_ref() {
         // relative A2 offset up by 5 -> row -3 -> #REF!
         assert_eq!(offset_formula("A2", -5, 0), "#REF!");
+    }
+    #[test]
+    fn offset_overflow_is_ref() {
+        // REGRESSION (round-27): a shared dependent offset PAST the grid edge must be #REF!,
+        // not a materialized off-grid token (XFE1 / A1048580). Mirrors shift_index's clamp.
+        assert_eq!(offset_formula("XFC1", 0, 2), "#REF!"); // col 16383 + 2 -> 16385 > XFD
+        assert_eq!(offset_formula("A1048575", 5, 0), "#REF!"); // row past 1048576
+                                                               // ...but an offset that stays on the grid still shifts.
+        assert_eq!(offset_formula("XFC1", 0, 1), "XFD1"); // 16383 + 1 = 16384 = XFD (last col)
     }
     #[test]
     fn offset_leaves_strings_and_functions() {

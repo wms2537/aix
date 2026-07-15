@@ -401,6 +401,26 @@ is refused, not committed.
   same property as the already-allowlisted `xl/metadata.xml`. They were missing from the part
   allowlist, so certify refused xlq's own transform of any such (common, modern) workbook; now
   known-safe.
+- **A delete that empties a `<mergeCells>`/`<dataValidations>` container omits it (invalid-output
+  fix).** When a row/column delete consumed every child of one of these containers, the children
+  were dropped but the parent survived empty with a stale `count` — schema-invalid (the child has
+  `minOccurs=1`), which Excel opens with a repair prompt. An emptied container is now removed from
+  the output, matching the `<cols>` path.
+- **A defined name rebound to a VBA function/macro is caught by certify (false-certify fix).**
+  certify compared a defined name's `(name, scope, refers-to)` but not its `function` /
+  `vbProcedure` / `hidden` attributes, so a foreign edit reclassifying a data-range name into a
+  VBA UDF/macro binding (and hiding it) — a computed-value and macro-execution change — certified.
+  Those flags are now part of the compared signature.
+- **`certify` no longer refuses a ribbon-customized workbook (over-refusal fix).** The ribbon
+  extensibility part (`customUI/customUI14.xml`, ubiquitous in `.xlsm`/enterprise templates)
+  carries no cell coordinate (its callbacks are VBA macro-name strings, and the macro binary is
+  compared separately), but was missing from the allowlist, so certify refused its own transform;
+  now known-safe.
+- **Shared-formula materialization `#REF!`s an off-grid dependent (invalid-output fix).** Expanding
+  a shared formula guarded only the underflow edge (a reference driven above row 1 / left of
+  column A → `#REF!`), but not the overflow edge — a dependent offset past column XFD / row
+  1048576 materialized an off-grid token (`XFE1`) that Excel reads as `#NAME?`. It now `#REF!`s on
+  both edges, mirroring the reference-shift path's grid clamp.
 - **`certify` treats a number-format change as value-affecting under "precision as displayed".**
   A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
   computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input

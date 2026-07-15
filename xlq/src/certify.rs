@@ -416,6 +416,8 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
                                                      // linked to cells (cm/vm), no shiftable coord
         || low.starts_with("xl/richdata/")           // rich values (=IMAGE(), Stocks/Geography):
                                                      // index-linked from cells via `vm`, no coord
+        || low.starts_with("customui/")              // ribbon extensibility XML: no cell coord
+                                                     // (callbacks are VBA macro-name strings)
         || low.starts_with("xl/theme/")              // colors/fonts
         || low.starts_with("docprops/")              // document metadata
         || low.starts_with("customxml/")             // inert custom-XML data island: Excel
@@ -1275,6 +1277,20 @@ mod tests {
             &[(
                 "xl/richData/rdrichvalue.xml",
                 r#"<rvData xmlns="urn:x"><rv><v>0</v></rv></rvData>"#,
+            )],
+        );
+        assert!(verify_noncell_refs(&bytes, &bytes).is_none());
+    }
+
+    #[test]
+    fn custom_ui_part_is_certify_safe() {
+        // Ribbon extensibility XML carries no cell coordinate; certify must not refuse xlq's
+        // own transform of a ribbon-customized workbook.
+        let bytes = wb(
+            "",
+            &[(
+                "customUI/customUI14.xml",
+                r#"<customUI xmlns="urn:ui"><ribbon><tabs><tab id="t"/></tabs></ribbon></customUI>"#,
             )],
         );
         assert!(verify_noncell_refs(&bytes, &bytes).is_none());
