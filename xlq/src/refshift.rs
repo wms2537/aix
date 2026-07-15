@@ -955,6 +955,9 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
 /// its shift is unverifiable and the edit must be refused rather than silently
 /// left stale. Returns true if such an unverifiable 3D span is present.
 pub fn has_unverifiable_3d_span(formula: &str, edited_sheet: &str) -> bool {
+    // `edited_sheet` is retained for API stability and documentation; a genuine multi-sheet
+    // span is unverifiable regardless of which of its sheets is being edited (see below).
+    let _ = edited_sheet;
     let b = formula.as_bytes();
     let mut i = 0;
     while i < b.len() {
@@ -1010,9 +1013,14 @@ pub fn has_unverifiable_3d_span(formula: &str, edited_sheet: &str) -> bool {
             if let Some((s1, s2)) = qual.split_once(':') {
                 let s1 = s1.trim().trim_matches('\'');
                 let s2 = s2.trim().trim_matches('\'');
-                if !s1.eq_ignore_ascii_case(edited_sheet) && !s2.eq_ignore_ascii_case(edited_sheet)
-                {
-                    return true; // 3D span not anchored on the edited sheet
+                // A genuine MULTI-sheet 3D span (distinct endpoints) is unverifiable: its single
+                // shared A1 coordinate spans several tabs, but a row/column edit moves cells on
+                // ONLY the edited sheet. Shifting the coordinate uniformly (`A5`→`A6`) orphans
+                // every OTHER spanned sheet's data — a silent value change — whether the edited
+                // sheet is an interior tab OR a named endpoint (the endpoint case was the hole).
+                // A SELF-span (`Sheet1:Sheet1`) is just a normal reference and shifts safely.
+                if !s1.eq_ignore_ascii_case(s2) {
+                    return true;
                 }
             }
         }

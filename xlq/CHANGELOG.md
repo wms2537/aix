@@ -347,6 +347,19 @@ is refused, not committed.
   cell part after the `!` is parsed and the σ oracle is asked whether THIS edit moves it, so an
   edit far from any reference (a row-50 insert vs a row-11 reference) commits, while an edit
   that actually moves the referenced cell still refuses.
+- **A multi-sheet 3D span is refused on an ENDPOINT-sheet edit, not just an interior one
+  (silent-wrong fix).** The 3D-span guard refused only when NEITHER endpoint was the edited
+  sheet; editing a NAMED ENDPOINT (`Sheet1` of `SUM(Sheet1:Sheet3!A5)`) slipped through and the
+  single shared `A5` coordinate was shifted uniformly to `A6`, orphaning the other spanned
+  sheets' data (`=123` silently became `100`) with no residual. Any genuine multi-sheet span
+  (distinct endpoints) is now unverifiable whichever of its sheets is edited; a self-span
+  (`Sheet1:Sheet1`) is a normal reference and still shifts.
+- **`certify` treats a number-format change as value-affecting under "precision as displayed".**
+  A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
+  computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input
+  (`A1` reformatted `0.00`→`0` rounds `1.44`→`1`, and `=A1*10` recomputes `10` instead of
+  `14.4`). Under that mode, format diffs are now disqualifying; with full precision they remain
+  benign (no over-refusal).
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

@@ -151,8 +151,22 @@ pub fn run(
             recalc_on_load_forced(&expected_bytes),
         )
     };
-    let disqualifying =
-        counts.formula + counts.value + counts.added + counts.removed + unverified_caches as u64;
+    // A `format` (number-format) difference is normally benign — display only. But under
+    // "precision as displayed" (`<calcPr fullPrecision="0">`) Excel computes formulas on the
+    // ROUNDED displayed values, so a cell's number format becomes a VALUE input: changing
+    // `A1`'s format from "0.00" to "0" rounds 1.44→1 and recomputes `=A1*10` as 10 instead of
+    // 14.4. When precision-as-displayed is on, format diffs are therefore disqualifying.
+    let format_disqualifying = if precision_as_displayed(&edited_bytes) {
+        counts.format
+    } else {
+        0
+    };
+    let disqualifying = counts.formula
+        + counts.value
+        + counts.added
+        + counts.removed
+        + unverified_caches as u64
+        + format_disqualifying;
     let status = if disqualifying == 0 {
         "CERTIFIED"
     } else {
@@ -803,6 +817,23 @@ fn recalc_on_load_forced(bytes: &[u8]) -> bool {
     )
 }
 
+/// True if the workbook computes formulas on the ROUNDED DISPLAYED values
+/// (`<calcPr fullPrecision="0"/"false">`, "precision as displayed"). In that mode a cell's
+/// number format is a value input to any formula reading it, so a format change is not benign.
+fn precision_as_displayed(bytes: &[u8]) -> bool {
+    let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&wb);
+    let Some(tag) = local_element_tag(&text, "calcPr") else {
+        return false;
+    };
+    matches!(
+        attr(&tag, "fullPrecision").as_deref(),
+        Some("0") | Some("false")
+    )
+}
+
 /// The first start-tag in `text` whose element LOCAL name is `local`, namespace-prefix
 /// agnostic — both `<calcPr …>` and `<x:calcPr …>` match — returned from its `<` up to (not
 /// including) the closing `>`. A raw `text.find("<calcPr")` missed a prefixed `<x:calcPr>`,
@@ -1394,6 +1425,29 @@ mod tests {
             )],
         );
         assert!(verify_noncell_refs(&bytes, &bytes).is_none());
+    }
+
+    #[test]
+    fn precision_as_displayed_reads_fullprecision() {
+        // The value-affecting "precision as displayed" mode, namespace-prefix-agnostic.
+        let wb = |cp: &str| {
+            format!(
+                r#"<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">{cp}</workbook>"#
+            )
+        };
+        // helper reads xl/workbook.xml from a zip; build a tiny one via the test wb() builder is
+        // heavier, so exercise the underlying tag reader directly.
+        assert!(matches!(
+            attr(
+                &local_element_tag(&wb(r#"<calcPr fullPrecision="0"/>"#), "calcPr").unwrap(),
+                "fullPrecision"
+            )
+            .as_deref(),
+            Some("0")
+        ));
+        assert!(local_element_tag(&wb(r#"<calcPr calcId="1"/>"#), "calcPr")
+            .and_then(|t| attr(&t, "fullPrecision"))
+            .is_none());
     }
 
     #[test]

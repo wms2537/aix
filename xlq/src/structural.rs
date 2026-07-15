@@ -4026,14 +4026,26 @@ mod tests {
         // A data row at the last grid row: inserting above it would push it to 1048577 (off
         // grid) — refuse. An insert not reaching the last row is fine.
         let last_row = br#"<worksheet><sheetData><row r="1048576"><c r="A1048576"><v>5</v></c></row></sheetData></worksheet>"#;
-        assert!(insert_overflows_grid(last_row, &edit("Sheet1", Axis::Row, Op::Insert, 1, 1)));
+        assert!(insert_overflows_grid(
+            last_row,
+            &edit("Sheet1", Axis::Row, Op::Insert, 1, 1)
+        ));
         let mid_row = br#"<worksheet><sheetData><row r="10"><c r="A10"><v>5</v></c></row></sheetData></worksheet>"#;
-        assert!(!insert_overflows_grid(mid_row, &edit("Sheet1", Axis::Row, Op::Insert, 1, 1)));
+        assert!(!insert_overflows_grid(
+            mid_row,
+            &edit("Sheet1", Axis::Row, Op::Insert, 1, 1)
+        ));
         // Column axis: a cell at XFD pushed past column 16384 by an insert-cols.
         let xfd = br#"<worksheet><sheetData><row r="1"><c r="XFD1"><v>5</v></c></row></sheetData></worksheet>"#;
-        assert!(insert_overflows_grid(xfd, &edit("Sheet1", Axis::Col, Op::Insert, 1, 1)));
+        assert!(insert_overflows_grid(
+            xfd,
+            &edit("Sheet1", Axis::Col, Op::Insert, 1, 1)
+        ));
         // A delete never overflows.
-        assert!(!insert_overflows_grid(last_row, &edit("Sheet1", Axis::Row, Op::Delete, 1, 1)));
+        assert!(!insert_overflows_grid(
+            last_row,
+            &edit("Sheet1", Axis::Row, Op::Delete, 1, 1)
+        ));
     }
 
     #[test]
@@ -4048,7 +4060,11 @@ mod tests {
         // a reference to a DIFFERENT sheet is never affected.
         assert!(!non_ascii_qualifier_affected("Другой!A11", sheet, &e1));
         // a 3D span whose first endpoint is the edited sheet, at a moved cell -> affected.
-        assert!(non_ascii_qualifier_affected("SUM(集計:Sheet3!A11)", sheet, &e1));
+        assert!(non_ascii_qualifier_affected(
+            "SUM(集計:Sheet3!A11)",
+            sheet,
+            &e1
+        ));
     }
 
     #[test]
@@ -4683,8 +4699,20 @@ mod tests {
             "=SUM(Sheet1:Sheet3!A5)",
             "Sheet2"
         ));
-        assert!(!crate::refshift::has_unverifiable_3d_span(
+        // REGRESSION (round-23): editing a NAMED ENDPOINT of a multi-sheet span is ALSO
+        // unverifiable — the single shared A5 coordinate would be shifted uniformly, orphaning
+        // the other spanned sheets' data (a silent value change). Was wrongly allowed.
+        assert!(crate::refshift::has_unverifiable_3d_span(
             "=SUM(Sheet1:Sheet3!A5)",
+            "Sheet1"
+        ));
+        assert!(crate::refshift::has_unverifiable_3d_span(
+            "=SUM(Sheet1:Sheet3!A5)",
+            "Sheet3"
+        ));
+        // A SELF-span (Sheet1:Sheet1) is a normal reference, not a multi-sheet span -> safe.
+        assert!(!crate::refshift::has_unverifiable_3d_span(
+            "=SUM(Sheet1:Sheet1!A5)",
             "Sheet1"
         ));
         assert!(!crate::refshift::has_unverifiable_3d_span(
@@ -4705,8 +4733,8 @@ mod tests {
             "=SUM('P&L:Q&R'!A5)",
             "Mid"
         ));
-        // ...but if the edited sheet IS a quoted endpoint, it is shifted (not refused).
-        assert!(!crate::refshift::has_unverifiable_3d_span(
+        // ...and a quoted ENDPOINT edit of a multi-sheet span is unverifiable too (round-23).
+        assert!(crate::refshift::has_unverifiable_3d_span(
             "=SUM('A-Sheet:B-Sheet'!A5)",
             "A-Sheet"
         ));
