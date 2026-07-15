@@ -248,6 +248,19 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        dropped — the stored formula differs from xlq's transform",
         }));
     }
+    // The implicit-intersection `@` operator (`@A1:A10` → the single intersecting cell, vs
+    // the bare `A1:A10` → a spilling dynamic array) is likewise normalized away on load, so
+    // the cell diff cannot see a foreign edit that drops or adds it — a real value + spill
+    // footprint change. Compare the operator count per sheet.
+    if implicit_at_all(expected) != implicit_at_all(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "implicit_intersection_mismatch",
+            "detail": "the implicit-intersection `@` operator was added or dropped on a \
+                       formula — spill vs scalar is a value change the loaded-model diff \
+                       cannot see; the stored formula differs from xlq's transform",
+        }));
+    }
     // The VBA macro binary is executable code the transform preserves verbatim. The cell
     // diff never sees it, so a foreign edit that injects or swaps it (arbitrary macro code)
     // would otherwise be certified — a security laundering. Compare the bytes and presence.
@@ -385,6 +398,23 @@ fn xlfn_tokens_all(bytes: &[u8]) -> Vec<(String, String)> {
             for tok in structural::xlfn_tokens(&x) {
                 out.push((sheet_name.clone(), tok));
             }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The implicit-intersection `@` operator count per worksheet, keyed by sheet, sorted.
+/// Compared between xlq's transform and the foreign edit: a drop/add of `@` (spill vs
+/// scalar — a value change the loaded-model cell diff cannot see) differs here.
+fn implicit_at_all(bytes: &[u8]) -> Vec<(String, usize)> {
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (sheet_name, part) in sheets {
+        if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
+            out.push((sheet_name, structural::implicit_intersection_count(&x)));
         }
     }
     out.sort();
@@ -641,31 +671,70 @@ fn recalc_on_load_disabled(bytes: &[u8]) -> bool {
     ) || attr(tag, "calcMode").as_deref() == Some("manual")
 }
 
-/// The relationship-id value of a start tag: a namespace-prefixed `*:id="..."` attribute.
-/// The relationships-namespace prefix is arbitrary (`r:id`, `x:id`, `r2:id`), so we match
-/// by LOCAL name — a literal `r:id` lookup let a rebound prefix hide a hyperlink's target.
-fn attr_relid(tag: &str) -> Option<String> {
-    let i = tag.find(":id=")? + ":id=".len();
-    let q = *tag.as_bytes().get(i)?;
-    if q != b'"' && q != b'\'' {
+/// Parse a quoted attribute value beginning at `name_end` — the byte index just past an
+/// attribute NAME — consuming XML `Eq ::= S? '=' S?` then the quoted value. Returns None
+/// if what follows is not a well-formed `= "value"`. Handling the optional whitespace
+/// around `=` is not cosmetic: `date1904 = "1"` is valid XML that Excel honors, and a
+/// literal `find("date1904=")` missed it — letting a foreign edit smuggle a value-affecting
+/// workbook setting (date1904, fullPrecision, calcMode) past certify unseen.
+fn attr_value_at(tag: &str, name_end: usize) -> Option<String> {
+    let bytes = tag.as_bytes();
+    let mut j = name_end;
+    while bytes.get(j).is_some_and(u8::is_ascii_whitespace) {
+        j += 1;
+    }
+    if bytes.get(j) != Some(&b'=') {
         return None;
     }
-    let rest = &tag[i + 1..];
+    j += 1;
+    while bytes.get(j).is_some_and(u8::is_ascii_whitespace) {
+        j += 1;
+    }
+    let q = match bytes.get(j) {
+        Some(&b) if b == b'"' || b == b'\'' => b,
+        _ => return None,
+    };
+    let rest = &tag[j + 1..];
     let end = rest.find(q as char)?;
     Some(rest[..end].to_string())
 }
 
-/// Value of attribute `key` in a start tag (quote-agnostic).
-fn attr(tag: &str, key: &str) -> Option<String> {
-    let pat = format!("{key}=");
-    let i = tag.find(&pat)? + pat.len();
-    let q = *tag.as_bytes().get(i)?;
-    if q != b'"' && q != b'\'' {
-        return None;
+/// The relationship-id value of a start tag: a namespace-prefixed `*:id="..."` attribute.
+/// The relationships-namespace prefix is arbitrary (`r:id`, `x:id`, `r2:id`), so we match
+/// by LOCAL name — a literal `r:id` lookup let a rebound prefix hide a hyperlink's target.
+fn attr_relid(tag: &str) -> Option<String> {
+    let mut from = 0;
+    while let Some(rel) = tag[from..].find(":id") {
+        let start = from + rel;
+        from = start + 1;
+        // `:id` must be the tail of a QName (`r:id`), so a prefix name char precedes the
+        // colon; `attr_value_at` rejects a longer local name (`:identifier`) by requiring
+        // `Eq` immediately after, so no explicit after-boundary check is needed here.
+        if let Some(v) = attr_value_at(tag, start + ":id".len()) {
+            return Some(v);
+        }
     }
-    let rest = &tag[i + 1..];
-    let end = rest.find(q as char)?;
-    Some(rest[..end].to_string())
+    None
+}
+
+/// Value of attribute `key` in a start tag (quote-agnostic). `key` is matched only as a
+/// whole attribute NAME — preceded by a name boundary (whitespace or the string start) and
+/// followed by XML `Eq` — so neither a suffix collision (`id` inside `guid=`) nor legal
+/// whitespace around `=` can forge or hide a value.
+fn attr(tag: &str, key: &str) -> Option<String> {
+    let bytes = tag.as_bytes();
+    let mut from = 0;
+    while let Some(rel) = tag[from..].find(key) {
+        let start = from + rel;
+        from = start + 1;
+        let boundary_before = start == 0 || bytes[start - 1].is_ascii_whitespace();
+        if boundary_before {
+            if let Some(v) = attr_value_at(tag, start + key.len()) {
+                return Some(v);
+            }
+        }
+    }
+    None
 }
 
 /// The reference SEMANTICS of every conditional-formatting / data-validation / extLst
@@ -903,6 +972,19 @@ mod tests {
     }
 
     #[test]
+    fn implicit_intersection_at_is_compared() {
+        // `@A1:A10` (implicit intersection -> the single intersecting cell, a scalar) vs the
+        // bare `A1:A10` (a spilling dynamic array) is a value + footprint change the engine
+        // normalizes away on load, so the cell diff cannot see it. Compare the operator.
+        let good = wb("<f>@A1:A10</f>", &[]);
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let dropped = wb("<f>A1:A10</f>", &[]);
+        let refusal = verify_noncell_refs(&good, &dropped)
+            .expect("dropping the implicit-intersection @ must refuse");
+        assert_eq!(refusal["reason"], "implicit_intersection_mismatch");
+    }
+
+    #[test]
     fn drawing_shape_hyperlink_target_is_compared() {
         // A shape hyperlink (a:hlinkClick r:id) resolves via the drawing's rels to a URL;
         // a foreign retarget (phishing swap) must be caught.
@@ -989,6 +1071,38 @@ mod tests {
             Some("rId9")
         );
         assert_eq!(attr_relid(r#"<hyperlink ref="A1"/"#), None);
+        // XML-legal whitespace around `=` (Eq ::= S? '=' S?) must not hide the value.
+        assert_eq!(
+            attr_relid(r#"<hyperlink ref="A1" r:id = "rId7"/"#).as_deref(),
+            Some("rId7")
+        );
+    }
+
+    #[test]
+    fn attr_matches_whole_name_and_tolerates_eq_whitespace() {
+        // REGRESSION: `attr` did a literal `key=` substring search, so XML-legal whitespace
+        // around `=` (`date1904 = "1"`, which Excel honors) read as the default — a foreign
+        // edit could smuggle a value-affecting workbook setting past certify.
+        assert_eq!(
+            attr(r#"<workbookPr date1904 = "1"/>"#, "date1904").as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            attr(r#"<calcPr fullPrecision  =  '0'/>"#, "fullPrecision").as_deref(),
+            Some("0")
+        );
+        // No collision with a longer attribute that merely ENDS in the key (`guid` vs `id`).
+        assert_eq!(attr(r#"<x guid="abc"/>"#, "id"), None);
+        assert_eq!(
+            attr(r#"<x guid="abc" id="7"/>"#, "id").as_deref(),
+            Some("7")
+        );
+        // A key that is a PREFIX of another attribute is not confused (`iterate` vs
+        // `iterateCount`), and the plain no-whitespace form still works.
+        assert_eq!(
+            attr(r#"<calcPr iterateCount="99" iterate="1"/>"#, "iterate").as_deref(),
+            Some("1")
+        );
     }
 
     #[test]

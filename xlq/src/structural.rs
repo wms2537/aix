@@ -1010,6 +1010,50 @@ pub(crate) fn xlfn_tokens(xml: &[u8]) -> Vec<String> {
     out
 }
 
+/// The number of IMPLICIT-INTERSECTION `@` operators in the stored `<f>` bodies of a
+/// worksheet. `@` is the dynamic-array implicit-intersection operator: `@A1:A10` coerces a
+/// range to the single intersecting cell (a scalar), whereas the bare `A1:A10` SPILLS the
+/// whole range — a different computed value AND footprint. A consumer normalizes `@` away
+/// on load (IronCalc does), so certify's cell diff — which compares the loaded, normalized
+/// form — is blind to a foreign edit that drops or adds it. Counting the operator per sheet
+/// catches that drop/add, mirroring how [`xlfn_tokens`] closes the `_xlfn.` blind spot,
+/// without over-refusing on cosmetic reformatting.
+///
+/// A `@` inside a `[...]` structured (table) reference (`Table1[@Col]`) is a column
+/// specifier, NOT the intersection operator, so bracket-interior `@` is excluded; `@` and
+/// `[` inside a quoted string literal or quoted sheet name are likewise ignored.
+pub(crate) fn implicit_intersection_count(xml: &[u8]) -> usize {
+    let mut count = 0;
+    for body in element_text_semantics(xml, &[b"f"]) {
+        let mut bracket_depth: u32 = 0;
+        let mut in_dquote = false;
+        let mut in_squote = false;
+        for c in body.chars() {
+            if in_dquote {
+                if c == '"' {
+                    in_dquote = false;
+                }
+                continue;
+            }
+            if in_squote {
+                if c == '\'' {
+                    in_squote = false;
+                }
+                continue;
+            }
+            match c {
+                '"' => in_dquote = true,
+                '\'' => in_squote = true,
+                '[' => bracket_depth += 1,
+                ']' => bracket_depth = bracket_depth.saturating_sub(1),
+                '@' if bracket_depth == 0 => count += 1,
+                _ => {}
+            }
+        }
+    }
+    count
+}
+
 /// True if a FOREIGN worksheet carries a reference to the edited sheet in a body the
 /// foreign-sheet shift path does NOT rewrite, and that this edit would move. The shift
 /// path rewrites only PLAIN `<f>` cell-formula text (shared formulas are expanded to
@@ -3370,6 +3414,37 @@ mod tests {
         );
         // a plain (pre-2007) formula yields nothing.
         assert!(xlfn_tokens(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#).is_empty());
+    }
+
+    #[test]
+    fn implicit_intersection_counts_only_bare_at() {
+        let ic = |x: &[u8]| implicit_intersection_count(x);
+        // A bare `@` (implicit intersection) is counted.
+        assert_eq!(
+            ic(br#"<worksheet><sheetData><row r="1"><c r="C5"><f>@A1:A10</f></c></row></sheetData></worksheet>"#),
+            1
+        );
+        // Two of them across two cells.
+        assert_eq!(
+            ic(br#"<worksheet><sheetData><row r="1"><c r="C5"><f>@A1:A10</f></c><c r="D5"><f>SUM(@B1:B9)</f></c></row></sheetData></worksheet>"#),
+            2
+        );
+        // A `@` inside a structured (table) reference `[@Col]` is a column specifier, NOT the
+        // intersection operator — not counted.
+        assert_eq!(
+            ic(br#"<worksheet><sheetData><row r="1"><c r="C5"><f>Table1[@Amount]*2</f></c></row></sheetData></worksheet>"#),
+            0
+        );
+        // A `@` inside a string literal / quoted sheet name is ignored.
+        assert_eq!(
+            ic(br#"<worksheet><sheetData><row r="1"><c r="C5"><f>"a@b"&amp;'x@y'!A1</f></c></row></sheetData></worksheet>"#),
+            0
+        );
+        // A plain formula yields zero.
+        assert_eq!(
+            ic(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#),
+            0
+        );
     }
 
     #[test]

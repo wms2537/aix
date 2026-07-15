@@ -183,6 +183,19 @@ is refused, not committed.
   range a sheet publishes to HTML) is a coordinate the engine copies verbatim; it is now
   refused when the edit would move it, closing another verbatim-copy gap in the edited-sheet
   body scan.
+- **`certify`'s attribute reader honors XML `Eq` whitespace and whole-name boundaries.** The
+  helper read an attribute by a literal `key=` substring, so XML-legal whitespace around the
+  equals sign (`date1904 = "1"`, which Excel honors) read as the attribute's default —
+  letting a foreign edit smuggle a value-affecting workbook setting (`date1904`,
+  `fullPrecision`, `calcMode`) past the settings compare and CERTIFY. It now parses
+  `Eq ::= S? '=' S?` and matches `key` only as a whole attribute name (so a suffix collision
+  like `id` inside `guid=` cannot forge a value either). The same helper backs the
+  recalc-on-load and structural-ref-attribute checks.
+- **`certify` compares the implicit-intersection `@` operator.** `@A1:A10` coerces a range
+  to the single intersecting cell (a scalar) while the bare `A1:A10` SPILLS the whole range
+  — a different value *and* footprint. The engine normalizes `@` away on load, so the
+  loaded-model cell diff cannot see a foreign edit that drops or adds it; the operator count
+  is now compared per sheet, mirroring the `_xlfn.`-prefix guard.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
