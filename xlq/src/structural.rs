@@ -733,9 +733,8 @@ pub(crate) fn sheet_extlst_affected(xml: &[u8], sheet: &str, edit: &StructuralEd
 /// autoFilter) and shifts `r` only on cells — every OTHER element on the edited sheet that
 /// carries a `ref`/`sqref`, or a cell-shaped `r`, is emitted STALE. That covers, among
 /// others: `<protectedRange sqref>` (which cells are locked — a SECURITY reference),
-/// `<scenario><inputCells r>` (Scenario Manager's write target), `<dataConsolidate><dataRef
-/// ref>`, `<ignoredError sqref>`, and `<sortState ref>` (an autoFilter's applied-sort
-/// extent). Per the fail-closed-by-default whitelist we refuse rather than commit any of
+/// `<scenario><inputCells r>` (Scenario Manager's write target), and `<dataConsolidate>
+/// <dataRef ref>`. Per the fail-closed-by-default whitelist we refuse rather than commit any of
 /// them stale. Returns the offending element's local name, else `None`. Fail-closed on a
 /// parse error. (Cells/rows are handled by the row/cell path; formula tags by the formula
 /// path; pure view-state `pane topLeftCell`/`selection activeCell`/`sheetView topLeftCell`
@@ -1042,6 +1041,88 @@ pub(crate) fn formula_cache_map(xml: &[u8]) -> std::collections::BTreeMap<String
         buf.clear();
     }
     out
+}
+
+/// The `r` (row number) of every worksheet row marked hidden (`<row hidden="1">`), sorted.
+/// A manually hidden row is a VALUE input to `SUBTOTAL(101–111)` / hidden-ignoring
+/// `AGGREGATE` (they exclude it from the aggregate), so certify compares this set on any
+/// sheet where such a function is present (see [`hidden_row_exclusion_present`]).
+pub(crate) fn hidden_rows(xml: &[u8]) -> Vec<String> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if tag_local_eq(e.name().as_ref(), b"row") =>
+            {
+                let hidden = attr_by_local(&e, b"hidden")
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false);
+                if hidden {
+                    if let Some(r) = attr_by_local(&e, b"r") {
+                        out.push(r);
+                    }
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out.sort();
+    out
+}
+
+/// True if any stored `<f>` on the sheet uses a function whose result EXCLUDES manually
+/// hidden rows: `SUBTOTAL` with a 101–111 function code, or `AGGREGATE` with an option that
+/// ignores hidden rows (1, 3, 5, 7). For such a sheet a manual `<row hidden>` is a value
+/// INPUT and certify compares the hidden-row set; on any other sheet a hidden row is pure
+/// display state. The code parse is CONSERVATIVE — an unparseable code counts as excluding,
+/// so a novel serialization fails toward comparing (never toward a silent miss).
+pub(crate) fn hidden_row_exclusion_present(xml: &[u8]) -> bool {
+    element_text_semantics(xml, &[b"f"])
+        .iter()
+        .any(|body| formula_excludes_hidden_rows(body))
+}
+
+fn leading_int(s: &str) -> Option<i64> {
+    let s = s.trim_start();
+    let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
+fn formula_excludes_hidden_rows(f: &str) -> bool {
+    let up = f.to_ascii_uppercase();
+    // SUBTOTAL(n, …): excludes manually hidden rows iff n >= 101.
+    let mut from = 0;
+    while let Some(p) = up[from..].find("SUBTOTAL") {
+        let s = from + p;
+        from = s + "SUBTOTAL".len();
+        let Some(args) = up[s + "SUBTOTAL".len()..].trim_start().strip_prefix('(') else {
+            continue;
+        };
+        match leading_int(args) {
+            Some(n) if n < 101 => {} // 1..=11: excludes only filter-hidden, not manual
+            _ => return true,        // 101..=111, or an unparseable code -> conservative
+        }
+    }
+    // AGGREGATE(fn, options, …): ignores hidden rows iff options is 1, 3, 5, or 7.
+    from = 0;
+    while let Some(p) = up[from..].find("AGGREGATE") {
+        let s = from + p;
+        from = s + "AGGREGATE".len();
+        let Some(args) = up[s + "AGGREGATE".len()..].trim_start().strip_prefix('(') else {
+            continue;
+        };
+        let opt = args.find(',').and_then(|c| leading_int(&args[c + 1..]));
+        match opt {
+            Some(0 | 2 | 4 | 6) => {} // does not ignore hidden rows
+            _ => return true,         // 1/3/5/7, or unparseable -> conservative
+        }
+    }
+    false
 }
 
 /// Every `_xlfn.`/`_xlfn._xlws.`-prefixed function token in a stored `<f>` body, sorted.
@@ -1637,7 +1718,7 @@ fn scan_extra_residuals(
             // EDITED-SHEET BODY constructs the shift engine copies verbatim (it shifts
             // ref/sqref only for the has_ref_attr set and `r` only on cells): a
             // <protectedRange sqref> (security), <inputCells r> (scenario write target),
-            // <dataRef ref>, <ignoredError sqref>, <sortState ref>, … would be left stale.
+            // <dataRef ref>, … would be left stale.
             if n == edited_part {
                 if let Some(elem) = edited_sheet_body_unshifted_ref(&bytes, &edit.sheet, edit) {
                     report.residuals.push(Residual {
@@ -2488,6 +2569,7 @@ fn has_ref_attr(name: &[u8]) -> bool {
             | b"sortState"
             | b"sortCondition"
             | b"brk"
+            | b"ignoredError"
     )
 }
 
@@ -2501,7 +2583,9 @@ fn shift_ref_attrs(
     let ref_attrs: &[&[u8]] = match name.as_slice() {
         b"mergeCell" | b"hyperlink" | b"dimension" | b"autoFilter" | b"sortState"
         | b"sortCondition" => &[b"ref"],
-        b"conditionalFormatting" | b"dataValidation" | b"selection" => &[b"sqref"],
+        b"conditionalFormatting" | b"dataValidation" | b"selection" | b"ignoredError" => {
+            &[b"sqref"]
+        }
         b"pane" => &[b"topLeftCell"],
         _ => &[],
     };
@@ -3506,6 +3590,30 @@ mod tests {
     }
 
     #[test]
+    fn hidden_row_exclusion_and_hidden_rows() {
+        let has = |f: &str| {
+            hidden_row_exclusion_present(
+                format!(r#"<worksheet><sheetData><row r="1"><c r="A1"><f>{f}</f></c></row></sheetData></worksheet>"#)
+                    .as_bytes(),
+            )
+        };
+        // SUBTOTAL 101-111 and hidden-ignoring AGGREGATE options exclude manual hidden rows.
+        assert!(has("SUBTOTAL(109,A2:A11)"));
+        assert!(has("_xlfn.AGGREGATE(9,5,A2:A11)"));
+        assert!(has("AGGREGATE(9,7,A2:A11)"));
+        // SUBTOTAL 1-11 and non-hidden-ignoring AGGREGATE options do NOT.
+        assert!(!has("SUBTOTAL(9,A2:A11)"));
+        assert!(!has("AGGREGATE(9,6,A2:A11)"));
+        assert!(!has("SUM(A2:A11)"));
+        // an unparseable code is conservative -> counts as excluding.
+        assert!(has("SUBTOTAL(foo,A2:A11)"));
+
+        // hidden_rows collects only rows flagged hidden (1/true), sorted.
+        let rows = hidden_rows(br#"<worksheet><sheetData><row r="1"/><row r="6" hidden="1"><c r="A6"/></row><row r="8" hidden="true"/><row r="9" hidden="0"/></sheetData></worksheet>"#);
+        assert_eq!(rows, vec!["6".to_string(), "8".to_string()]);
+    }
+
+    #[test]
     fn formula_cache_map_keeps_present_drops_empty() {
         let m = formula_cache_map(
             br#"<worksheet><sheetData><row r="1"><c r="A1" t="n"><v>1</v></c><c r="B1"><f>SUM(A1:A1)</f><v>1</v></c></row><row r="2"><c r="B2"><f>A1</f><v /></c><c r="B3"><f>A1</f></c></row></sheetData></worksheet>"#,
@@ -3520,6 +3628,25 @@ mod tests {
             br#"<worksheet><sheetData><row r="1"><c r="C1"><f t="shared" si="0"/><v>7</v></c></row></sheetData></worksheet>"#,
         );
         assert_eq!(s.get("C1").map(String::as_str), Some("7"));
+    }
+
+    #[test]
+    fn ignored_error_sqref_is_shifted_not_refused() {
+        // <ignoredError sqref> (green-triangle suppression) is a benign, ubiquitous construct
+        // whose coordinate the shift engine now tracks: an insert shifts it (no residual),
+        // rather than refusing the whole edit as an unshiftable body reference.
+        let xml = br#"<worksheet><sheetData><row r="1"><c r="A1"/></row></sheetData><ignoredErrors><ignoredError sqref="A5:A9" numberStoredAsText="1"/></ignoredErrors></worksheet>"#;
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 2, 1);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            report.residuals.is_empty(),
+            "no residual: {:?}",
+            report.residuals
+        );
+        // inserting a row at 2 pushes A5:A9 down to A6:A10.
+        assert!(s.contains(r#"sqref="A6:A10""#), "sqref shifted: {s}");
     }
 
     #[test]
@@ -3789,9 +3916,12 @@ mod tests {
             f(br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="A5:A9"/></dataRefs></dataConsolidate></worksheet>"#).as_deref(),
             Some("dataRef")
         );
+        // <ignoredError sqref> (green-triangle suppression, e.g. number-stored-as-text) is
+        // now SHIFTED like other sqref-bearing elements, not refused — a benign, ubiquitous
+        // construct whose coordinate the shift engine tracks. So it is NOT flagged here.
         assert_eq!(
-            f(br#"<worksheet><ignoredErrors><ignoredError sqref="A5:A9" numberStoredAsText="1"/></ignoredErrors></worksheet>"#).as_deref(),
-            Some("ignoredError")
+            f(br#"<worksheet><ignoredErrors><ignoredError sqref="A5:A9" numberStoredAsText="1"/></ignoredErrors></worksheet>"#),
+            None
         );
         // Form-control data binding (linkedCell/fmlaLink) is flagged.
         assert_eq!(

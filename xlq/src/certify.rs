@@ -145,7 +145,11 @@ pub fn run(
     let unverified_caches = if recalc_on_load_forced(&edited_bytes) {
         0
     } else {
-        unverified_formula_caches(&expected_bytes, &edited_bytes)
+        unverified_formula_caches(
+            &expected_bytes,
+            &edited_bytes,
+            recalc_on_load_forced(&expected_bytes),
+        )
     };
     let disqualifying =
         counts.formula + counts.value + counts.added + counts.removed + unverified_caches as u64;
@@ -237,6 +241,19 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
             "reason": "autofilter_criteria_mismatch",
             "detail": "an autoFilter filter criterion differs from xlq's transform — it changes \
                        which rows are hidden, a value input to SUBTOTAL/AGGREGATE",
+        }));
+    }
+    // MANUALLY hidden rows are a value input to SUBTOTAL(101–111) / hidden-ignoring AGGREGATE
+    // (they exclude a hidden row from the aggregate), so a foreign edit that hides a data row
+    // inside such a range changes the result with NO formula or cached-value diff for the cell
+    // diff to catch. On sheets carrying such a function, compare the hidden-row set; elsewhere
+    // a hidden row is pure display state and is ignored (not compared) to avoid over-refusal.
+    if subtotal_hidden_rows(expected) != subtotal_hidden_rows(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "hidden_row_subtotal_mismatch",
+            "detail": "a manually hidden row differs from xlq's transform on a sheet using \
+                       SUBTOTAL(101-111)/AGGREGATE — a value input to those aggregates",
         }));
     }
     // CHART data references (which the transform shifts) and DRAWING cell anchors are
@@ -429,6 +446,26 @@ fn implicit_at_all(bytes: &[u8]) -> Vec<(String, usize)> {
     for (sheet_name, part) in sheets {
         if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
             out.push((sheet_name, structural::implicit_intersection_count(&x)));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The set of manually hidden rows on each worksheet that USES a hidden-row-excluding
+/// aggregate (`SUBTOTAL(101–111)` / hidden-ignoring `AGGREGATE`), keyed by sheet, sorted.
+/// A sheet without such a function contributes nothing — a hidden row there is pure display
+/// state — so the comparison only fires where a hidden row actually changes a computed value.
+fn subtotal_hidden_rows(bytes: &[u8]) -> Vec<(String, Vec<String>)> {
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (sheet_name, part) in sheets {
+        if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
+            if structural::hidden_row_exclusion_present(&x) {
+                out.push((sheet_name, structural::hidden_rows(&x)));
+            }
         }
     }
     out.sort();
@@ -690,7 +727,15 @@ fn recalc_on_load_forced(bytes: &[u8]) -> bool {
 /// that diverges from xlq's faithful transform. A cache-DROPPING edit (openpyxl leaves no
 /// `<v>`; xlq blanks every shifted cell) contributes nothing, so the benign case is not
 /// over-refused. Sheets are matched by name through the workbook relationships.
-fn unverified_formula_caches(expected: &[u8], edited: &[u8]) -> usize {
+///
+/// `expected_forced` is whether xlq's transform ITSELF forces a full recalc-on-load. When it
+/// does, the transform DISCARDS its own stored caches and displays recomputed values, so its
+/// caches cannot vouch anything — a foreign edit that keeps the (now stale) cache but dropped
+/// the recalc-forcing flag would show the stale value while the transform shows the recomputed
+/// one. In that case EVERY present edited cache is unverified (certify cannot recompute to
+/// check it), so the caller's own-cache comparison must not launder it through a matching but
+/// equally-stale expected cache.
+fn unverified_formula_caches(expected: &[u8], edited: &[u8], expected_forced: bool) -> usize {
     let exp_by_name: std::collections::HashMap<String, String> = crate::ooxml::all_sheets(expected)
         .unwrap_or_default()
         .into_iter()
@@ -705,6 +750,12 @@ fn unverified_formula_caches(expected: &[u8], edited: &[u8]) -> usize {
         };
         let edt_map = structural::formula_cache_map(&edt_xml);
         if edt_map.is_empty() {
+            continue;
+        }
+        // When the transform force-recomputes, its stored caches are moot: every present
+        // edited cache is unverifiable, so count them all.
+        if expected_forced {
+            count += edt_map.len();
             continue;
         }
         let exp_map = exp_by_name
@@ -1053,14 +1104,49 @@ mod tests {
         let honest = wb(&cell("<v>3</v>"), &[]);
         let honest_renum = wb(&cell("<v>3.0</v>"), &[]);
         // present cache the transform did not vouch -> counted.
-        assert_eq!(unverified_formula_caches(&blank, &fabricated), 1);
+        assert_eq!(unverified_formula_caches(&blank, &fabricated, false), 1);
         // a dropped cache (no <v>) -> Excel recomputes -> not counted.
-        assert_eq!(unverified_formula_caches(&blank, &dropped), 0);
+        assert_eq!(unverified_formula_caches(&blank, &dropped, false), 0);
         // identical present caches, and a benign 3 vs 3.0 renumber -> not counted.
-        assert_eq!(unverified_formula_caches(&honest, &honest), 0);
-        assert_eq!(unverified_formula_caches(&honest, &honest_renum), 0);
+        assert_eq!(unverified_formula_caches(&honest, &honest, false), 0);
+        assert_eq!(unverified_formula_caches(&honest, &honest_renum, false), 0);
         // a present cache that DIFFERS from the transform's present cache -> counted.
-        assert_eq!(unverified_formula_caches(&honest, &fabricated), 1);
+        assert_eq!(unverified_formula_caches(&honest, &fabricated, false), 1);
+        // when xlq's transform FORCES recalc, its own caches are moot: an identical present
+        // edited cache (which would otherwise verify) is unverifiable because the transform
+        // discards it and recomputes -> every present edited cache is counted.
+        assert_eq!(unverified_formula_caches(&honest, &honest, true), 1);
+    }
+
+    #[test]
+    fn hidden_row_under_subtotal_is_compared() {
+        // Sheet2 carries SUBTOTAL(109,...) and a data row; hiding that row changes the
+        // aggregate with no formula/cache diff, so certify must compare the hidden-row set.
+        let sheet = |hidden: &str| {
+            format!(
+                r#"<sheetData><row r="1"><c r="A1"><f>SUBTOTAL(109,A2:A3)</f></c></row><row r="2"{hidden}><c r="A2"><v>5</v></c></row><row r="3"><c r="A3"><v>5</v></c></row></sheetData>"#
+            )
+        };
+        let good = wb(&sheet(""), &[]);
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let hidden = wb(&sheet(r#" hidden="1""#), &[]);
+        let refusal = verify_noncell_refs(&good, &hidden)
+            .expect("hiding a data row under SUBTOTAL(109) must refuse");
+        assert_eq!(refusal["reason"], "hidden_row_subtotal_mismatch");
+    }
+
+    #[test]
+    fn hidden_row_without_excluding_aggregate_is_ignored() {
+        // The same hidden row on a sheet with only SUBTOTAL(9) (or no aggregate) is pure
+        // display state -> NOT compared, so no over-refusal.
+        let sheet = |hidden: &str| {
+            format!(
+                r#"<sheetData><row r="1"><c r="A1"><f>SUBTOTAL(9,A2:A3)</f></c></row><row r="2"{hidden}><c r="A2"><v>5</v></c></row></sheetData>"#
+            )
+        };
+        let good = wb(&sheet(""), &[]);
+        let hidden = wb(&sheet(r#" hidden="1""#), &[]);
+        assert!(verify_noncell_refs(&good, &hidden).is_none());
     }
 
     #[test]

@@ -208,6 +208,27 @@ is refused, not committed.
   (`fullCalcOnLoad="1"`), in which case Excel recomputes it away. A cache-DROPPING edit
   (openpyxl leaves no `<v>`; xlq blanks every shifted cell) verifies cleanly, so the benign
   case is not over-refused. The result adds an `unverified_caches` count to the JSON.
+- **`certify` compares MANUALLY hidden rows under `SUBTOTAL(101–111)`/`AGGREGATE`.** Those
+  aggregates EXCLUDE manually hidden rows from their result, so a foreign edit that hides a
+  data row inside the range changes the computed value with no formula or cached-value diff
+  the cell diff could see. certify now compares the hidden-row set — but only on sheets that
+  actually carry such a function (a `SUBTOTAL` code ≥ 101 or an `AGGREGATE` option in
+  {1,3,5,7}); on any other sheet a hidden row is pure display state and is not compared, so
+  ordinary hide/unhide is not over-refused.
+- **`certify` catches a dropped `fullCalcOnLoad` that unmasks a stale cache.** When xlq's
+  transform itself forces recalc-on-load (`fullCalcOnLoad="1"`), it displays RECOMPUTED
+  values and its own stored caches are moot. A foreign edit that keeps the (now stale) cache
+  but DROPS the recalc-forcing flag would show the stale value while the transform shows the
+  recomputed one — and the stale caches, being identical on both sides, slipped the round-15
+  cache compare. The cache check now treats EVERY present edited cache as unverified when the
+  transform force-recomputes, closing that asymmetry (a symmetric flag compare was avoided —
+  it would over-refuse a benign edit that drops both the flag and the caches).
+- **`<ignoredError sqref>` is SHIFTED, not refused (over-refusal fix).** The green-triangle
+  error suppression Excel writes on nearly every "number stored as text" / inconsistent-
+  formula column was treated as an unshiftable body reference and refused the whole edit (and
+  any faithful certify). Its `sqref` is an ordinary coordinate the shift engine tracks, so it
+  now shifts like a conditional-format/data-validation `sqref` — a ubiquitous benign construct
+  no longer blocks structural edits.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
