@@ -16,12 +16,17 @@
 //!      engine is run over the comparison — the certification is over the
 //!      STORED formulas and raw data, so a foreign tool cannot launder a wrong
 //!      answer through a matching cached value.
-//!   3. CERTIFIES iff the ONLY differences are `cached_value` and/or `format`
-//!      (every formula is identical at every position and all non-formula raw
-//!      data matches). A foreign editor like openpyxl routinely drops or
-//!      rewrites formula caches and touches number formats; those are benign.
-//!      ANY `formula` | `value` | `added` | `removed` difference means the
-//!      foreign edit is NOT xlq's faithful transform → REFUSE.
+//!   3. CERTIFIES iff every formula is identical at every position, all
+//!      non-formula raw data matches, and the foreign file carries no PRESENT
+//!      formula cache that xlq's transform did not vouch (unless it forces a
+//!      full recalc-on-load). A foreign editor like openpyxl routinely DROPS
+//!      formula caches and touches number formats; those are benign because
+//!      Excel recomputes a cacheless formula on load. But a foreign file that
+//!      FILLS a differing cache and does not force recalc would display that
+//!      (possibly fabricated) value verbatim — so those caches are compared
+//!      directly. ANY `formula` | `value` | `added` | `removed` difference, or
+//!      an unvouched present cache, means the foreign edit is NOT xlq's
+//!      faithful transform → REFUSE.
 
 use crate::diff::{self, SheetSnap, WorkbookSnap};
 use crate::refshift::StructuralEdit;
@@ -127,15 +132,23 @@ pub fn run(
     // (3) Compare and classify every differing cell exactly as diff.rs does.
     let (counts, samples) = compare(&expected_snap, &edited_snap);
 
-    // A `cached_value` difference is treated as benign because Excel recomputes formula
-    // caches on load. That assumption breaks if the foreign file EXPLICITLY disables
-    // recalc-on-load (`<calcPr fullCalcOnLoad="0">`): a fabricated cache would then be shown
-    // verbatim. (Benign tools like openpyxl omit the attribute, so this does not over-refuse
-    // them.) When recalc is explicitly off and caches differ, the difference is disqualifying.
-    let mut disqualifying = counts.formula + counts.value + counts.added + counts.removed;
-    if counts.cached_value > 0 && recalc_on_load_disabled(&edited_bytes) {
-        disqualifying += counts.cached_value;
-    }
+    // A `cached_value` difference is benign ONLY when Excel will RECOMPUTE the formula on
+    // load. Excel does that for a formula cell that carries NO stored cache (what a
+    // cache-dropping tool like openpyxl leaves, and what xlq writes for every shifted cell),
+    // or when the workbook forces a full recalc-on-load (`<calcPr fullCalcOnLoad="1">`).
+    // Absent that, Excel displays the stored cache VERBATIM — so a foreign file carrying a
+    // PRESENT formula cache that xlq's proven transform did not vouch (a fabricated or stale
+    // value) would show a different result than xlq's faithful transform, with no formula or
+    // input-value diff for the cell diff to catch. Per ECMA-376 `fullCalcOnLoad` defaults to
+    // false, so its ABSENCE is as unsafe as an explicit "0"; we compare the stored caches
+    // directly rather than trusting the recalc-on-load assumption.
+    let unverified_caches = if recalc_on_load_forced(&edited_bytes) {
+        0
+    } else {
+        unverified_formula_caches(&expected_bytes, &edited_bytes)
+    };
+    let disqualifying =
+        counts.formula + counts.value + counts.added + counts.removed + unverified_caches as u64;
     let status = if disqualifying == 0 {
         "CERTIFIED"
     } else {
@@ -153,6 +166,7 @@ pub fn run(
             "added": counts.added,
             "removed": counts.removed,
         },
+        "unverified_caches": unverified_caches,
         "sample_diffs": samples,
     }))
 }
@@ -646,11 +660,12 @@ fn sheet_order_and_settings(bytes: &[u8]) -> (Vec<String>, Vec<(String, String)>
     (order, settings)
 }
 
-/// True if `xl/workbook.xml`'s `<calcPr>` EXPLICITLY disables recalc-on-load
-/// (`fullCalcOnLoad="0"`/`"false"`) — the signal an attacker sets so a fabricated formula
-/// cache is displayed without recomputation. Absence (the benign default for most tools)
-/// returns false, so a normal cache-dropping edit is not over-refused.
-fn recalc_on_load_disabled(bytes: &[u8]) -> bool {
+/// True if `xl/workbook.xml`'s `<calcPr>` FORCES a full recalculation on load
+/// (`fullCalcOnLoad="1"`/`"true"`). Only then does Excel discard the stored formula caches
+/// and recompute, making a differing cache benign. Absence (per ECMA-376 the default,
+/// `false`) or an explicit `"0"` means Excel trusts the stored cache, so a present differing
+/// cache could be shown verbatim — the caller must then verify the caches directly.
+fn recalc_on_load_forced(bytes: &[u8]) -> bool {
     let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") else {
         return false;
     };
@@ -662,13 +677,60 @@ fn recalc_on_load_disabled(bytes: &[u8]) -> bool {
         return false;
     };
     let tag = &text[p..p + gt];
-    // Recalc-on-load is off if it is explicitly disabled OR the workbook is in manual calc
-    // mode — Excel shows stored formula caches verbatim in both cases, so a fabricated cache
-    // would be displayed. (`autoNoTable` still recomputes ordinary cells, so it is not off.)
     matches!(
         attr(tag, "fullCalcOnLoad").as_deref(),
-        Some("0") | Some("false")
-    ) || attr(tag, "calcMode").as_deref() == Some("manual")
+        Some("1") | Some("true")
+    )
+}
+
+/// The count of FORMULA cells in the `edited` file whose PRESENT stored cache xlq's proven
+/// `expected` transform did not vouch — i.e., the edited cell stores a `<v>` value that is
+/// absent in, or differs from, xlq's transform of the same cell. Excel displays such a stored
+/// cache verbatim when recalc-on-load is not forced, so each one is a value Excel could show
+/// that diverges from xlq's faithful transform. A cache-DROPPING edit (openpyxl leaves no
+/// `<v>`; xlq blanks every shifted cell) contributes nothing, so the benign case is not
+/// over-refused. Sheets are matched by name through the workbook relationships.
+fn unverified_formula_caches(expected: &[u8], edited: &[u8]) -> usize {
+    let exp_by_name: std::collections::HashMap<String, String> = crate::ooxml::all_sheets(expected)
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    let Ok(edt_sheets) = crate::ooxml::all_sheets(edited) else {
+        return 0;
+    };
+    let mut count = 0;
+    for (name, edt_part) in edt_sheets {
+        let Ok(edt_xml) = crate::ooxml::read_part(edited, &edt_part) else {
+            continue;
+        };
+        let edt_map = structural::formula_cache_map(&edt_xml);
+        if edt_map.is_empty() {
+            continue;
+        }
+        let exp_map = exp_by_name
+            .get(&name)
+            .and_then(|p| crate::ooxml::read_part(expected, p).ok())
+            .map(|x| structural::formula_cache_map(&x))
+            .unwrap_or_default();
+        for (cell, ev) in &edt_map {
+            match exp_map.get(cell) {
+                Some(xv) if caches_equal(xv, ev) => {}
+                _ => count += 1,
+            }
+        }
+    }
+    count
+}
+
+/// Two stored cache values are equal if their text matches, or (for numeric caches) their
+/// parsed magnitudes match — so a benign renumbering of the same value (`55` vs `55.0`) is
+/// not counted as a divergence.
+fn caches_equal(a: &str, b: &str) -> bool {
+    a == b
+        || matches!(
+            (a.parse::<f64>(), b.parse::<f64>()),
+            (Ok(x), Ok(y)) if x == y
+        )
 }
 
 /// Parse a quoted attribute value beginning at `name_end` — the byte index just past an
@@ -969,6 +1031,36 @@ mod tests {
         let refusal =
             verify_noncell_refs(&good, &wb(&af("9"), &[])).expect("criterion change must refuse");
         assert_eq!(refusal["reason"], "autofilter_criteria_mismatch");
+    }
+
+    #[test]
+    fn caches_equal_matches_text_or_number() {
+        assert!(caches_equal("55", "55"));
+        assert!(caches_equal("55", "55.0")); // benign renumber of the same value
+        assert!(caches_equal("5.5E1", "55"));
+        assert!(!caches_equal("55", "56"));
+        assert!(caches_equal("hello", "hello"));
+        assert!(!caches_equal("hello", "world"));
+    }
+
+    #[test]
+    fn unverified_formula_caches_flags_present_not_dropped() {
+        // A formula cell (in Sheet2's body) with various stored caches.
+        let cell = |v: &str| format!(r#"<row r="1"><c r="Z1"><f>SUM(A1:A2)</f>{v}</c></row>"#);
+        let blank = wb(&cell("<v />"), &[]); // xlq blanks a shifted cache
+        let fabricated = wb(&cell("<v>999</v>"), &[]); // foreign fabricates one
+        let dropped = wb(&cell(""), &[]); // openpyxl drops it (no <v>)
+        let honest = wb(&cell("<v>3</v>"), &[]);
+        let honest_renum = wb(&cell("<v>3.0</v>"), &[]);
+        // present cache the transform did not vouch -> counted.
+        assert_eq!(unverified_formula_caches(&blank, &fabricated), 1);
+        // a dropped cache (no <v>) -> Excel recomputes -> not counted.
+        assert_eq!(unverified_formula_caches(&blank, &dropped), 0);
+        // identical present caches, and a benign 3 vs 3.0 renumber -> not counted.
+        assert_eq!(unverified_formula_caches(&honest, &honest), 0);
+        assert_eq!(unverified_formula_caches(&honest, &honest_renum), 0);
+        // a present cache that DIFFERS from the transform's present cache -> counted.
+        assert_eq!(unverified_formula_caches(&honest, &fabricated), 1);
     }
 
     #[test]

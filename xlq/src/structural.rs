@@ -986,6 +986,64 @@ pub(crate) fn element_text_semantics(xml: &[u8], locals: &[&[u8]]) -> Vec<String
     out
 }
 
+/// Map every FORMULA cell (`<c>` with an `<f>`) that carries a PRESENT, non-empty stored
+/// cache (`<v>…</v>`) to its stored value text, keyed by the cell's `r` reference.
+///
+/// A formula cell with no `<v>` or an empty `<v/>` is EXCLUDED: Excel must recompute a
+/// formula cell that has no stored result, so an absent cache is always safe (and is exactly
+/// what a cache-dropping tool like openpyxl — and xlq's own shifted-cell blanking — leaves).
+/// certify compares these maps between xlq's proven transform and a foreign edit: a present
+/// cache the transform did not vouch is a value Excel could display verbatim without
+/// recomputing, so it must be accounted for.
+pub(crate) fn formula_cache_map(xml: &[u8]) -> std::collections::BTreeMap<String, String> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = std::collections::BTreeMap::new();
+    let mut cell_ref: Option<String> = None;
+    let mut has_f = false;
+    let mut cap_v = false;
+    let mut v_text = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                cell_ref = attr_by_local(&e, b"r");
+                has_f = false;
+                v_text.clear();
+            }
+            // An `<f>` (Start for a normal formula, Empty for a shared-formula dependent
+            // `<f t="shared" si="0"/>`) marks the cell as a formula cell.
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
+                has_f = true;
+            }
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"v") => {
+                cap_v = true;
+                v_text.clear();
+            }
+            Ok(Event::Text(t)) if cap_v => {
+                v_text.push_str(&String::from_utf8_lossy(t.as_ref()));
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"v") => {
+                cap_v = false;
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                if has_f && !v_text.trim().is_empty() {
+                    if let Some(r) = cell_ref.take() {
+                        out.insert(r, v_text.trim().to_string());
+                    }
+                }
+                cell_ref = None;
+                has_f = false;
+                v_text.clear();
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
 /// Every `_xlfn.`/`_xlfn._xlws.`-prefixed function token in a stored `<f>` body, sorted.
 /// The OOXML persisted format REQUIRES this prefix for post-2007 functions (CONCAT,
 /// XLOOKUP, TEXTJOIN, …); a consumer strips it on load and re-adds it on export. certify's
@@ -3445,6 +3503,23 @@ mod tests {
             ic(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#),
             0
         );
+    }
+
+    #[test]
+    fn formula_cache_map_keeps_present_drops_empty() {
+        let m = formula_cache_map(
+            br#"<worksheet><sheetData><row r="1"><c r="A1" t="n"><v>1</v></c><c r="B1"><f>SUM(A1:A1)</f><v>1</v></c></row><row r="2"><c r="B2"><f>A1</f><v /></c><c r="B3"><f>A1</f></c></row></sheetData></worksheet>"#,
+        );
+        // B1: formula cell with a present cache -> kept. A1: a data cell (no <f>) -> excluded.
+        // B2: empty <v/> -> excluded (Excel recomputes). B3: no <v> at all -> excluded.
+        assert_eq!(m.len(), 1);
+        assert_eq!(m.get("B1").map(String::as_str), Some("1"));
+        // A shared-formula dependent (`<f .../>` empty element) with a present cache is a
+        // formula cell too.
+        let s = formula_cache_map(
+            br#"<worksheet><sheetData><row r="1"><c r="C1"><f t="shared" si="0"/><v>7</v></c></row></sheetData></worksheet>"#,
+        );
+        assert_eq!(s.get("C1").map(String::as_str), Some("7"));
     }
 
     #[test]

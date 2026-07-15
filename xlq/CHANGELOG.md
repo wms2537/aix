@@ -196,6 +196,18 @@ is refused, not committed.
   — a different value *and* footprint. The engine normalizes `@` away on load, so the
   loaded-model cell diff cannot see a foreign edit that drops or adds it; the operator count
   is now compared per sheet, mirroring the `_xlfn.`-prefix guard.
+- **`certify` verifies fabricated formula caches, not just explicitly-disabled recalc.** A
+  `cached_value` difference was treated as benign unless the workbook *explicitly* set
+  `<calcPr fullCalcOnLoad="0">` — but per ECMA-376 that flag defaults to `false`, so its
+  mere ABSENCE (the common case) is equally unsafe: Excel then displays the stored cache
+  verbatim. A foreign file could fill a shifted cell's blanked cache with a wrong value and
+  drop the `fullCalcOnLoad="1"` xlq wrote, and certify would CERTIFY it. certify now compares
+  the STORED formula caches directly: a formula cell in the foreign file that carries a
+  PRESENT `<v>` xlq's transform did not vouch (absent in, or differing from, the transform)
+  is disqualifying — UNLESS the foreign file forces a full recalc-on-load
+  (`fullCalcOnLoad="1"`), in which case Excel recomputes it away. A cache-DROPPING edit
+  (openpyxl leaves no `<v>`; xlq blanks every shifted cell) verifies cleanly, so the benign
+  case is not over-refused. The result adds an `unverified_caches` count to the JSON.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
