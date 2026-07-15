@@ -333,6 +333,20 @@ is refused, not committed.
   an embedded OLE object (`link="Sheet1!$A$11"`, present when the object has no `r:id`) was
   copied verbatim and left stale — the object would source the wrong cell after the edit. It is
   now flagged fail-closed like the other control/OLE bindings (and compared by certify).
+- **An insert that would push last-row/last-column data off the grid is refused (silent-wrong
+  fix).** The row/cell RELOCATION path (`shift_line`/`shift_cell_tag`) had no grid clamp, while
+  the reference-shift path correctly `#REF!`s an overflow — so inserting above a datum at row
+  1048576 emitted an out-of-grid `<row r="1048577">` and orphaned that datum out of a `SUM`
+  (a `15 → 10` value change committed by a "verified" edit). Excel refuses this ("cannot shift
+  nonblank cells off the worksheet"); xlq now detects the overflow up front and fails closed.
+- **A structural edit on a CJK/Cyrillic-named sheet is no longer refused when the edit moves
+  nothing referenced (over-refusal fix).** An unquoted non-ASCII sheet qualifier (`集計!A11` —
+  the normal spelling Excel writes for Asian-language tabs) can't be parsed by the ASCII
+  tokenizer, so it fails closed — but the guard was presence-based, refusing EVERY row/column
+  edit on such a sheet regardless of where the edit landed. It is now affect-based: the ASCII
+  cell part after the `!` is parsed and the σ oracle is asked whether THIS edit moves it, so an
+  edit far from any reference (a row-50 insert vs a row-11 reference) commits, while an edit
+  that actually moves the referenced cell still refuses.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

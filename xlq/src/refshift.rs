@@ -86,7 +86,7 @@ pub enum Shift {
 }
 
 /// The last valid 1-based index on an axis: row 1048576, column XFD (16384).
-fn grid_max(axis: Axis) -> u32 {
+pub(crate) fn grid_max(axis: Axis) -> u32 {
     match axis {
         Axis::Row => 1_048_576,
         Axis::Col => 16_384,

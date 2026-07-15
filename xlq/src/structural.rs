@@ -1829,21 +1829,22 @@ fn scan_extra_residuals(
             // NON-ASCII edited-sheet name: the reference tokenizer only starts a candidate
             // at an ASCII letter/$/digit, so an UNQUOTED non-ASCII sheet qualifier (集計!A11)
             // is never parsed and the σ-oracle silently leaves such a cross-reference stale.
-            // We cannot shift it, so if any formula qualifies the edited sheet by that name we
-            // fail closed. (A quoted '集計'! reference IS handled by the tokenizer's quoted
-            // path and is not affected.)
+            // We cannot shift it — but the CELL part after the `!` is ASCII and parseable, so
+            // we refuse only when THIS edit would actually move that cell (an affect check).
+            // An edit far from the referenced cell (row 50 insert vs a row-11 reference) shifts
+            // nothing and must not refuse — presence alone blocked every edit on a CJK/Cyrillic
+            // sheet. (A quoted '集計'! reference is handled by the tokenizer's quoted path.)
             if !edit.sheet.is_ascii()
-                && formula_texts.iter().any(|f| {
-                    f.contains(&format!("{}!", edit.sheet))
-                        || f.contains(&format!("{}:", edit.sheet))
-                })
+                && formula_texts
+                    .iter()
+                    .any(|f| non_ascii_qualifier_affected(f, &edit.sheet, edit))
             {
                 report.residuals.push(Residual {
                     part: n.clone(),
                     reason: "non_ascii_sheet_qualifier".into(),
                     detail: "a reference qualifies the edited sheet by an unquoted non-ASCII \
-                             name, which the reference tokenizer cannot parse — edit refused \
-                             (fail-closed)"
+                             name (which the tokenizer cannot parse) at a cell THIS edit moves — \
+                             edit refused (fail-closed)"
                         .into(),
                 });
             }
@@ -1917,6 +1918,21 @@ fn scan_extra_residuals(
                              engine does not rewrite; it would be left stale — edit refused \
                              (fail-closed)"
                         ),
+                    });
+                }
+                // GRID OVERFLOW: an insert that would push a populated row/column past the grid
+                // edge. The row/cell RELOCATION path (shift_line/shift_cell_tag) does not clamp
+                // — unlike the reference-shift path — so without this it emits an out-of-grid
+                // `<row r="1048577">` and orphans a datum out of a SUM (a silent value change).
+                // Excel itself refuses this ("cannot shift nonblank cells off the worksheet").
+                if insert_overflows_grid(&bytes, edit) {
+                    report.residuals.push(Residual {
+                        part: n.clone(),
+                        reason: "grid_overflow".into(),
+                        detail: "an insert would push a populated row/column past the grid edge \
+                                 (row 1048576 / column XFD); Excel refuses this (data loss) — \
+                                 edit refused (fail-closed)"
+                            .into(),
                     });
                 }
             }
@@ -2951,6 +2967,92 @@ fn attr_u32(e: &BytesStart, key: &[u8]) -> Option<u32> {
         .and_then(|a| String::from_utf8_lossy(&a.value).parse().ok())
 }
 
+/// True if a formula qualifies the (non-ASCII-named) edited sheet at a cell/range THIS edit
+/// would MOVE. The `{sheet}!` qualifier is non-ASCII (the tokenizer cannot parse it to shift
+/// the whole reference), but the ASCII cell part after the `!` IS parseable, so we extract it
+/// and ask the σ oracle whether the edit shifts it. Handles both a direct `{sheet}!A11` and a
+/// 3D span `{sheet}:Other!A11` (the ref follows the span's `!`). An edit that moves nothing it
+/// references is not refused.
+fn non_ascii_qualifier_affected(formula: &str, sheet: &str, edit: &StructuralEdit) -> bool {
+    // The ASCII cell/range ref immediately following a qualifier's `!` shifts under the edit.
+    let ref_after_shifts = |after: &str| -> bool {
+        let refstr: String = after
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '$' || *c == ':')
+            .collect();
+        if refstr.is_empty() {
+            return false;
+        }
+        // The ref is on the edited sheet; shift it as such and see if it changes / overflows.
+        refshift::shift_formula(&refstr, sheet, edit).0 != refstr
+    };
+    // Direct `{sheet}!REF`.
+    for (i, _) in formula.match_indices(&format!("{sheet}!")) {
+        let after = &formula[i + sheet.len() + 1..];
+        if ref_after_shifts(after) {
+            return true;
+        }
+    }
+    // 3D span `{sheet}:Other!REF` — the ref follows the span's own `!`.
+    for (i, _) in formula.match_indices(&format!("{sheet}:")) {
+        let rest = &formula[i + sheet.len() + 1..];
+        if let Some(bang) = rest.find('!') {
+            if ref_after_shifts(&rest[bang + 1..]) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// True if an INSERT edit would push a populated `<row>` (row axis) or a cell's column (column
+/// axis) PAST the grid edge (row 1048576 / column XFD=16384). The row/cell relocation path does
+/// not clamp — `shift_line` returns `pos + count` with no bound and `shift_cell_tag` silently
+/// drops the `Shift::Ref` that the reference-shift path correctly returns for an overflow — so
+/// the two paths disagree at the boundary, emitting an out-of-grid coordinate and orphaning a
+/// datum from a range. Detected up front so the edit fails closed (Excel refuses it too).
+fn insert_overflows_grid(xml: &[u8], edit: &StructuralEdit) -> bool {
+    if edit.op != Op::Insert {
+        return false;
+    }
+    let row_axis = edit.axis == Axis::Row;
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) if row_axis => {
+                if tag_local_eq(e.name().as_ref(), b"row") {
+                    if let Some(r) = attr_u32(&e, b"r") {
+                        if r >= edit.at && r + edit.count > refshift::grid_max(Axis::Row) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                if tag_local_eq(e.name().as_ref(), b"c") {
+                    if let Some(rref) = attr_by_local(&e, b"r") {
+                        let letters: String = rref
+                            .chars()
+                            .take_while(|c| c.is_ascii_alphabetic())
+                            .collect();
+                        if let Some(col) = refshift::col_to_num(&letters) {
+                            if col >= edit.at && col + edit.count > refshift::grid_max(Axis::Col) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    false
+}
+
 fn shift_line(pos: u32, edit: &StructuralEdit) -> Option<u32> {
     match edit.op {
         Op::Insert => Some(if pos >= edit.at {
@@ -3199,8 +3301,18 @@ fn shift_defined_names(
                                 Event::Text(BytesText::from_escaped(text_escape(&nf)))
                             }
                         }
-                        Some(_) => {
-                            qualifier_risk = true;
+                        // A non-ASCII sheet qualifier: shift_formula would mis-parse it, so the
+                        // body is left unshifted. Refuse ONLY when a shift is actually needed:
+                        // when the edited sheet is NON-ASCII its references can only be spelled
+                        // with that name, so the affect check covers them exactly; when it is
+                        // ASCII, a co-located ASCII edited-sheet reference could need a shift we
+                        // cannot safely apply through the non-ASCII body, so stay conservative.
+                        Some(logical) => {
+                            if edit.sheet.is_ascii()
+                                || non_ascii_qualifier_affected(&logical, &edit.sheet, edit)
+                            {
+                                qualifier_risk = true;
+                            }
                             Event::Text(BytesText::from_escaped(raw))
                         }
                         None => Event::Text(BytesText::from_escaped(raw)),
@@ -3907,6 +4019,36 @@ mod tests {
             br#"<worksheet><sheetData><row r="1"><c r="C1"><f t="shared" si="0"/><v>7</v></c></row></sheetData></worksheet>"#,
         );
         assert_eq!(s.get("C1").map(String::as_str), Some("7"));
+    }
+
+    #[test]
+    fn insert_overflows_grid_detects_boundary() {
+        // A data row at the last grid row: inserting above it would push it to 1048577 (off
+        // grid) — refuse. An insert not reaching the last row is fine.
+        let last_row = br#"<worksheet><sheetData><row r="1048576"><c r="A1048576"><v>5</v></c></row></sheetData></worksheet>"#;
+        assert!(insert_overflows_grid(last_row, &edit("Sheet1", Axis::Row, Op::Insert, 1, 1)));
+        let mid_row = br#"<worksheet><sheetData><row r="10"><c r="A10"><v>5</v></c></row></sheetData></worksheet>"#;
+        assert!(!insert_overflows_grid(mid_row, &edit("Sheet1", Axis::Row, Op::Insert, 1, 1)));
+        // Column axis: a cell at XFD pushed past column 16384 by an insert-cols.
+        let xfd = br#"<worksheet><sheetData><row r="1"><c r="XFD1"><v>5</v></c></row></sheetData></worksheet>"#;
+        assert!(insert_overflows_grid(xfd, &edit("Sheet1", Axis::Col, Op::Insert, 1, 1)));
+        // A delete never overflows.
+        assert!(!insert_overflows_grid(last_row, &edit("Sheet1", Axis::Row, Op::Delete, 1, 1)));
+    }
+
+    #[test]
+    fn non_ascii_qualifier_affect_check() {
+        let sheet = "集計";
+        // insert at row 1 moves A11 -> a reference 集計!A11 IS affected.
+        let e1 = edit(sheet, Axis::Row, Op::Insert, 1, 1);
+        assert!(non_ascii_qualifier_affected("集計!A11+1", sheet, &e1));
+        // insert at row 50 does NOT move A11 -> NOT affected (the over-refusal fix).
+        let e50 = edit(sheet, Axis::Row, Op::Insert, 50, 1);
+        assert!(!non_ascii_qualifier_affected("集計!$A$11+1", sheet, &e50));
+        // a reference to a DIFFERENT sheet is never affected.
+        assert!(!non_ascii_qualifier_affected("Другой!A11", sheet, &e1));
+        // a 3D span whose first endpoint is the edited sheet, at a moved cell -> affected.
+        assert!(non_ascii_qualifier_affected("SUM(集計:Sheet3!A11)", sheet, &e1));
     }
 
     #[test]
