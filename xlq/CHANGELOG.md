@@ -307,6 +307,32 @@ is refused, not committed.
   cell (`Enter totals in A1:A5!`, an openpyxl inline string) was misread as a 3D interior-tab
   span and refused the edit. The scan is now scoped to FORMULA element bodies (`<f>`,
   `<formula*>`, `<definedName>`), where a live reference can actually appear.
+- **A defined name containing a period (`A1.tax`) is no longer corrupted (silent-wrong).** The
+  reference tokenizer's boundary predicate (`ident_tail`) treated a letter/`_`/`(` after a
+  candidate cell ref as disqualifying but omitted `.`, while `shift_formula`'s own boundary
+  treats `.` as identifier-continuation. So `A1.tax` (a legal Excel name) tokenized as the live
+  cell `A1` and a row insert rewrote the NAME to `A2.tax` (→ `#NAME?`) with no residual —
+  committed by a "verified" edit. `.` is now a boundary, aligning the two tokenizers.
+- **`certify` reads value-affecting workbook settings namespace-prefix-agnostically.** The
+  `date1904`/`fullPrecision`/`calcMode`/`iterate` compare and the recalc-on-load check found
+  `<calcPr>`/`<workbookPr>` with a raw `find("<calcPr")`, blind to a prefixed `<x:calcPr>` — so
+  a foreign edit that set `fullPrecision="0"` on a rebound-prefix element (which Excel honors,
+  since namespace resolution is prefix-agnostic) read as the default and CERTIFIED. Both now
+  match by local name.
+- **An Excel Table on the edited sheet is refused only when the edit MOVES its extent
+  (over-refusal fix).** restructure refused any edit on a sheet owning a table, on presence
+  alone; a Table with a summary/total block below it (a very common layout) blocked an
+  insert/delete strictly below or right of the table, which leaves the table's `ref` correct. It
+  now refuses only when shifting the table's `<ref>` under the edit would change it (a
+  formula-bearing table is still refused, as its formula may reference the moved region).
+- **`certify` no longer refuses a workbook carrying an inert customXml data store
+  (over-refusal fix).** Office/SharePoint custom-XML islands (`customXml/`) carry no worksheet
+  coordinate — Excel formulas cannot read them — yet the part allowlist refused xlq's own
+  transform of any workbook containing one; they are now known-safe.
+- **An `<oleObject link>` linked-cell source is shifted-or-refused.** The linked-cell source of
+  an embedded OLE object (`link="Sheet1!$A$11"`, present when the object has no `r:id`) was
+  copied verbatim and left stale — the object would source the wrong cell after the edit. It is
+  now flagged fail-closed like the other control/OLE bindings (and compared by certify).
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

@@ -890,14 +890,22 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
         return (0, false);
     }
     let sb = s.as_bytes();
-    // A reference immediately followed by a letter, '_', or '(' is NOT a reference:
+    // A reference immediately followed by a letter, '_', '.', or '(' is NOT a reference:
     //  - letter/'_' -> the head of a longer identifier (`BIN2DEC`: prefix `BIN2`
     //    scans as col BIN row 2; a row insert would corrupt it to `BIN3DEC`).
+    //  - '.' -> a defined name with a period (`A1.tax`, legal in Excel): its `A1` prefix
+    //    scans as a live cell and a row insert would corrupt the NAME to `A2.tax` (→
+    //    `#NAME?`). This matches shift_formula's own boundary predicate, which treats '.'
+    //    as identifier-continuation.
     //  - '(' -> a function call whose name ends in a digit (`LOG10(...)`: `LOG10`
     //    scans as col LOG row 10; a row insert would corrupt it to `LOG11`).
     // Excel cell refs are never immediately followed by any of these.
     let ident_tail = |end: usize| {
-        end < sb.len() && (sb[end].is_ascii_alphabetic() || sb[end] == b'_' || sb[end] == b'(')
+        end < sb.len()
+            && (sb[end].is_ascii_alphabetic()
+                || sb[end] == b'_'
+                || sb[end] == b'.'
+                || sb[end] == b'(')
     };
     // range? Excel/IronCalc accept whitespace around the range colon (`A2 : A8` is the
     // range A2:A8), so we must skip it — otherwise the head and tail tokenize as two
@@ -1472,6 +1480,17 @@ mod tests {
         assert_eq!(
             sf("A10+LOG10(A10)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
             "A11+LOG10(A11)"
+        );
+        // REGRESSION (round-21): a defined name with a PERIOD (`A1.tax`, legal in Excel) has an
+        // `A1` prefix; a row insert must NOT rewrite it to `A2.tax` (which is `#NAME?`). The
+        // real cell arg still shifts.
+        assert_eq!(
+            sf("A1.tax+A2", "Sheet1", &row_edit(Op::Insert, 1, 1)),
+            "A1.tax+A3"
+        );
+        assert_eq!(
+            sf("Q3.total*2", "Sheet1", &row_edit(Op::Insert, 1, 1)),
+            "Q3.total*2"
         );
     }
     #[test]

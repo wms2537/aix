@@ -402,6 +402,8 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
                                                      // linked to cells (cm/vm), no shiftable coord
         || low.starts_with("xl/theme/")              // colors/fonts
         || low.starts_with("docprops/")              // document metadata
+        || low.starts_with("customxml/")             // inert custom-XML data island: Excel
+                                                     // formulas cannot read it, no coordinate
         || low.starts_with("xl/media/")              // embedded images
         || low.starts_with("xl/printersettings/")    // opaque binary print settings
         || low.starts_with("xl/charts/")             // chart data refs — compared semantically
@@ -732,15 +734,9 @@ fn sheet_order_and_settings(bytes: &[u8]) -> (Vec<String>, Vec<(String, String)>
     let mut settings: Vec<(String, String)> = Vec::new();
     if let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") {
         let text = String::from_utf8_lossy(&wb);
-        let start_tag = |elem: &str| -> Option<String> {
-            let p = text.find(elem)?;
-            let rest = &text[p..];
-            let gt = rest.find('>')?;
-            Some(rest[..gt].to_string())
-        };
         let truthy = |v: Option<String>| matches!(v.as_deref(), Some("1") | Some("true"));
-        let wbpr = start_tag("<workbookPr").unwrap_or_default();
-        let calcpr = start_tag("<calcPr").unwrap_or_default();
+        let wbpr = local_element_tag(&text, "workbookPr").unwrap_or_default();
+        let calcpr = local_element_tag(&text, "calcPr").unwrap_or_default();
         settings.push((
             "date_epoch".into(),
             if truthy(attr(&wbpr, "date1904")) {
@@ -798,17 +794,40 @@ fn recalc_on_load_forced(bytes: &[u8]) -> bool {
         return false;
     };
     let text = String::from_utf8_lossy(&wb);
-    let Some(p) = text.find("<calcPr") else {
+    let Some(tag) = local_element_tag(&text, "calcPr") else {
         return false;
     };
-    let Some(gt) = text[p..].find('>') else {
-        return false;
-    };
-    let tag = &text[p..p + gt];
     matches!(
-        attr(tag, "fullCalcOnLoad").as_deref(),
+        attr(&tag, "fullCalcOnLoad").as_deref(),
         Some("1") | Some("true")
     )
+}
+
+/// The first start-tag in `text` whose element LOCAL name is `local`, namespace-prefix
+/// agnostic — both `<calcPr …>` and `<x:calcPr …>` match — returned from its `<` up to (not
+/// including) the closing `>`. A raw `text.find("<calcPr")` missed a prefixed `<x:calcPr>`,
+/// hiding value-affecting workbook settings (date1904/fullPrecision/calcMode/iterate) from the
+/// settings compare — a false certification, since XML namespace resolution is prefix-agnostic
+/// and Excel honors the prefixed form.
+fn local_element_tag(text: &str, local: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while let Some(rel) = text[i..].find('<') {
+        let lt = i + rel;
+        i = lt + 1;
+        let name_start = lt + 1;
+        let mut j = name_start;
+        while j < bytes.len() && !matches!(bytes[j], b' ' | b'\t' | b'\n' | b'\r' | b'>' | b'/') {
+            j += 1;
+        }
+        let name = &text[name_start..j];
+        let local_name = name.rsplit(':').next().unwrap_or(name);
+        if local_name == local {
+            let gt = text[lt..].find('>')?;
+            return Some(text[lt..lt + gt].to_string());
+        }
+    }
+    None
 }
 
 /// The count of FORMULA cells in the `edited` file whose PRESENT stored cache xlq's proven
@@ -1375,6 +1394,47 @@ mod tests {
             )],
         );
         assert!(verify_noncell_refs(&bytes, &bytes).is_none());
+    }
+
+    #[test]
+    fn custom_xml_part_is_certify_safe() {
+        // An inert custom-XML data island carries no worksheet coordinate; certify must not
+        // refuse xlq's own transform of a workbook containing one.
+        let bytes = wb(
+            "",
+            &[("customXml/item1.xml", "<root><tag>hello</tag></root>")],
+        );
+        assert!(verify_noncell_refs(&bytes, &bytes).is_none());
+    }
+
+    #[test]
+    fn local_element_tag_is_namespace_prefix_agnostic() {
+        // REGRESSION (round-21): a raw `find("<calcPr")` missed a prefixed `<x:calcPr>`, hiding
+        // value-affecting settings from the compare. Match by LOCAL name.
+        assert_eq!(
+            local_element_tag(
+                r#"<workbook><x:calcPr fullPrecision="0"/></workbook>"#,
+                "calcPr"
+            )
+            .as_deref(),
+            Some(r#"<x:calcPr fullPrecision="0"/"#)
+        );
+        assert_eq!(
+            local_element_tag(r#"<workbook><calcPr calcId="1"/></workbook>"#, "calcPr").as_deref(),
+            Some(r#"<calcPr calcId="1"/"#)
+        );
+        // a look-alike element name must not match.
+        assert_eq!(
+            local_element_tag(r#"<workbook><calcPrExtra/></workbook>"#, "calcPr"),
+            None
+        );
+        // and the extracted tag feeds `attr` correctly through the prefix + Eq whitespace.
+        let tag = local_element_tag(
+            r#"<workbook><x:calcPr fullPrecision = "0"/></workbook>"#,
+            "calcPr",
+        )
+        .unwrap();
+        assert_eq!(attr(&tag, "fullPrecision").as_deref(), Some("0"));
     }
 
     #[test]

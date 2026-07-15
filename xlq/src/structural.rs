@@ -782,8 +782,10 @@ fn edited_sheet_body_unshifted_ref(
                     }
                     // Other cell-range attributes the shift never rewrites: form-control / OLE
                     // data bindings (linkedCell/fmlaLink/listFillRange/fmlaRange — the cell a
-                    // control reads/writes or a list/combo box's SOURCE range) and a web-publish
-                    // source range (sourceRef). Flag if this edit would move them.
+                    // control reads/writes or a list/combo box's SOURCE range; `link` — an
+                    // `<oleObject link>` linked-cell source) and a web-publish source range
+                    // (sourceRef). Guarded by would_shift, so a `link` holding a non-coordinate
+                    // value is not flagged. Flag if this edit would move them.
                     if matches!(
                         k,
                         b"linkedCell"
@@ -791,6 +793,7 @@ fn edited_sheet_body_unshifted_ref(
                             | b"listFillRange"
                             | b"fmlaRange"
                             | b"sourceRef"
+                            | b"link"
                     ) {
                         return would_shift(&val);
                     }
@@ -1363,6 +1366,7 @@ pub(crate) fn control_binding_attrs(xml: &[u8]) -> Vec<String> {
                     b"listFillRange".as_slice(),
                     b"fmlaRange".as_slice(),
                     b"sourceRef".as_slice(),
+                    b"link".as_slice(),
                 ] {
                     if let Some(v) = attr_by_local(&e, key) {
                         out.push(format!("{}={}", String::from_utf8_lossy(key), v));
@@ -1420,6 +1424,7 @@ fn foreign_sheet_ref_attr_crosses(xml: &[u8], edit: &StructuralEdit) -> bool {
                     b"listFillRange".as_slice(),
                     b"fmlaRange".as_slice(),
                     b"sourceRef".as_slice(),
+                    b"link".as_slice(),
                 ] {
                     if let Some(v) = attr_by_local(&e, key) {
                         // ref/sqref may be space-separated; test each token via the oracle.
@@ -1504,6 +1509,36 @@ fn sheet_declares_tables(input: &[u8], sheet_part: &str) -> bool {
     match crate::ooxml::read_part(input, sheet_part) {
         Ok(b) => xml_has_local_element(&b, &[b"tableParts"], true),
         Err(_) => true,
+    }
+}
+
+/// True if this edit would MOVE the extent of the table in `table_part` — i.e. shifting the
+/// table's `<table ref>` (sheet-local, on the edited sheet) under σ changes or consumes it.
+/// We never rewrite a table part, so an affected extent must be refused; an edit strictly
+/// below/right of the table leaves `ref` unchanged and is safe. An unreadable table part, or
+/// one with no `ref`, is treated as affected (fail closed).
+fn table_extent_affected(input: &[u8], table_part: &str, edit: &StructuralEdit) -> bool {
+    let Ok(bytes) = crate::ooxml::read_part(input, table_part) else {
+        return true;
+    };
+    let mut reader = Reader::from_reader(bytes.as_slice());
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if tag_local_eq(e.name().as_ref(), b"table") =>
+            {
+                let Some(r) = attr_by_local(&e, b"ref") else {
+                    return true;
+                };
+                let (nv, _n, consumed, _all) = shift_sqref(&r, &edit.sheet, edit);
+                return nv != r || consumed > 0;
+            }
+            Ok(Event::Eof) | Err(_) => return true,
+            _ => {}
+        }
+        buf.clear();
     }
 }
 
@@ -1699,40 +1734,41 @@ fn scan_extra_residuals(
     // Refusing those was a FALSE refusal that made xlq decline workbooks it handles
     // correctly.
     let edited_tables = tables_attached_to(input, edited_part);
-    // The edited sheet OWNS a table if its rels resolve one OR its own xml declares
-    // <tableParts> — the latter is authoritative and closes the fail-open where a
-    // missing/unreadable .rels part would otherwise hide the table from this scan.
-    if !edited_tables.is_empty() || sheet_declares_tables(input, edited_part) {
-        if edited_tables.is_empty() {
-            report.residuals.push(Residual {
-                part: edited_part.to_string(),
-                reason: "table_unsupported".into(),
-                detail: "the edited sheet declares a structured table whose extent/refs we \
-                         do not shift; edit refused"
-                    .into(),
-            });
-        }
-        for t in &edited_tables {
-            report.residuals.push(Residual {
-                part: t.clone(),
-                reason: "table_unsupported".into(),
-                detail: "a structured table on the edited sheet has an extent/refs we do not \
-                         shift; edit refused"
-                    .into(),
-            });
-        }
+    // Declared-but-unreadable: the edited sheet's xml has <tableParts> but its rels did not
+    // resolve a table part, so we cannot read the extent to prove it unaffected — fail closed.
+    if edited_tables.is_empty() && sheet_declares_tables(input, edited_part) {
+        report.residuals.push(Residual {
+            part: edited_part.to_string(),
+            reason: "table_unsupported".into(),
+            detail: "the edited sheet declares a structured table whose extent we cannot read \
+                     to prove unaffected; edit refused (fail-closed)"
+                .into(),
+        });
     }
     let table_parts = all_table_parts(input, names);
     for t in &table_parts {
-        if edited_tables.contains(t) {
-            continue; // already refused above
+        // An edited-sheet table whose EXTENT this edit MOVES (an insert/delete at or before its
+        // rows/cols) must be refused — we do not rewrite a table part's `<ref>`. An edit
+        // strictly below/right of the table leaves its extent correct, so it is allowed (a
+        // Table with a summary block below it is a very common, faithfully-handled layout).
+        if edited_tables.contains(t) && table_extent_affected(input, t, edit) {
+            report.residuals.push(Residual {
+                part: t.clone(),
+                reason: "table_unsupported".into(),
+                detail: "a structured table on the edited sheet has an extent this edit moves, \
+                         which we do not rewrite; edit refused (fail-closed)"
+                    .into(),
+            });
+            continue;
         }
-        // Fail closed: a table part we cannot read is a table we cannot clear.
-        let refuse = match crate::ooxml::read_part(input, t) {
+        // Any table (edited or foreign) carrying its OWN formula (calculated column / totals
+        // row) may reference the edited sheet and is not rewritten — refuse conservatively. A
+        // table part we cannot read is one we cannot clear.
+        let has_formula = match crate::ooxml::read_part(input, t) {
             Ok(bytes) => table_part_has_formula(&bytes),
             Err(_) => true,
         };
-        if refuse {
+        if has_formula {
             report.residuals.push(Residual {
                 part: t.clone(),
                 reason: "table_formula_unsupported".into(),
@@ -4221,6 +4257,11 @@ mod tests {
         assert_eq!(
             f(br#"<worksheet><controls><control><controlPr fmlaRange="A1:A8"/></control></controls></worksheet>"#).as_deref(),
             Some("controlPr")
+        );
+        // An <oleObject link="..."> linked-cell source is flagged (guarded by would_shift).
+        assert_eq!(
+            f(br#"<worksheet><oleObjects><oleObject progId="X" link="Sheet1!$A$8"/></oleObjects></worksheet>"#).as_deref(),
+            Some("oleObject")
         );
         // A web-publish source range (sourceRef, ST_Ref in a non-ref/sqref/r attr) is flagged.
         assert_eq!(
