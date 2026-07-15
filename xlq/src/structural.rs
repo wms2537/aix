@@ -1125,72 +1125,146 @@ fn formula_excludes_hidden_rows(f: &str) -> bool {
     false
 }
 
-/// Every `_xlfn.`/`_xlfn._xlws.`-prefixed function token in a stored `<f>` body, sorted.
-/// The OOXML persisted format REQUIRES this prefix for post-2007 functions (CONCAT,
-/// XLOOKUP, TEXTJOIN, …); a consumer strips it on load and re-adds it on export. certify's
-/// cell diff compares the loaded (stripped) form, so a foreign edit that DROPS the prefix —
-/// which makes Excel render `#NAME?` — is invisible to it. Comparing these tokens catches
-/// the drop without over-refusing on cosmetic reformatting (the token itself is stable).
-pub(crate) fn xlfn_tokens(xml: &[u8]) -> Vec<String> {
+/// Every `_xlfn.`/`_xlfn._xlws.`-prefixed function token in one stored `<f>` body, sorted.
+/// The OOXML persisted format REQUIRES this prefix for post-2007 functions (CONCAT, XLOOKUP,
+/// TEXTJOIN, …); a consumer strips it on load and re-adds it on export. certify's cell diff
+/// compares the loaded (stripped) form, so a foreign edit that DROPS the prefix — which makes
+/// Excel render `#NAME?` — is invisible to it.
+fn xlfn_tokens_in(body: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for body in element_text_semantics(xml, &[b"f"]) {
-        let mut rest = body.as_str();
-        while let Some(p) = rest.find("_xlfn.") {
-            let after = &rest[p..];
-            let end = after[6..]
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
-                .map(|e| 6 + e)
-                .unwrap_or(after.len());
-            out.push(after[..end].to_string());
-            rest = &after[end..];
-        }
+    let mut rest = body;
+    while let Some(p) = rest.find("_xlfn.") {
+        let after = &rest[p..];
+        let end = after[6..]
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+            .map(|e| 6 + e)
+            .unwrap_or(after.len());
+        out.push(after[..end].to_string());
+        rest = &after[end..];
     }
     out.sort();
     out
 }
 
-/// The number of IMPLICIT-INTERSECTION `@` operators in the stored `<f>` bodies of a
-/// worksheet. `@` is the dynamic-array implicit-intersection operator: `@A1:A10` coerces a
-/// range to the single intersecting cell (a scalar), whereas the bare `A1:A10` SPILLS the
-/// whole range — a different computed value AND footprint. A consumer normalizes `@` away
-/// on load (IronCalc does), so certify's cell diff — which compares the loaded, normalized
-/// form — is blind to a foreign edit that drops or adds it. Counting the operator per sheet
-/// catches that drop/add, mirroring how [`xlfn_tokens`] closes the `_xlfn.` blind spot,
-/// without over-refusing on cosmetic reformatting.
+/// The number of IMPLICIT-INTERSECTION `@` operators in one stored `<f>` body. `@` is the
+/// dynamic-array implicit-intersection operator: `@A1:A10` coerces a range to the single
+/// intersecting cell (a scalar), whereas the bare `A1:A10` SPILLS the whole range — a
+/// different computed value AND footprint. A consumer normalizes `@` away on load (IronCalc
+/// does), so certify's cell diff — over the loaded, normalized form — is blind to a drop/add.
 ///
 /// A `@` inside a `[...]` structured (table) reference (`Table1[@Col]`) is a column
 /// specifier, NOT the intersection operator, so bracket-interior `@` is excluded; `@` and
 /// `[` inside a quoted string literal or quoted sheet name are likewise ignored.
-pub(crate) fn implicit_intersection_count(xml: &[u8]) -> usize {
+fn count_implicit_at(body: &str) -> usize {
     let mut count = 0;
-    for body in element_text_semantics(xml, &[b"f"]) {
-        let mut bracket_depth: u32 = 0;
-        let mut in_dquote = false;
-        let mut in_squote = false;
-        for c in body.chars() {
-            if in_dquote {
-                if c == '"' {
-                    in_dquote = false;
-                }
-                continue;
+    let mut bracket_depth: u32 = 0;
+    let mut in_dquote = false;
+    let mut in_squote = false;
+    for c in body.chars() {
+        if in_dquote {
+            if c == '"' {
+                in_dquote = false;
             }
-            if in_squote {
-                if c == '\'' {
-                    in_squote = false;
-                }
-                continue;
+            continue;
+        }
+        if in_squote {
+            if c == '\'' {
+                in_squote = false;
             }
-            match c {
-                '"' => in_dquote = true,
-                '\'' => in_squote = true,
-                '[' => bracket_depth += 1,
-                ']' => bracket_depth = bracket_depth.saturating_sub(1),
-                '@' if bracket_depth == 0 => count += 1,
-                _ => {}
-            }
+            continue;
+        }
+        match c {
+            '"' => in_dquote = true,
+            '\'' => in_squote = true,
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            '@' if bracket_depth == 0 => count += 1,
+            _ => {}
         }
     }
     count
+}
+
+/// Per formula cell (a `<c r>` carrying an `<f>`), the tokens IronCalc NORMALIZES AWAY on
+/// load — which the loaded-model cell diff therefore cannot see — keyed by the cell's `r`
+/// reference. The signature is the implicit-intersection `@` count and the sorted `_xlfn.`
+/// function tokens; only cells with at least one such token are included. certify compares
+/// this map POSITIONALLY (per cell), so it catches not just a DROP/ADD of `@`/`_xlfn.` but a
+/// same-sheet RELOCATION between cells (`@` moved C1→C5, or an `_xlfn.` prefix moved between
+/// two same-function cells) — each a spill-vs-scalar / `#NAME?` value change a per-sheet
+/// multiset would miss.
+pub(crate) fn formula_hidden_tokens(xml: &[u8]) -> std::collections::BTreeMap<String, String> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = std::collections::BTreeMap::new();
+    let mut cell_ref: Option<String> = None;
+    let mut in_f = false;
+    let mut raw = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                cell_ref = attr_by_local(&e, b"r");
+            }
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
+                in_f = true;
+                raw.clear();
+            }
+            Ok(Event::Text(t)) if in_f => push_text_raw(&mut raw, &t),
+            Ok(Event::GeneralRef(r)) if in_f => push_ref_raw(&mut raw, &r),
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
+                in_f = false;
+                let body = logical_formula(&raw).unwrap_or_else(|| raw.clone());
+                let at = count_implicit_at(&body);
+                let xlfn = xlfn_tokens_in(&body);
+                if let Some(r) = cell_ref.clone() {
+                    if at > 0 || !xlfn.is_empty() {
+                        out.insert(r, format!("@{at};{}", xlfn.join(",")));
+                    }
+                }
+                raw.clear();
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                cell_ref = None;
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
+/// Every form-control / OLE / web-publish data-binding target on a sheet: the value of a
+/// `linkedCell` / `fmlaLink` / `listFillRange` / `sourceRef` attribute (the cell a control
+/// reads/writes), sorted. certify compares these so a foreign edit that RE-POINTS a control's
+/// binding (a value/behavior change the cell diff never sees) is caught.
+pub(crate) fn control_binding_attrs(xml: &[u8]) -> Vec<String> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                for key in [
+                    b"linkedCell".as_slice(),
+                    b"fmlaLink".as_slice(),
+                    b"listFillRange".as_slice(),
+                    b"sourceRef".as_slice(),
+                ] {
+                    if let Some(v) = attr_by_local(&e, key) {
+                        out.push(format!("{}={}", String::from_utf8_lossy(key), v));
+                    }
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out.sort();
+    out
 }
 
 /// True if a FOREIGN worksheet carries a reference to the edited sheet in a body the
@@ -1221,7 +1295,20 @@ fn foreign_sheet_ref_attr_crosses(xml: &[u8], edit: &StructuralEdit) -> bool {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
-                for key in [b"ref".as_slice(), b"sqref".as_slice()] {
+                // ref/sqref (dataRef/…) plus a form-control / OLE / web-publish data binding
+                // whose value names a cell — `linkedCell`/`fmlaLink`/`listFillRange`/`sourceRef`.
+                // A foreign-sheet binding QUALIFIED to the edited sheet (`Sheet1!$A$5`) would be
+                // left stale (the foreign shift path never rewrites it); the σ oracle's null
+                // context sheet means an UNQUALIFIED binding to the control's own sheet is
+                // correctly not flagged.
+                for key in [
+                    b"ref".as_slice(),
+                    b"sqref".as_slice(),
+                    b"linkedCell".as_slice(),
+                    b"fmlaLink".as_slice(),
+                    b"listFillRange".as_slice(),
+                    b"sourceRef".as_slice(),
+                ] {
                     if let Some(v) = attr_by_local(&e, key) {
                         // ref/sqref may be space-separated; test each token via the oracle.
                         if v.split_whitespace()
@@ -1495,7 +1582,14 @@ fn scan_extra_residuals(
                 .strip_prefix("xl/worksheets/sheet")
                 .and_then(|s| s.strip_suffix(".xml"))
                 .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));
-            if !conventional {
+            // A CHARTSHEET / DIALOGSHEET is listed in <sheets> like a worksheet but carries
+            // no cell grid — its chart data references live in xl/charts/*.xml, which the
+            // chart path already shifts. So a non-`xl/worksheets/` path for one of these is
+            // expected, not a hidden worksheet; do not refuse it. (Macrosheets can carry XLM
+            // formula cells, so they stay fail-closed.)
+            let non_grid_sheet =
+                part.starts_with("xl/chartsheets/") || part.starts_with("xl/dialogsheets/");
+            if !conventional && !non_grid_sheet {
                 report.residuals.push(Residual {
                     part: part.clone(),
                     reason: "nonstandard_sheet_path".into(),
@@ -1674,13 +1768,20 @@ fn scan_extra_residuals(
                         .into(),
                 });
             }
-            if part_uses_structured_ref(&bytes, &table_names) {
+            // Only formulas the shift algebra REWRITES can have their `[…]` specifier
+            // mangled: the edited sheet's own cells, chart `<c:f>` data ranges, and workbook
+            // defined names. A structured reference on a FOREIGN worksheet is copied verbatim
+            // (never shifted), so it cannot be mangled — refusing it blocked ordinary
+            // table-driven workbooks for a safe edit on an unrelated sheet.
+            let shifted_part =
+                n == edited_part || n.starts_with("xl/charts/") || n == "xl/workbook.xml";
+            if shifted_part && part_uses_structured_ref(&bytes, &table_names) {
                 report.residuals.push(Residual {
                     part: n.clone(),
                     reason: "structured_reference_unsupported".into(),
-                    detail: "a formula uses a structured table reference (Table[Column]); the \
-                             shift algebra can mangle the specifier inside [] — edit refused \
-                             (fail-closed)"
+                    detail: "a formula the edit shifts uses a structured table reference \
+                             (Table[Column]); the shift algebra can mangle the specifier inside \
+                             [] — edit refused (fail-closed)"
                         .into(),
                 });
             }
@@ -2383,6 +2484,7 @@ fn transform_tag_move(
 ) -> BytesStart<'static> {
     match e.name().as_ref() {
         b"c" => shift_cell_tag(e, edit),
+        b"f" if is_datatable_f(e) => shift_datatable_attrs(e, sheet, edit, report),
         b"mergeCell" | b"hyperlink" | b"conditionalFormatting" | b"dataValidation" => {
             shift_ref_attrs(e, sheet, edit, report)
         }
@@ -2399,6 +2501,7 @@ fn transform_tag(
 ) -> BytesStart<'static> {
     match e.name().as_ref() {
         b"c" => shift_cell_tag(e, edit),
+        b"f" if is_datatable_f(e) => shift_datatable_attrs(e, sheet, edit, report),
         n if has_ref_attr(n) => shift_ref_attrs(e, sheet, edit, report),
         _ => e.to_owned(),
     }
@@ -2571,6 +2674,46 @@ fn has_ref_attr(name: &[u8]) -> bool {
             | b"brk"
             | b"ignoredError"
     )
+}
+
+/// A what-if data table cell formula: `<f t="dataTable" ref="C2:C5" r1="A1" r2="B1"/>`.
+/// Unlike an ordinary `<f>`, it carries LIVE coordinates in ATTRIBUTES — `ref` (the output
+/// array extent), `r1` (the column input cell), `r2` (the row input cell) — none in the body.
+fn is_datatable_f(e: &BytesStart) -> bool {
+    e.name().as_ref() == b"f"
+        && e.attributes()
+            .flatten()
+            .any(|a| a.key.as_ref() == b"t" && a.value.as_ref() == b"dataTable")
+}
+
+/// Shift a data-table `<f>`'s `ref`/`r1`/`r2` cell references. Left unshifted (the `<f>` body
+/// path only rewrites formula TEXT, and the edited-body scan skips formula tags), the input
+/// cell would read a blank inserted row and the declared output extent would no longer match
+/// the body cells — a silent value corruption.
+fn shift_datatable_attrs(
+    e: &BytesStart,
+    sheet: &str,
+    edit: &StructuralEdit,
+    report: &mut StructuralReport,
+) -> BytesStart<'static> {
+    const KEYS: &[&[u8]] = &[b"ref", b"r1", b"r2"];
+    let mut repl: Vec<(&[u8], String)> = Vec::new();
+    for a in e.attributes().flatten() {
+        let key = a.key.as_ref();
+        if let Some(&sk) = KEYS.iter().find(|k| **k == key) {
+            let val = a
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .unwrap_or_default()
+                .into_owned();
+            let (nv, n, c, _all) = shift_sqref(&val, sheet, edit);
+            report.refs_shifted += n;
+            report.ref_errors += c;
+            if nv != val {
+                repl.push((sk, nv));
+            }
+        }
+    }
+    set_attrs(e, &repl)
 }
 
 fn shift_ref_attrs(
@@ -3549,44 +3692,23 @@ mod tests {
     }
 
     #[test]
-    fn xlfn_tokens_extracts_prefixed_functions() {
-        assert_eq!(
-            xlfn_tokens(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>_xlfn.CONCAT(A1,A2)+_xlfn._xlws.FILTER(B1:B5,C1)</f></c></row></sheetData></worksheet>"#),
-            vec!["_xlfn.CONCAT".to_string(), "_xlfn._xlws.FILTER".to_string()]
+    fn formula_hidden_tokens_are_per_cell() {
+        let m = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="C1"><f>@A1:A10</f></c><c r="D1"><f>_xlfn.CONCAT(A1,A2)+_xlfn._xlws.FILTER(B1:B5,C1)</f></c><c r="E1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#,
         );
-        // a plain (pre-2007) formula yields nothing.
-        assert!(xlfn_tokens(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#).is_empty());
-    }
-
-    #[test]
-    fn implicit_intersection_counts_only_bare_at() {
-        let ic = |x: &[u8]| implicit_intersection_count(x);
-        // A bare `@` (implicit intersection) is counted.
+        // `@` cell keyed by ref; a plain formula (E1) is excluded.
+        assert_eq!(m.get("C1").map(String::as_str), Some("@1;"));
         assert_eq!(
-            ic(br#"<worksheet><sheetData><row r="1"><c r="C5"><f>@A1:A10</f></c></row></sheetData></worksheet>"#),
-            1
+            m.get("D1").map(String::as_str),
+            Some("@0;_xlfn.CONCAT,_xlfn._xlws.FILTER")
         );
-        // Two of them across two cells.
-        assert_eq!(
-            ic(br#"<worksheet><sheetData><row r="1"><c r="C5"><f>@A1:A10</f></c><c r="D5"><f>SUM(@B1:B9)</f></c></row></sheetData></worksheet>"#),
-            2
+        assert_eq!(m.get("E1"), None);
+        assert_eq!(m.len(), 2);
+        // A `@` inside a `[@Col]` structured ref or a string/quoted-name is NOT counted.
+        let bracket = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="C5"><f>Table1[@Amount]*"a@b"&amp;'x@y'!A1</f></c></row></sheetData></worksheet>"#,
         );
-        // A `@` inside a structured (table) reference `[@Col]` is a column specifier, NOT the
-        // intersection operator — not counted.
-        assert_eq!(
-            ic(br#"<worksheet><sheetData><row r="1"><c r="C5"><f>Table1[@Amount]*2</f></c></row></sheetData></worksheet>"#),
-            0
-        );
-        // A `@` inside a string literal / quoted sheet name is ignored.
-        assert_eq!(
-            ic(br#"<worksheet><sheetData><row r="1"><c r="C5"><f>"a@b"&amp;'x@y'!A1</f></c></row></sheetData></worksheet>"#),
-            0
-        );
-        // A plain formula yields zero.
-        assert_eq!(
-            ic(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#),
-            0
-        );
+        assert!(bracket.is_empty());
     }
 
     #[test]
@@ -3628,6 +3750,36 @@ mod tests {
             br#"<worksheet><sheetData><row r="1"><c r="C1"><f t="shared" si="0"/><v>7</v></c></row></sheetData></worksheet>"#,
         );
         assert_eq!(s.get("C1").map(String::as_str), Some("7"));
+    }
+
+    #[test]
+    fn datatable_f_attrs_are_shifted() {
+        // <f t="dataTable" ref/r1/r2> carries live coordinates in ATTRIBUTES; an insert must
+        // shift them or the table reads the wrong input cell and declares the wrong extent.
+        let xml = br#"<worksheet><sheetData><row r="2"><c r="C2"><f t="dataTable" ref="C2:C5" dt2D="0" dtr="0" r1="A1" ca="1"/><v>1</v></c></row></sheetData></worksheet>"#;
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 1, 1);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            report.residuals.is_empty(),
+            "no residual: {:?}",
+            report.residuals
+        );
+        assert!(s.contains(r#"ref="C3:C6""#), "output extent shifted: {s}");
+        assert!(s.contains(r#"r1="A2""#), "input cell shifted: {s}");
+    }
+
+    #[test]
+    fn foreign_sheet_control_binding_to_edited_sheet_is_flagged() {
+        // A control on a FOREIGN sheet bound to the edited sheet (linkedCell="Sheet1!$A$5")
+        // must be flagged when the edit moves that cell; an unqualified binding (to the
+        // control's own sheet) must not be.
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 1, 1);
+        let qualified = br#"<worksheet><sheetData/><controls><control><controlPr linkedCell="Sheet1!$A$5" fmlaLink="Sheet1!$A$5"/></control></controls></worksheet>"#;
+        assert!(foreign_sheet_ref_attr_crosses(qualified, &e));
+        let unqualified = br#"<worksheet><sheetData/><controls><control><controlPr linkedCell="$A$5"/></control></controls></worksheet>"#;
+        assert!(!foreign_sheet_ref_attr_crosses(unqualified, &e));
     }
 
     #[test]

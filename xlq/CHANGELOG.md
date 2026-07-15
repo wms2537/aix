@@ -229,6 +229,37 @@ is refused, not committed.
   any faithful certify). Its `sqref` is an ordinary coordinate the shift engine tracks, so it
   now shifts like a conditional-format/data-validation `sqref` — a ubiquitous benign construct
   no longer blocks structural edits.
+- **What-if data table references shift.** A `<f t="dataTable" ref="C2:C5" r1="A1" r2="B1"/>`
+  carries LIVE coordinates in ATTRIBUTES — the output-array extent (`ref`) and the column/row
+  input cells (`r1`/`r2`) — none in the formula body. The formula path (which shifts only
+  `<f>` TEXT) and the edited-body scan (which skips formula tags) both passed it over, so it
+  committed stale: the table recomputed against the wrong input cell and declared the wrong
+  extent, a silent value corruption. Its attributes now shift like any other coordinate.
+- **`certify` compares `_xlfn.`/`@` tokens PER CELL, not per-sheet count.** The guards for the
+  two engine-normalized-away tokens (the `_xlfn.` prefix and the implicit-intersection `@`)
+  keyed on a per-SHEET multiset, so RELOCATING one between two cells on the same sheet (`@`
+  moved C1→C5, turning one spill into a scalar and vice-versa) left the count unchanged and
+  certified. They are now compared per cell, catching relocation as well as drop/add.
+- **Form-control / OLE data bindings are shifted-or-refused and compared.** A control's
+  `linkedCell`/`fmlaLink`/`listFillRange` (the cell it reads/writes) or a web-publish
+  `sourceRef` on a FOREIGN sheet, qualified to the edited sheet, was left stale by the edit
+  (the foreign-sheet scan checked only `<f>` bodies and `ref`/`sqref`); it now fails closed.
+  And `certify` now compares every control binding — worksheet attributes plus legacy VML
+  `<x:FmlaLink>`/`<x:FmlaMacro>` — so a foreign edit that re-points a control (to read a
+  different value or run a different macro) is caught.
+- **A chartsheet / dialogsheet no longer blocks structural edits (over-refusal fix).** These
+  are listed in `<sheets>` like a worksheet but live at `xl/chartsheets/`·`xl/dialogsheets/`
+  and carry no cell grid (their chart data ranges are shifted by the chart path). The
+  non-standard-sheet-path guard refused any workbook containing one; it now recognizes them as
+  grid-free and only fails closed on a genuinely unrecognized sheet path (macrosheets, which
+  can carry XLM formula cells, stay fail-closed).
+- **A structured table reference on an UNRELATED sheet no longer blocks the edit (over-refusal
+  fix).** The `Table[Column]` guard (which fails closed because the shift tokenizer can mangle
+  a cell-shaped column specifier) ran presence-based across every part, refusing an edit on
+  one sheet because a table reference existed on another. Only formulas the edit actually
+  REWRITES — the edited sheet, chart data ranges, and workbook defined names — can be mangled,
+  so the guard is now scoped to those; a structured reference on a foreign sheet (copied
+  verbatim, never shifted) is left alone.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

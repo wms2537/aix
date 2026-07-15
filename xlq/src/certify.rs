@@ -267,29 +267,32 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
             "detail": "a chart data reference or drawing anchor differs from xlq's transform",
         }));
     }
-    // The `_xlfn.` prefix on post-2007 functions is REQUIRED in the persisted format but is
-    // stripped by the engine on load, so the cell diff (over the loaded model) cannot see a
-    // foreign edit that drops it — which makes Excel render `#NAME?`. Compare the stored
-    // prefixed function tokens per sheet.
-    if xlfn_tokens_all(expected) != xlfn_tokens_all(edited) {
+    // Tokens the engine NORMALIZES AWAY on load — the required `_xlfn.` prefix on post-2007
+    // functions (dropping it makes Excel show `#NAME?`) and the implicit-intersection `@`
+    // operator (`@A1:A10` scalar vs the bare `A1:A10` spilling array) — are invisible to the
+    // loaded-model cell diff. Compare them per CELL, so a same-sheet RELOCATION (which a
+    // per-sheet count would miss) is caught alongside a plain drop/add.
+    if hidden_tokens_all(expected) != hidden_tokens_all(edited) {
         return Some(json!({
             "status": "REFUSED",
-            "reason": "xlfn_prefix_mismatch",
-            "detail": "a required _xlfn. function prefix (post-2007 function) was added or \
-                       dropped — the stored formula differs from xlq's transform",
+            "reason": "normalized_token_mismatch",
+            "detail": "a formula's `_xlfn.` prefix or implicit-intersection `@` operator was \
+                       added, dropped, or relocated versus xlq's transform — a `#NAME?` or \
+                       spill-vs-scalar value change the loaded-model diff cannot see",
         }));
     }
-    // The implicit-intersection `@` operator (`@A1:A10` → the single intersecting cell, vs
-    // the bare `A1:A10` → a spilling dynamic array) is likewise normalized away on load, so
-    // the cell diff cannot see a foreign edit that drops or adds it — a real value + spill
-    // footprint change. Compare the operator count per sheet.
-    if implicit_at_all(expected) != implicit_at_all(edited) {
+    // FORM-CONTROL / OLE data bindings (a checkbox/spinner's linkedCell/fmlaLink, a listbox's
+    // listFillRange, a web-publish sourceRef) — including the legacy VML form-control formulas
+    // (`<x:FmlaLink>`/`<x:FmlaMacro>`) — are the cell a control reads, writes, or runs. The
+    // cell diff never sees them, so a foreign edit that RE-POINTS a binding (to read a
+    // different value, or run a different macro) would otherwise be certified. Compare them.
+    if control_bindings(expected) != control_bindings(edited) {
         return Some(json!({
             "status": "REFUSED",
-            "reason": "implicit_intersection_mismatch",
-            "detail": "the implicit-intersection `@` operator was added or dropped on a \
-                       formula — spill vs scalar is a value change the loaded-model diff \
-                       cannot see; the stored formula differs from xlq's transform",
+            "reason": "control_binding_mismatch",
+            "detail": "a form-control / OLE data binding (linkedCell/fmlaLink/listFillRange/\
+                       sourceRef, or a VML FmlaLink/FmlaMacro) differs from xlq's transform — \
+                       a value/behavior change the cell diff cannot see",
         }));
     }
     // The VBA macro binary is executable code the transform preserves verbatim. The cell
@@ -418,16 +421,34 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
     (charts, drawings)
 }
 
-/// The `_xlfn.` prefixed function tokens across every worksheet, keyed by sheet, sorted.
-fn xlfn_tokens_all(bytes: &[u8]) -> Vec<(String, String)> {
-    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
-        return Vec::new();
-    };
+/// Every form-control / OLE / web-publish data binding across the workbook: worksheet
+/// `linkedCell`/`fmlaLink`/`listFillRange`/`sourceRef` attributes and legacy VML form-control
+/// formulas (`<x:FmlaLink>`/`<x:FmlaMacro>`/…). Collected as a sorted VALUE multiset (keyed by
+/// neither sheet nor part, so a benign VML-part renumber does not false-refuse); a re-point
+/// changes a value and is caught.
+fn control_bindings(bytes: &[u8]) -> Vec<String> {
+    let names = structural::archive_names(bytes).unwrap_or_default();
     let mut out = Vec::new();
-    for (sheet_name, part) in sheets {
-        if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
-            for tok in structural::xlfn_tokens(&x) {
-                out.push((sheet_name.clone(), tok));
+    for n in &names {
+        let low = n.to_ascii_lowercase();
+        if low.starts_with("xl/worksheets/") && low.ends_with(".xml") {
+            if let Ok(x) = crate::ooxml::read_part(bytes, n) {
+                out.extend(structural::control_binding_attrs(&x));
+            }
+        } else if low.ends_with(".vml") {
+            if let Ok(x) = crate::ooxml::read_part(bytes, n) {
+                for t in structural::element_text_semantics(
+                    &x,
+                    &[
+                        b"FmlaLink",
+                        b"FmlaMacro",
+                        b"FmlaRange",
+                        b"FmlaTxbx",
+                        b"FmlaGroup",
+                    ],
+                ) {
+                    out.push(format!("vml:{t}"));
+                }
             }
         }
     }
@@ -435,17 +456,19 @@ fn xlfn_tokens_all(bytes: &[u8]) -> Vec<(String, String)> {
     out
 }
 
-/// The implicit-intersection `@` operator count per worksheet, keyed by sheet, sorted.
-/// Compared between xlq's transform and the foreign edit: a drop/add of `@` (spill vs
-/// scalar — a value change the loaded-model cell diff cannot see) differs here.
-fn implicit_at_all(bytes: &[u8]) -> Vec<(String, usize)> {
+/// The engine-normalized-away formula tokens (`_xlfn.` prefixes and implicit-intersection
+/// `@` operators) across every worksheet, keyed by (sheet, cell) so a same-sheet relocation
+/// is visible, sorted. Compared between xlq's transform and the foreign edit.
+fn hidden_tokens_all(bytes: &[u8]) -> Vec<(String, String, String)> {
     let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
         return Vec::new();
     };
     let mut out = Vec::new();
     for (sheet_name, part) in sheets {
         if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
-            out.push((sheet_name, structural::implicit_intersection_count(&x)));
+            for (cell, sig) in structural::formula_hidden_tokens(&x) {
+                out.push((sheet_name.clone(), cell, sig));
+            }
         }
     }
     out.sort();
@@ -1150,16 +1173,49 @@ mod tests {
     }
 
     #[test]
-    fn implicit_intersection_at_is_compared() {
-        // `@A1:A10` (implicit intersection -> the single intersecting cell, a scalar) vs the
-        // bare `A1:A10` (a spilling dynamic array) is a value + footprint change the engine
-        // normalizes away on load, so the cell diff cannot see it. Compare the operator.
-        let good = wb("<f>@A1:A10</f>", &[]);
+    fn control_binding_repoint_is_caught() {
+        // A form control re-pointed to a different cell (linkedCell $A$5 -> $A$99) is a
+        // value/behavior change the cell diff never sees; certify must compare the binding.
+        let ctl = |target: &str| {
+            format!(r#"<controls><control><controlPr linkedCell="{target}"/></control></controls>"#)
+        };
+        let good = wb(&ctl("Sheet1!$A$5"), &[]);
         assert!(verify_noncell_refs(&good, &good).is_none());
-        let dropped = wb("<f>A1:A10</f>", &[]);
-        let refusal = verify_noncell_refs(&good, &dropped)
-            .expect("dropping the implicit-intersection @ must refuse");
-        assert_eq!(refusal["reason"], "implicit_intersection_mismatch");
+        let repointed = wb(&ctl("Sheet1!$A$99"), &[]);
+        let refusal = verify_noncell_refs(&good, &repointed).expect("control re-point must refuse");
+        assert_eq!(refusal["reason"], "control_binding_mismatch");
+    }
+
+    #[test]
+    fn normalized_tokens_compared_per_cell() {
+        // `@A1:A10` (implicit intersection -> a scalar) vs bare `A1:A10` (a spilling array) is
+        // a value change the engine normalizes away on load. The compare is PER CELL, so both
+        // a drop and a same-sheet RELOCATION (per-sheet count unchanged) are caught.
+        let cell = |r: &str, f: &str| format!(r#"<row><c r="{r}"><f>{f}</f></c></row>"#);
+        let good = wb(
+            &format!("{}{}", cell("C1", "@A1:A10"), cell("C5", "A1:A10")),
+            &[],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // DROP the @.
+        let dropped = wb(
+            &format!("{}{}", cell("C1", "A1:A10"), cell("C5", "A1:A10")),
+            &[],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &dropped).expect("@ drop must refuse")["reason"],
+            "normalized_token_mismatch"
+        );
+        // RELOCATE the @ from C1 to C5 — Sheet2's total @ count is still 1, but the per-cell
+        // map differs, so it is caught (a per-sheet count would miss this).
+        let moved = wb(
+            &format!("{}{}", cell("C1", "A1:A10"), cell("C5", "@A1:A10")),
+            &[],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &moved).expect("@ relocation must refuse")["reason"],
+            "normalized_token_mismatch"
+        );
     }
 
     #[test]
