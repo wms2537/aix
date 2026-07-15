@@ -260,6 +260,20 @@ is refused, not committed.
   REWRITES — the edited sheet, chart data ranges, and workbook defined names — can be mangled,
   so the guard is now scoped to those; a structured reference on a foreign sheet (copied
   verbatim, never shifted) is left alone.
+- **A foreign sheet's x14/sparkline `<xm:f>` referencing the edited sheet is SHIFTED, not
+  refused (over-refusal fix).** The foreign-sheet residual scan blanket-refused any `<extLst>`
+  formula that named the edited sheet, on the premise that the shift path does not rewrite an
+  extLst formula. That premise was wrong: the shift matches formula elements by LOCAL name, and
+  `<xm:f>` (which holds every x14 CF/DV and sparkline formula) has local name `f` — so it is
+  rewritten exactly like a plain `<f>`. A common dashboard-with-sparkline workbook is now
+  edited faithfully (the `<xm:f>` range shifts) instead of refused; a genuinely unshifted body
+  (a legacy `<formula>`/`<formula1>`, or an array `<f>`) still fails closed.
+- **`certify` no longer refuses a workbook that contains a cell comment/note (over-refusal
+  fix).** The part allowlist had no entry for `xl/comments*.xml` (nor threaded comments /
+  persons), so certify refused any commented workbook — including xlq's own byte-faithful
+  transform, which restructure commits without complaint. A comment carries only a display
+  anchor and text (no value-affecting reference; an anchor on the EDITED sheet is caught
+  upstream as an unshiftable attachment), so these parts are now known-safe.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

@@ -378,6 +378,10 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
         || low.starts_with("xl/printersettings/")    // opaque binary print settings
         || low.starts_with("xl/charts/")             // chart data refs — compared semantically
         || low.starts_with("xl/drawings/")           // drawing anchors — compared semantically
+        || low.starts_with("xl/comments")            // cell comment/note: display anchor + text,
+        || low.starts_with("xl/threadedcomments/")   // no value-affecting reference (an anchor on
+        || low.starts_with("xl/persons/")            // the EDITED sheet is caught upstream as a
+                                                     // bad attachment before certify runs)
         || low.starts_with("xl/vbaproject") // macro binary — byte-compared for a swap
 }
 
@@ -1273,6 +1277,20 @@ mod tests {
         let refusal = verify_noncell_refs(&good, &wb("", &[(n2, m.as_str())]))
             .expect("mangled chart data ref must be caught");
         assert_eq!(refusal["reason"], "chart_drawing_mismatch");
+    }
+
+    #[test]
+    fn comment_part_is_certify_safe() {
+        // A cell comment/note carries only a display anchor + text (no value-affecting
+        // reference); certify must not refuse xlq's own transform of a commented workbook.
+        let bytes = wb(
+            "",
+            &[(
+                "xl/comments1.xml",
+                r#"<comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><authors><author>A</author></authors><commentList><comment ref="A5" authorId="0"><text><t>note</t></text></comment></commentList></comments>"#,
+            )],
+        );
+        assert!(verify_noncell_refs(&bytes, &bytes).is_none());
     }
 
     #[test]

@@ -1269,11 +1269,11 @@ pub(crate) fn control_binding_attrs(xml: &[u8]) -> Vec<String> {
 
 /// True if a FOREIGN worksheet carries a reference to the edited sheet in a body the
 /// foreign-sheet shift path does NOT rewrite, and that this edit would move. The shift
-/// path rewrites only PLAIN `<f>` cell-formula text (shared formulas are expanded to
-/// plain `<f>` first); it does not touch:
-///   - a `<formula>`/`<formula1>`/`<formula2>` body (conditional formatting / data
+/// (`shift_text_in_element` with tag `f`) matches by LOCAL name, so it rewrites plain `<f>`
+/// cell-formula text (shared formulas are expanded to plain `<f>` first) AND `<xm:f>` — the
+/// x14/sparkline extLst formula element, whose local name is also `f`. It does NOT touch:
+///   - a `<formula>`/`<formula1>`/`<formula2>` body (legacy conditional formatting / data
 ///     validation),
-///   - an `<extLst>` formula (x14 CF/DV, sparklines),
 ///   - an ARRAY `<f>` (`t="array"`) — `shift_text_in_element` skips these, so an array
 ///     formula's cross-reference is left stale.
 ///
@@ -1333,29 +1333,24 @@ fn foreign_sheet_cross_ref_unshifted(xml: &[u8], edit: &StructuralEdit) -> bool 
     let mut buf = Vec::new();
     // Track when we are inside a body the foreign shift does NOT rewrite.
     let mut capture_depth = 0u32;
-    let mut ext_depth = 0u32;
     let mut raw = String::new();
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) => {
                 let name = e.name();
-                if tag_local_eq(name.as_ref(), b"extLst") {
-                    ext_depth += 1;
-                }
                 let is_f = tag_local_eq(name.as_ref(), b"f");
-                // A plain/shared `<f>` IS shifted (shared via expansion) → not captured.
-                // A non-`<f>` formula tag, anything under `<extLst>`, or an ARRAY `<f>`
-                // is NOT shifted → capture and test.
-                let unshifted_body = (is_formula_tag(name.as_ref()) && !is_f)
-                    || ext_depth > 0
-                    || (is_f && is_array_f(&e));
+                // A plain/shared `<f>` IS shifted (shared via expansion), and so is `<xm:f>`
+                // (the x14/sparkline extLst formula — same local name `f`, matched by the
+                // shift). Captured as UNSHIFTED: a non-`<f>` legacy formula tag (`<formula>` /
+                // `<formula1>` / `<formula2>`), or an ARRAY `<f>` (the shift skips it).
+                let unshifted_body =
+                    (is_formula_tag(name.as_ref()) && !is_f) || (is_f && is_array_f(&e));
                 if unshifted_body {
                     capture_depth += 1;
                     raw.clear();
                 }
             }
-            Ok(Event::End(e)) => {
-                let name = e.name();
+            Ok(Event::End(_)) => {
                 if capture_depth > 0 {
                     capture_depth -= 1;
                     let body = logical_formula(&raw).unwrap_or_else(|| raw.clone());
@@ -1363,9 +1358,6 @@ fn foreign_sheet_cross_ref_unshifted(xml: &[u8], edit: &StructuralEdit) -> bool 
                         return true;
                     }
                     raw.clear();
-                }
-                if tag_local_eq(name.as_ref(), b"extLst") {
-                    ext_depth = ext_depth.saturating_sub(1);
                 }
             }
             Ok(Event::Text(t)) if capture_depth > 0 => push_text_raw(&mut raw, &t),
@@ -3644,10 +3636,6 @@ mod tests {
         assert!(hit(br#"<worksheet><conditionalFormatting sqref="D1"><cfRule><formula>Sheet1!$A$11&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#));
         // Data-validation <formula1>.
         assert!(hit(br#"<worksheet><dataValidation sqref="E1"><formula1>Sheet1!$B$1</formula1></dataValidation></worksheet>"#));
-        // extLst <xm:f>.
-        assert!(hit(
-            br#"<worksheet><extLst><ext><xm:f>Sheet1!$A$1</xm:f></ext></extLst></worksheet>"#
-        ));
         // ARRAY <f> — shift_text_in_element SKIPS these, so a cross-ref is left stale.
         assert!(hit(br#"<worksheet><sheetData><row r="1"><c r="A1"><f t="array" ref="A1:B2">SUM(Sheet1!A1)</f></c></row></sheetData></worksheet>"#));
 
@@ -3662,6 +3650,10 @@ mod tests {
         // --- must NOT flag (no over-refusal) ---
         // A plain cell <f> IS shifted by the base engine -> not a residual hazard.
         assert!(!hit(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>Sheet1!A11</f></c></row></sheetData></worksheet>"#));
+        // extLst <xm:f> IS shifted too (local name `f`), so it is NOT a residual (round-18).
+        assert!(!hit(
+            br#"<worksheet><extLst><ext><xm:f>Sheet1!$A$1</xm:f></ext></extLst></worksheet>"#
+        ));
         // A CF body naming a DIFFERENT sheet.
         assert!(!hit(br#"<worksheet><conditionalFormatting sqref="D1"><cfRule><formula>Sheet2!$A$1&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#));
         // A CF body naming a look-alike sheet (Sheet10, not Sheet1).
@@ -3768,6 +3760,22 @@ mod tests {
         );
         assert!(s.contains(r#"ref="C3:C6""#), "output extent shifted: {s}");
         assert!(s.contains(r#"r1="A2""#), "input cell shifted: {s}");
+    }
+
+    #[test]
+    fn foreign_extlst_xmf_is_shifted_not_refused() {
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 1, 1);
+        // A foreign sheet's x14/sparkline extLst <xm:f> qualified to the edited sheet is NOT
+        // an unshifted residual: shift_text_in_element(b"f") rewrites it (local name `f`).
+        let spark = br#"<worksheet xmlns:xm="urn:xm"><sheetData/><extLst><ext><x14:sparklineGroups xmlns:x14="urn:x14"><x14:sparklineGroup><x14:sparklines><x14:sparkline><xm:f>Sheet1!A1:A10</xm:f><xm:sqref>C1</xm:sqref></x14:sparkline></x14:sparklines></x14:sparklineGroup></x14:sparklineGroups></ext></extLst></worksheet>"#;
+        assert!(!foreign_sheet_cross_ref_unshifted(spark, &e));
+        // And the shift path actually rewrites it: Sheet1!A1:A10 -> Sheet1!A2:A11.
+        let (out, n, _r, _q) = shift_text_in_element(spark, b"f", &e, "Sheet2").unwrap();
+        assert!(n >= 1);
+        assert!(String::from_utf8_lossy(&out).contains("Sheet1!A2:A11"));
+        // A LEGACY <formula> (not <f>-local) is still NOT shifted -> still flagged.
+        let legacy = br#"<worksheet><sheetData/><conditionalFormatting><cfRule><formula>Sheet1!A1</formula></cfRule></conditionalFormatting></worksheet>"#;
+        assert!(foreign_sheet_cross_ref_unshifted(legacy, &e));
     }
 
     #[test]
