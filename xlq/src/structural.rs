@@ -781,12 +781,16 @@ fn edited_sheet_body_unshifted_ref(
                         return would_shift(&val);
                     }
                     // Other cell-range attributes the shift never rewrites: form-control / OLE
-                    // data bindings (linkedCell/fmlaLink/listFillRange — the cell a control
-                    // reads/writes) and a web-publish source range (sourceRef). Flag if this
-                    // edit would move them.
+                    // data bindings (linkedCell/fmlaLink/listFillRange/fmlaRange — the cell a
+                    // control reads/writes or a list/combo box's SOURCE range) and a web-publish
+                    // source range (sourceRef). Flag if this edit would move them.
                     if matches!(
                         k,
-                        b"linkedCell" | b"fmlaLink" | b"listFillRange" | b"sourceRef"
+                        b"linkedCell"
+                            | b"fmlaLink"
+                            | b"listFillRange"
+                            | b"fmlaRange"
+                            | b"sourceRef"
                     ) {
                         return would_shift(&val);
                     }
@@ -1129,6 +1133,43 @@ fn formula_excludes_hidden_rows(f: &str) -> bool {
     false
 }
 
+/// Per formula cell, the VALUE-AFFECTING `<f>` TYPE attribute the engine normalizes away on
+/// load — `t="array"` (a legacy CSE array: on non-dynamic-array Excel a plain
+/// `=SUM(A1:A3*A1:A3)` implicit-intersects to a scalar, while `{=SUM(...)}` computes the full
+/// 14; and a wider `ref` materializes spilled cells) and `t="dataTable"` — keyed by the cell's
+/// `r`, with the element's `ref` (array extent / table output). IronCalc strips these, so the
+/// loaded-model cell diff is blind to a foreign edit that ADDS/removes the flag or widens its
+/// extent; certify compares this map per cell.
+pub(crate) fn array_formula_cells(xml: &[u8]) -> std::collections::BTreeMap<String, String> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = std::collections::BTreeMap::new();
+    let mut cell_ref: Option<String> = None;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                cell_ref = attr_by_local(&e, b"r");
+            }
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
+                if let Some(t) = attr_by_local(&e, b"t") {
+                    if (t == "array" || t == "dataTable") && cell_ref.is_some() {
+                        let rf = attr_by_local(&e, b"ref").unwrap_or_default();
+                        out.insert(cell_ref.clone().unwrap(), format!("{t}:{rf}"));
+                    }
+                }
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                cell_ref = None;
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
 /// Every `_xlfn.`/`_xlfn._xlws.`-prefixed function token in one stored `<f>` body, sorted.
 /// The OOXML persisted format REQUIRES this prefix for post-2007 functions (CONCAT, XLOOKUP,
 /// TEXTJOIN, …); a consumer strips it on load and re-adds it on export. certify's cell diff
@@ -1239,6 +1280,71 @@ pub(crate) fn formula_hidden_tokens(xml: &[u8]) -> std::collections::BTreeMap<St
     out
 }
 
+/// The value/reference-affecting semantics of every Excel Table in a table part: the table's
+/// `name`/`displayName`/`ref` (its extent — structured references resolve through it), each
+/// column's `name` (a structured-reference target) and `totalsRowFunction` (a value input),
+/// and any `calculatedColumnFormula`/`totalsRowFormula` body. certify compares these — the
+/// transform never shifts a table (it refuses an edit that would move one), so a faithful edit
+/// leaves them unchanged and a mangle differs — while tolerating a foreign tool's cosmetic
+/// re-serialization (style / id / header-count attrs are excluded). Values are captured whole,
+/// so a name or label containing spaces is compared correctly.
+pub(crate) fn table_semantics(xml: &[u8]) -> Vec<String> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut in_f = false;
+    let mut raw = String::new();
+    let is_tbl_f = |n: &[u8]| {
+        tag_local_eq(n, b"calculatedColumnFormula") || tag_local_eq(n, b"totalsRowFormula")
+    };
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if tag_local_eq(e.name().as_ref(), b"table") =>
+            {
+                for key in [
+                    b"name".as_slice(),
+                    b"displayName".as_slice(),
+                    b"ref".as_slice(),
+                ] {
+                    if let Some(v) = attr_by_local(&e, key) {
+                        out.push(format!("table.{}={}", String::from_utf8_lossy(key), v));
+                    }
+                }
+            }
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if tag_local_eq(e.name().as_ref(), b"tableColumn") =>
+            {
+                for key in [b"name".as_slice(), b"totalsRowFunction".as_slice()] {
+                    if let Some(v) = attr_by_local(&e, key) {
+                        out.push(format!("col.{}={}", String::from_utf8_lossy(key), v));
+                    }
+                }
+            }
+            Ok(Event::Start(e)) if is_tbl_f(e.name().as_ref()) => {
+                in_f = true;
+                raw.clear();
+            }
+            Ok(Event::Text(t)) if in_f => push_text_raw(&mut raw, &t),
+            Ok(Event::GeneralRef(r)) if in_f => push_ref_raw(&mut raw, &r),
+            Ok(Event::End(e)) if in_f && is_tbl_f(e.name().as_ref()) => {
+                out.push(format!(
+                    "f={}",
+                    logical_formula(&raw).unwrap_or_else(|| raw.clone())
+                ));
+                in_f = false;
+                raw.clear();
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out.sort();
+    out
+}
+
 /// Every form-control / OLE / web-publish data-binding target on a sheet: the value of a
 /// `linkedCell` / `fmlaLink` / `listFillRange` / `sourceRef` attribute (the cell a control
 /// reads/writes), sorted. certify compares these so a foreign edit that RE-POINTS a control's
@@ -1255,6 +1361,7 @@ pub(crate) fn control_binding_attrs(xml: &[u8]) -> Vec<String> {
                     b"linkedCell".as_slice(),
                     b"fmlaLink".as_slice(),
                     b"listFillRange".as_slice(),
+                    b"fmlaRange".as_slice(),
                     b"sourceRef".as_slice(),
                 ] {
                     if let Some(v) = attr_by_local(&e, key) {
@@ -1311,6 +1418,7 @@ fn foreign_sheet_ref_attr_crosses(xml: &[u8], edit: &StructuralEdit) -> bool {
                     b"linkedCell".as_slice(),
                     b"fmlaLink".as_slice(),
                     b"listFillRange".as_slice(),
+                    b"fmlaRange".as_slice(),
                     b"sourceRef".as_slice(),
                 ] {
                     if let Some(v) = attr_by_local(&e, key) {
@@ -1674,16 +1782,25 @@ fn scan_extra_residuals(
         .collect();
     for n in scan_parts {
         if let Ok(bytes) = crate::ooxml::read_part(input, n) {
-            let text = String::from_utf8_lossy(&bytes);
+            // Scan only FORMULA bodies, NOT the raw part text: an inline-string cell
+            // (`<t>Enter totals in A1:A5!</t>`) or a cached value can legitimately contain an
+            // `X:Y!` substring, which a whole-text scan misreads as a 3D interior-tab span or a
+            // non-ASCII qualifier. A live reference can appear only inside a formula element.
+            let formula_texts = element_text_semantics(
+                &bytes,
+                &[b"f", b"formula", b"formula1", b"formula2", b"definedName"],
+            );
             // NON-ASCII edited-sheet name: the reference tokenizer only starts a candidate
             // at an ASCII letter/$/digit, so an UNQUOTED non-ASCII sheet qualifier (集計!A11)
             // is never parsed and the σ-oracle silently leaves such a cross-reference stale.
-            // We cannot shift it, so if any part qualifies the edited sheet by that name we
+            // We cannot shift it, so if any formula qualifies the edited sheet by that name we
             // fail closed. (A quoted '集計'! reference IS handled by the tokenizer's quoted
             // path and is not affected.)
             if !edit.sheet.is_ascii()
-                && (text.contains(&format!("{}!", edit.sheet))
-                    || text.contains(&format!("{}:", edit.sheet)))
+                && formula_texts.iter().any(|f| {
+                    f.contains(&format!("{}!", edit.sheet))
+                        || f.contains(&format!("{}:", edit.sheet))
+                })
             {
                 report.residuals.push(Residual {
                     part: n.clone(),
@@ -1694,7 +1811,10 @@ fn scan_extra_residuals(
                         .into(),
                 });
             }
-            if refshift::has_unverifiable_3d_span(&text, &edit.sheet) {
+            if formula_texts
+                .iter()
+                .any(|f| refshift::has_unverifiable_3d_span(f, &edit.sheet))
+            {
                 report.residuals.push(Residual {
                     part: n.clone(),
                     reason: "threeD_span_unverifiable".into(),
@@ -4095,6 +4215,11 @@ mod tests {
         // Form-control data binding (linkedCell/fmlaLink) is flagged.
         assert_eq!(
             f(br#"<worksheet><controls><control><controlPr linkedCell="A8" fmlaLink="A9"/></control></controls></worksheet>"#).as_deref(),
+            Some("controlPr")
+        );
+        // A list/combo-box SOURCE range (fmlaRange, sibling of fmlaLink) is flagged too.
+        assert_eq!(
+            f(br#"<worksheet><controls><control><controlPr fmlaRange="A1:A8"/></control></controls></worksheet>"#).as_deref(),
             Some("controlPr")
         );
         // A web-publish source range (sourceRef, ST_Ref in a non-ref/sqref/r attr) is flagged.

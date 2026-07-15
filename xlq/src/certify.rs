@@ -256,6 +256,20 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        SUBTOTAL(101-111)/AGGREGATE — a value input to those aggregates",
         }));
     }
+    // EXCEL TABLES (ListObjects) are COMPARED, not refused on presence — refusing them
+    // rejected xlq's own faithful transform of ANY workbook containing a table (Ctrl+T) on any
+    // sheet. restructure refuses an edit that would MOVE a table (on the edited sheet, or one
+    // carrying a cross-sheet formula), so a table that survives to here is one the transform
+    // left unchanged; a faithful edit matches its ref/name/column-formula surface, a mangle
+    // (or a re-scoped structured reference) differs.
+    if table_refs(expected) != table_refs(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "table_reference_mismatch",
+            "detail": "an Excel Table's extent, name, column, or formula differs from xlq's \
+                       transform — a reference/value change the cell diff does not compare",
+        }));
+    }
     // CHART data references (which the transform shifts) and DRAWING cell anchors are
     // COMPARED, not refused on presence — refusing them rejected xlq's own transform of any
     // charted or logo-bearing workbook. A faithful edit's chart refs / anchors match the
@@ -279,6 +293,20 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
             "detail": "a formula's `_xlfn.` prefix or implicit-intersection `@` operator was \
                        added, dropped, or relocated versus xlq's transform — a `#NAME?` or \
                        spill-vs-scalar value change the loaded-model diff cannot see",
+        }));
+    }
+    // The `<f>` TYPE attribute `t="array"` (legacy CSE array) / `t="dataTable"` is likewise
+    // stripped by the engine on load. A foreign edit that turns a plain formula into a CSE
+    // array (or widens the array `ref`) changes the computed value on non-dynamic-array Excel
+    // with no formula/value diff the cell diff can see. Compare the array/table flag + extent
+    // per cell.
+    if array_formula_all(expected) != array_formula_all(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "array_formula_mismatch",
+            "detail": "a formula's array/data-table flag or extent (t=\"array\"/\"dataTable\" \
+                       ref) differs from xlq's transform — a CSE-array value change the \
+                       loaded-model diff cannot see",
         }));
     }
     // FORM-CONTROL / OLE data bindings (a checkbox/spinner's linkedCell/fmlaLink, a listbox's
@@ -378,11 +406,29 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
         || low.starts_with("xl/printersettings/")    // opaque binary print settings
         || low.starts_with("xl/charts/")             // chart data refs — compared semantically
         || low.starts_with("xl/drawings/")           // drawing anchors — compared semantically
+        || low.starts_with("xl/tables/")             // Excel Table — ref/name/formulas compared
         || low.starts_with("xl/comments")            // cell comment/note: display anchor + text,
         || low.starts_with("xl/threadedcomments/")   // no value-affecting reference (an anchor on
         || low.starts_with("xl/persons/")            // the EDITED sheet is caught upstream as a
                                                      // bad attachment before certify runs)
         || low.starts_with("xl/vbaproject") // macro binary — byte-compared for a swap
+}
+
+/// The reference/value surface of every Excel Table across `xl/tables/*.xml`, as a sorted
+/// list (keyed by neither part nor sheet, so a benign part renumber does not false-refuse).
+fn table_refs(bytes: &[u8]) -> Vec<String> {
+    let names = structural::archive_names(bytes).unwrap_or_default();
+    let mut out = Vec::new();
+    for n in &names {
+        let low = n.to_ascii_lowercase();
+        if low.starts_with("xl/tables/") && low.ends_with(".xml") {
+            if let Ok(x) = crate::ooxml::read_part(bytes, n) {
+                out.extend(structural::table_semantics(&x));
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 /// Chart data references (`<f>`) and drawing cell anchors (`<col>`/`<row>`) across ALL
@@ -471,6 +517,24 @@ fn hidden_tokens_all(bytes: &[u8]) -> Vec<(String, String, String)> {
     for (sheet_name, part) in sheets {
         if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
             for (cell, sig) in structural::formula_hidden_tokens(&x) {
+                out.push((sheet_name.clone(), cell, sig));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The CSE-array / data-table `<f>` type flag + extent per (sheet, cell), sorted. Stripped by
+/// the engine on load, so compared here between xlq's transform and the foreign edit.
+fn array_formula_all(bytes: &[u8]) -> Vec<(String, String, String)> {
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (sheet_name, part) in sheets {
+        if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
+            for (cell, sig) in structural::array_formula_cells(&x) {
                 out.push((sheet_name.clone(), cell, sig));
             }
         }
@@ -1191,6 +1255,26 @@ mod tests {
     }
 
     #[test]
+    fn array_formula_flag_is_compared() {
+        // Turning a plain formula into a legacy CSE array (t="array") is value-affecting on
+        // non-dynamic Excel but stripped by the engine on load; certify compares the flag.
+        let f = |t: &str| format!(r#"<row><c r="C1"><f{t}>SUM(A1:A3*A1:A3)</f></c></row>"#);
+        let plain = wb(&f(""), &[]);
+        assert!(verify_noncell_refs(&plain, &plain).is_none());
+        let array = wb(&f(r#" t="array" ref="C1:C1""#), &[]);
+        assert_eq!(
+            verify_noncell_refs(&plain, &array).expect("plain->array must refuse")["reason"],
+            "array_formula_mismatch"
+        );
+        // widening the array extent (materializing spilled cells) is caught too.
+        let wide = wb(&f(r#" t="array" ref="C1:C3""#), &[]);
+        assert_eq!(
+            verify_noncell_refs(&array, &wide).expect("widened array ref must refuse")["reason"],
+            "array_formula_mismatch"
+        );
+    }
+
+    #[test]
     fn normalized_tokens_compared_per_cell() {
         // `@A1:A10` (implicit intersection -> a scalar) vs bare `A1:A10` (a spilling array) is
         // a value change the engine normalizes away on load. The compare is PER CELL, so both
@@ -1294,20 +1378,31 @@ mod tests {
     }
 
     #[test]
-    fn table_part_is_refused_by_verify_noncell_refs() {
-        // A table part carries `ref` + value-bearing `calculatedColumnFormula` certify does
-        // not positionally compare — a foreign tool that drops/mangles it while shifting
-        // cells must not be certified.
-        let bytes = wb(
-            "",
-            &[(
-                "xl/tables/table1.xml",
-                r#"<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="T1" displayName="T1" ref="A1:B2"><tableColumns count="1"><tableColumn id="1" name="A"/></tableColumns></table>"#,
-            )],
+    fn table_reference_surface_is_compared_not_refused() {
+        // An Excel Table is COMPARED, not refused on presence (over-refusal fix): an identical
+        // table certifies, but a mangled `ref` (or renamed table / changed column formula) is
+        // caught even though the cell diff never compares the table part.
+        let tbl = |rng: &str, colf: &str| {
+            format!(
+                r#"<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="T1" displayName="T1" ref="{rng}"><tableColumns count="1"><tableColumn id="1" name="Amt"><calculatedColumnFormula>{colf}</calculatedColumnFormula></tableColumn></tableColumns></table>"#
+            )
+        };
+        let good = wb("", &[("xl/tables/table1.xml", &tbl("A1:B2", "B1*2"))]);
+        // identical table -> NOT refused
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // a mangled extent -> caught
+        let bad_ref = wb("", &[("xl/tables/table1.xml", &tbl("A1:B99", "B1*2"))]);
+        assert_eq!(
+            verify_noncell_refs(&good, &bad_ref).expect("mangled table ref must refuse")["reason"],
+            "table_reference_mismatch"
         );
-        let refusal = verify_noncell_refs(&bytes, &bytes).expect("table must refuse");
-        assert_eq!(refusal["status"], "REFUSED");
-        assert_eq!(refusal["reason"], "unverified_reference_part");
+        // a mangled column formula -> caught
+        let bad_f = wb("", &[("xl/tables/table1.xml", &tbl("A1:B2", "B1*999"))]);
+        assert_eq!(
+            verify_noncell_refs(&good, &bad_f).expect("mangled table formula must refuse")
+                ["reason"],
+            "table_reference_mismatch"
+        );
     }
 
     #[test]

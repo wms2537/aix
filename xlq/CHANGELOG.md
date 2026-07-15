@@ -284,6 +284,29 @@ is refused, not committed.
   to another sheet is untouched, on any sheet the link lives on). A delete that consumes the
   target yields `#REF!`, mirroring Excel. certify then compares the shifted destination, so a
   faithful edit certifies and a stale one is refused.
+- **`certify` compares the CSE-array / data-table `<f>` flag.** A foreign edit that turns a
+  plain formula into a legacy array formula (`<f t="array" ref=…>`), or widens the array
+  extent, changes the computed value on pre-dynamic-array Excel (`=SUM(A1:A3*A1:A3)`
+  implicit-intersects to a scalar; `{=SUM(…)}` computes the full sum) — but the engine strips
+  `t`/`ref` on load, so the cell diff sees nothing. The `array`/`dataTable` flag and extent are
+  now compared per cell (the reverse — an original array formula — is already refused upstream).
+- **`certify` COMPARES Excel Tables instead of refusing them (over-refusal fix).** The part
+  allowlist had no `xl/tables/` entry, so certify refused ANY workbook containing a table
+  (Ctrl+T) on any sheet — including xlq's own faithful transform, which restructure commits
+  (restructure only refuses a table it would have to MOVE). The table's reference surface —
+  `ref` extent, `name`/`displayName`, column names, `totalsRowFunction`, and
+  calculated-column / totals-row formulas — is now compared semantically (tolerating a foreign
+  tool's cosmetic re-serialization), so a faithful edit certifies and a mangled/re-scoped table
+  is caught.
+- **A form control's list/combo-box source range (`fmlaRange`) is shifted-or-refused.** The
+  edited-sheet body scan flagged `linkedCell`/`fmlaLink`/`listFillRange`/`sourceRef` but omitted
+  the sibling `fmlaRange` (a `<controlPr>` SOURCE range), so it committed stale; it now fails
+  closed like the others, and certify compares it.
+- **An inline-string cell containing an `X:Y!` substring no longer over-refuses.** The 3D-span
+  and non-ASCII-qualifier guards scanned the whole worksheet part text, so ordinary prose in a
+  cell (`Enter totals in A1:A5!`, an openpyxl inline string) was misread as a 3D interior-tab
+  span and refused the edit. The scan is now scoped to FORMULA element bodies (`<f>`,
+  `<formula*>`, `<definedName>`), where a live reference can actually appear.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
