@@ -418,6 +418,11 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
                                                      // index-linked from cells via `vm`, no coord
         || low.starts_with("customui/")              // ribbon extensibility XML: no cell coord
                                                      // (callbacks are VBA macro-name strings)
+        || low == "xl/connections.xml"               // external data source defs, no cell coord
+        || low.starts_with("xl/querytables/")        // query-table field defs (extent is in the
+                                                     // associated table part, compared there)
+        || low.starts_with("xl/ctrlprops/")          // modern form-control props — its fmlaLink/
+                                                     // fmlaRange bindings ARE compared (below)
         || low.starts_with("xl/theme/")              // colors/fonts
         || low.starts_with("docprops/")              // document metadata
         || low.starts_with("customxml/")             // inert custom-XML data island: Excel
@@ -501,7 +506,12 @@ fn control_bindings(bytes: &[u8]) -> Vec<String> {
     let mut out = Vec::new();
     for n in &names {
         let low = n.to_ascii_lowercase();
-        if low.starts_with("xl/worksheets/") && low.ends_with(".xml") {
+        if (low.starts_with("xl/worksheets/") && low.ends_with(".xml"))
+            || low.starts_with("xl/ctrlprops/")
+        {
+            // Worksheet controlPr bindings AND modern `xl/ctrlProps/*` <formControlPr> bindings
+            // (fmlaLink/fmlaRange/…) — the allowlist marks ctrlProps known-safe only because its
+            // bindings are compared here.
             if let Ok(x) = crate::ooxml::read_part(bytes, n) {
                 out.extend(structural::control_binding_attrs(&x));
             }
@@ -639,7 +649,13 @@ fn vba_parts(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
 fn protection_semantics(bytes: &[u8]) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     if let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") {
-        for (elem, attrs) in structural::element_attr_semantics(&wb, &[b"workbookProtection"]) {
+        // `<workbookProtection>` (structure/window lock) and `<fileSharing>` (the workbook-level
+        // WRITE-RESERVATION password — reservationPassword / the modern algorithmName+hashValue+
+        // saltValue+spinCount hash — plus readOnlyRecommended). Stripping or weakening either is a
+        // security downgrade the cell diff never sees.
+        for (elem, attrs) in
+            structural::element_attr_semantics(&wb, &[b"workbookProtection", b"fileSharing"])
+        {
             out.push(("(workbook)".to_string(), elem, attrs));
         }
     }

@@ -655,7 +655,11 @@ fn tables_attached_to(input: &[u8], sheet_part: &str) -> Vec<String> {
 /// are safe. Fail-closed WHITELIST: returns the Type of the first attachment that is
 /// NOT safe, so an unrecognized (future) attachment type refuses by default rather
 /// than being silently left stale. `None` = every attachment is safe.
-fn edited_sheet_bad_attachment(input: &[u8], sheet_part: &str) -> Option<String> {
+fn edited_sheet_bad_attachment(
+    input: &[u8],
+    sheet_part: &str,
+    edit: &StructuralEdit,
+) -> Option<String> {
     const SAFE: &[&str] = &["/hyperlink", "/printerSettings", "/table"];
     let (dir, file) = sheet_part.rsplit_once('/')?;
     let rels_part = format!("{dir}/_rels/{file}.rels");
@@ -669,10 +673,27 @@ fn edited_sheet_bad_attachment(input: &[u8], sheet_part: &str) -> Option<String>
                 if tag_local_eq(e.name().as_ref(), b"Relationship") =>
             {
                 if let Some(ty) = attr_by_local(&e, b"Type") {
-                    if !SAFE.iter().any(|s| ty.ends_with(s)) {
-                        // Report the trailing path segment of the type as a label.
-                        return Some(ty.rsplit('/').next().unwrap_or(&ty).to_string());
+                    if SAFE.iter().any(|s| ty.ends_with(s)) {
+                        continue;
                     }
+                    // A DRAWING (image / chart / shape) is copied verbatim, so it is a hazard
+                    // only if THIS edit would MOVE one of its cell anchors — a logo/chart pinned
+                    // above or left of the edited range is unaffected. Resolve the drawing part
+                    // and affect-check its `<xdr:from>/<xdr:to>` anchors, like the other guards.
+                    if ty.ends_with("/drawing") {
+                        let affected = attr_by_local(&e, b"Target")
+                            .map(|t| crate::ooxml::resolve_target(dir, &t))
+                            .and_then(|p| crate::ooxml::read_part(input, &p).ok())
+                            .map(|x| drawing_anchor_affected(&x, edit))
+                            .unwrap_or(true); // unresolved/unreadable -> fail closed
+                        if affected {
+                            return Some("drawing".into());
+                        }
+                        continue;
+                    }
+                    // Any other attachment (comments, VML, controls, …) is presence-refused —
+                    // its coordinate parsing differs and is left fail-closed.
+                    return Some(ty.rsplit('/').next().unwrap_or(&ty).to_string());
                 }
             }
             Ok(Event::Eof) => break,
@@ -684,6 +705,55 @@ fn edited_sheet_bad_attachment(input: &[u8], sheet_part: &str) -> Option<String>
         buf.clear();
     }
     None
+}
+
+/// True if this edit would MOVE any of a drawing's cell anchors — the `<xdr:from>`/`<xdr:to>`
+/// `<row>` (row edit) or `<col>` (column edit), which are 0-based. We copy a drawing part
+/// verbatim, so an affected anchor leaves the image/chart displaced. An absoluteAnchor
+/// (EMU-positioned, no cell anchor) is never affected; an unparseable part fails closed.
+fn drawing_anchor_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
+    let row_axis = edit.axis == Axis::Row;
+    let want: &[u8] = if row_axis { b"row" } else { b"col" };
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut in_pt = false; // inside <from> / <to>
+    let mut cap = false;
+    let mut txt = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e))
+                if tag_local_eq(e.name().as_ref(), b"from")
+                    || tag_local_eq(e.name().as_ref(), b"to") =>
+            {
+                in_pt = true;
+            }
+            Ok(Event::End(e))
+                if tag_local_eq(e.name().as_ref(), b"from")
+                    || tag_local_eq(e.name().as_ref(), b"to") =>
+            {
+                in_pt = false;
+            }
+            Ok(Event::Start(e)) if in_pt && tag_local_eq(e.name().as_ref(), want) => {
+                cap = true;
+                txt.clear();
+            }
+            Ok(Event::Text(t)) if cap => txt.push_str(&String::from_utf8_lossy(t.as_ref())),
+            Ok(Event::End(e)) if cap && tag_local_eq(e.name().as_ref(), want) => {
+                if let Ok(idx0) = txt.trim().parse::<u32>() {
+                    let one_based = idx0 + 1; // xdr anchors are 0-based
+                    if shift_line(one_based, edit) != Some(one_based) {
+                        return true;
+                    }
+                }
+                cap = false;
+            }
+            Ok(Event::Eof) => return false,
+            Err(_) => return true, // fail closed
+            _ => {}
+        }
+        buf.clear();
+    }
 }
 
 /// True if an `<extLst>` reference on the edited sheet — an `<xm:sqref>` range for x14
@@ -1761,7 +1831,7 @@ fn scan_extra_residuals(
     // hyperlinks and printer settings are coordinate-free-safe (tables are handled by
     // the dedicated guard below). Anything else — including a future, unrecognized
     // attachment type — refuses.
-    if let Some(bad) = edited_sheet_bad_attachment(input, edited_part) {
+    if let Some(bad) = edited_sheet_bad_attachment(input, edited_part, edit) {
         report.residuals.push(Residual {
             part: edited_part.to_string(),
             reason: "unshiftable_sheet_attachment".into(),
@@ -3948,7 +4018,12 @@ mod tests {
             "/tests/fixtures/t1/pivot-chart.xlsx"
         ))
         .unwrap();
-        assert!(edited_sheet_bad_attachment(&input, "xl/worksheets/sheet1.xml").is_some());
+        assert!(edited_sheet_bad_attachment(
+            &input,
+            "xl/worksheets/sheet1.xml",
+            &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)
+        )
+        .is_some());
         let (_o, report) =
             structural_edit(&input, &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)).unwrap();
         assert!(
@@ -3961,7 +4036,12 @@ mod tests {
         );
         // A sheet with NO rels part has no attachments -> not flagged (refs.xlsx Sheet1).
         let plain = std::fs::read(format!("{FIX}refs.xlsx")).unwrap();
-        assert!(edited_sheet_bad_attachment(&plain, "xl/worksheets/sheet1.xml").is_none());
+        assert!(edited_sheet_bad_attachment(
+            &plain,
+            "xl/worksheets/sheet1.xml",
+            &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)
+        )
+        .is_none());
     }
 
     #[test]
@@ -3990,25 +4070,77 @@ mod tests {
         ] {
             let z = with_rels(&rel(&ty));
             assert!(
-                edited_sheet_bad_attachment(&z, "xl/worksheets/sheet1.xml").is_none(),
+                edited_sheet_bad_attachment(
+                    &z,
+                    "xl/worksheets/sheet1.xml",
+                    &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)
+                )
+                .is_none(),
                 "safe attachment {ty} must not be flagged"
             );
         }
         // A coordinate-bearing attachment (drawing/comments/control) is flagged by its label.
         let z = with_rels(&rel(&format!("{base}/drawing")));
         assert_eq!(
-            edited_sheet_bad_attachment(&z, "xl/worksheets/sheet1.xml").as_deref(),
+            edited_sheet_bad_attachment(
+                &z,
+                "xl/worksheets/sheet1.xml",
+                &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)
+            )
+            .as_deref(),
             Some("drawing")
         );
         // An UNKNOWN (future) attachment type refuses by default — the fail-closed whitelist.
         let z = with_rels(&rel("http://example.com/some/future/thing"));
-        assert!(edited_sheet_bad_attachment(&z, "xl/worksheets/sheet1.xml").is_some());
+        assert!(edited_sheet_bad_attachment(
+            &z,
+            "xl/worksheets/sheet1.xml",
+            &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)
+        )
+        .is_some());
         // A present-but-MALFORMED rels part fails CLOSED (cannot enumerate -> refuse).
         let z = with_rels(b"<Relationships><not well formed");
         assert_eq!(
-            edited_sheet_bad_attachment(&z, "xl/worksheets/sheet1.xml").as_deref(),
+            edited_sheet_bad_attachment(
+                &z,
+                "xl/worksheets/sheet1.xml",
+                &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)
+            )
+            .as_deref(),
             Some("unparseable_rels")
         );
+    }
+
+    #[test]
+    fn drawing_anchor_affect_check() {
+        // A oneCellAnchor image pinned at row 0 (A1). xdr anchors are 0-based.
+        let d = br#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="1" cy="1"/></xdr:oneCellAnchor></xdr:wsDr>"#;
+        // insert far below the anchor -> NOT affected (the round-28 over-refusal fix).
+        assert!(!drawing_anchor_affected(
+            d,
+            &edit("S", Axis::Row, Op::Insert, 25, 1)
+        ));
+        // insert at/above the anchor -> affected.
+        assert!(drawing_anchor_affected(
+            d,
+            &edit("S", Axis::Row, Op::Insert, 1, 1)
+        ));
+        // a COLUMN edit at column A moves the col-0 anchor.
+        assert!(drawing_anchor_affected(
+            d,
+            &edit("S", Axis::Col, Op::Insert, 1, 1)
+        ));
+        // a column edit far right does not.
+        assert!(!drawing_anchor_affected(
+            d,
+            &edit("S", Axis::Col, Op::Insert, 20, 1)
+        ));
+        // a twoCellAnchor whose <to> is in the edited band is affected even if <from> is not.
+        let two = br#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:twoCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:row>0</xdr:row></xdr:from><xdr:to><xdr:col>3</xdr:col><xdr:row>30</xdr:row></xdr:to></xdr:twoCellAnchor></xdr:wsDr>"#;
+        assert!(drawing_anchor_affected(
+            two,
+            &edit("S", Axis::Row, Op::Insert, 25, 1)
+        ));
     }
 
     #[test]

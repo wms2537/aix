@@ -420,7 +420,7 @@ fn rid_target(rels_xml: &[u8], rid: &str) -> Result<Option<String>> {
     }
 }
 
-fn resolve_target(base_dir: &str, target: &str) -> String {
+pub(crate) fn resolve_target(base_dir: &str, target: &str) -> String {
     if let Some(abs) = target.strip_prefix('/') {
         return abs.to_string();
     }

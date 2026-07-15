@@ -421,6 +421,25 @@ is refused, not committed.
   column A → `#REF!`), but not the overflow edge — a dependent offset past column XFD / row
   1048576 materialized an off-grid token (`XFE1`) that Excel reads as `#NAME?`. It now `#REF!`s on
   both edges, mirroring the reference-shift path's grid clamp.
+- **`certify` compares the workbook write-reservation password (`<fileSharing>`) (security fix).**
+  The protection compare covered `<workbookProtection>` and sheet protection but not
+  `<fileSharing>` (the workbook-level write-reservation password — `reservationPassword` or its
+  modern `algorithmName`+`hashValue`+`saltValue`+`spinCount` hash — plus `readOnlyRecommended`), so
+  a foreign edit that stripped or weakened it certified as faithful. Now compared alongside the
+  other protection elements.
+- **An edited-sheet drawing/image/chart is refused only when the edit moves its anchor
+  (over-refusal fix).** The attachment guard refused ANY edited-sheet drawing on presence, so a
+  logo or chart pinned above/left of a data region blocked every insert/delete below/right of it,
+  even though xlq copies the drawing verbatim and the anchor never moves. The guard now resolves
+  the drawing part and affect-checks its `<xdr:from>`/`<xdr:to>` cell anchors: a drawing the edit
+  displaces still fails closed, one outside the edited range commits. (Comments/VML and other
+  attachment types remain presence-refused — their anchor form differs.)
+- **`certify` no longer refuses a workbook with data connections / query tables / modern form
+  controls (over-refusal fix).** `xl/connections.xml` (external data-source definitions) and
+  `xl/queryTables/*` (whose extent lives in the associated table part) carry no cell coordinate,
+  and `xl/ctrlProps/*` form-control bindings are now compared like their VML/inline
+  counterparts — all three were missing from the allowlist, so certify refused its own transform
+  of any workbook using them.
 - **`certify` treats a number-format change as value-affecting under "precision as displayed".**
   A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
   computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input
