@@ -949,15 +949,149 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
     (l1, c1 && r1 && !ident_tail(l1))
 }
 
-/// Detect a 3D span reference (`SheetA:SheetB!…`) in a formula whose endpoint
-/// sheets do NOT include the edited sheet. Such a span may cover the edited
-/// sheet as an INTERIOR tab (which we cannot verify without workbook order), so
-/// its shift is unverifiable and the edit must be refused rather than silently
-/// left stale. Returns true if such an unverifiable 3D span is present.
-pub fn has_unverifiable_3d_span(formula: &str, edited_sheet: &str) -> bool {
-    // `edited_sheet` is retained for API stability and documentation; a genuine multi-sheet
-    // span is unverifiable regardless of which of its sheets is being edited (see below).
-    let _ = edited_sheet;
+/// Walk back from `end` over ONE sheet-qualifier token — a quoted `'…'` (handling `''`
+/// escapes) or an unquoted run of `[A-Za-z0-9_.]` — and return its start byte index.
+fn walk_qual_token_back(b: &[u8], end: usize) -> usize {
+    if end == 0 {
+        return 0;
+    }
+    if b[end - 1] == b'\'' {
+        let mut j = end - 1;
+        while j > 0 {
+            j -= 1;
+            if b[j] == b'\'' {
+                if j > 0 && b[j - 1] == b'\'' {
+                    j -= 1; // an escaped '' — keep walking
+                    continue;
+                }
+                return j; // the opening quote
+            }
+        }
+        j
+    } else {
+        let mut j = end;
+        while j > 0 {
+            let c = b[j - 1];
+            if c.is_ascii_alphanumeric() || c == b'_' || c == b'.' {
+                j -= 1;
+            } else {
+                break;
+            }
+        }
+        j
+    }
+}
+
+/// Walk back over a WHOLE sheet qualifier — one or more tokens joined by top-level `:`
+/// (`Sheet1:Sheet2`, `'A':'B'`, `A:'B'`) — returning its start byte index. A fully-quoted span
+/// (`'A:B'`) is a single quoted token here; its interior `:` is handled by the splitter.
+fn walk_full_qualifier_back(b: &[u8], end: usize) -> usize {
+    let mut pos = end;
+    loop {
+        let tok_start = walk_qual_token_back(b, pos);
+        if tok_start == pos {
+            break; // consumed nothing
+        }
+        pos = tok_start;
+        if pos > 0 && b[pos - 1] == b':' {
+            pos -= 1; // a span separator between two tokens — keep walking
+            continue;
+        }
+        break;
+    }
+    pos
+}
+
+/// Split a sheet qualifier into 3D-span endpoints, or None if it is a single sheet. Handles a
+/// top-level `:` between tokens (`Sheet1:Sheet2`, `'A':'B'`, `Sheet1:'Sheet2'`) AND a fully
+/// quoted span whose `:` is INSIDE the quotes (`'A-Sheet:B-Sheet'`). Endpoints are normalized.
+fn split_span_qualifier(qual: &str) -> Option<(String, String)> {
+    let qual = qual.trim();
+    let b = qual.as_bytes();
+    let mut in_q = false;
+    let mut k = 0;
+    while k < b.len() {
+        match b[k] {
+            b'\'' => {
+                if in_q && b.get(k + 1) == Some(&b'\'') {
+                    k += 2; // '' escape
+                    continue;
+                }
+                in_q = !in_q;
+            }
+            b':' if !in_q => {
+                return Some((
+                    normalize_sheet_token(&qual[..k]),
+                    normalize_sheet_token(&qual[k + 1..]),
+                ));
+            }
+            _ => {}
+        }
+        k += 1;
+    }
+    // No top-level `:` — a fully-quoted span `'X:Y'` carries its `:` inside the single token.
+    if qual.len() >= 2 && qual.starts_with('\'') && qual.ends_with('\'') {
+        let inner = &qual[1..qual.len() - 1];
+        if let Some((a, c)) = inner.split_once(':') {
+            return Some((
+                a.replace("''", "'").trim().to_string(),
+                c.replace("''", "'").trim().to_string(),
+            ));
+        }
+    }
+    None
+}
+
+/// Normalize a parsed sheet-qualifier token to the bare sheet name: strip surrounding quotes
+/// and unescape `''` -> `'`.
+fn normalize_sheet_token(raw: &str) -> String {
+    let t = raw.trim();
+    let t = t
+        .strip_prefix('\'')
+        .and_then(|s| s.strip_suffix('\''))
+        .unwrap_or(t);
+    t.replace("''", "'")
+}
+
+/// The leading ASCII cell/range reference of `after` (the text just past a span's `!`) shifts
+/// under `edit` on `sheet`. An unparseable/empty ref fails closed (true).
+fn span_ref_shifts(after: &str, sheet: &str, edit: &StructuralEdit) -> bool {
+    let refstr: String = after
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '$' || *c == ':')
+        .collect();
+    if refstr.is_empty() {
+        return true;
+    }
+    shift_formula(&refstr, sheet, edit).0 != refstr
+}
+
+/// True if the edited sheet lies WITHIN the tab range `[s1..s2]` (inclusive) of a 3D span. An
+/// endpoint name absent from the workbook order, or an edited sheet absent from it, fails
+/// closed (true) — we cannot rule out coverage.
+fn span_covers_edited(s1: &str, s2: &str, order: &[String], edited: &str) -> bool {
+    let idx = |name: &str| order.iter().position(|s| s.eq_ignore_ascii_case(name));
+    let (Some(i1), Some(i2), Some(ie)) = (idx(s1), idx(s2), idx(edited)) else {
+        return true;
+    };
+    let (lo, hi) = if i1 <= i2 { (i1, i2) } else { (i2, i1) };
+    lo <= ie && ie <= hi
+}
+
+/// Detect a 3D span reference (`SheetA:SheetB!…`) the edit cannot faithfully shift: a genuine
+/// multi-sheet span whose single shared coordinate the edit would MOVE while the edited sheet
+/// lies WITHIN the span's tab range. Such a shift moves cells on only the edited tab, so
+/// applying the new coordinate across the whole span orphans the other tabs' data — a silent
+/// value change; the edit must be refused. Requires the workbook `sheet_order` (to place the
+/// edited sheet relative to the span's endpoints) and `edit` (to test whether the referenced
+/// cell actually moves). Returns true only when both hold — an edit OUTSIDE the span, or one
+/// that moves nothing the span references, is safe. A self-span (`Sheet1:Sheet1`) is a normal
+/// reference. Partial/mixed quoting (`Sheet1:'Sheet2'!`) is parsed correctly.
+pub fn has_unverifiable_3d_span(
+    formula: &str,
+    sheet_order: &[String],
+    edit: &StructuralEdit,
+) -> bool {
     let b = formula.as_bytes();
     let mut i = 0;
     while i < b.len() {
@@ -977,49 +1111,16 @@ pub fn has_unverifiable_3d_span(formula: &str, edited_sheet: &str) -> bool {
             }
             continue;
         }
-        // look for a bang; the token before it may be a 3D span "A:B"
+        // A `!` ends a sheet qualifier; the token(s) before it may be a 3D span `A:B`. Walk
+        // back the last token, then — handling `A:B`, `'A':'B'`, `A:'B'`, `'A':B` — the span
+        // partner if a top-level `:` precedes it.
         if b[i] == b'!' {
-            let mut j = i;
-            if j > 0 && b[j - 1] == b'\'' {
-                // QUOTED qualifier: the whole span (`'A-Sheet:B-Sheet'`) may contain any
-                // char, so walk back to the matching opening quote (handling `''` escapes)
-                // rather than stopping at the first non-identifier char. Missing this let a
-                // quoted span with a special char (hyphen, ampersand, paren) slip the guard,
-                // committing a stale interior-tab 3D reference.
-                j -= 1; // the closing quote
-                while j > 0 {
-                    j -= 1;
-                    if b[j] == b'\'' {
-                        if j > 0 && b[j - 1] == b'\'' {
-                            j -= 1; // an escaped '' — keep walking
-                            continue;
-                        }
-                        break; // the opening quote
-                    }
-                }
-            } else {
-                // unquoted qualifier: letters/digits/_/./:
-                while j > 0 {
-                    let c = b[j - 1];
-                    if c.is_ascii_alphanumeric() || c == b'_' || c == b'.' || c == b':' {
-                        j -= 1;
-                    } else {
-                        break;
-                    }
-                }
-            }
-            let qual = &formula[j..i];
-            let qual = qual.trim().trim_matches('\'');
-            if let Some((s1, s2)) = qual.split_once(':') {
-                let s1 = s1.trim().trim_matches('\'');
-                let s2 = s2.trim().trim_matches('\'');
-                // A genuine MULTI-sheet 3D span (distinct endpoints) is unverifiable: its single
-                // shared A1 coordinate spans several tabs, but a row/column edit moves cells on
-                // ONLY the edited sheet. Shifting the coordinate uniformly (`A5`→`A6`) orphans
-                // every OTHER spanned sheet's data — a silent value change — whether the edited
-                // sheet is an interior tab OR a named endpoint (the endpoint case was the hole).
-                // A SELF-span (`Sheet1:Sheet1`) is just a normal reference and shifts safely.
-                if !s1.eq_ignore_ascii_case(s2) {
+            let qstart = walk_full_qualifier_back(b, i);
+            if let Some((s1, s2)) = split_span_qualifier(&formula[qstart..i]) {
+                if !s1.eq_ignore_ascii_case(&s2)
+                    && span_covers_edited(&s1, &s2, sheet_order, &edit.sheet)
+                    && span_ref_shifts(&formula[i + 1..], &edit.sheet, edit)
+                {
                     return true;
                 }
             }

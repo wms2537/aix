@@ -81,6 +81,7 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
         input,
         edit,
         &edited_part,
+        &sheet_names,
         &mut report,
     );
 
@@ -1500,6 +1501,62 @@ fn table_part_has_formula(xml: &[u8]) -> bool {
     )
 }
 
+/// True if a cell-ref-shaped defined name is a real mis-shift hazard for THIS edit. Two
+/// conditions must both hold (else the name is safe and refusing it is spurious):
+///   1. The name, read as a cell reference, would actually MOVE under the edit — e.g. `Q1`
+///      (row 1) is untouched by an insert at row 3, so no mis-tokenization could change it.
+///   2. The name is USED (as text) in a formula the edit SHIFTS — the edited sheet's cells, a
+///      chart data ref, or another defined name's body. A name used only in a FOREIGN sheet's
+///      formula is never seen by the shift tokenizer. Substring match is sound (never misses a
+///      real use); it may over-refuse on a rare coincidental substring, which is fail-closed.
+fn defined_name_collision_risk(
+    input: &[u8],
+    name: &str,
+    edit: &StructuralEdit,
+    edited_part: &str,
+) -> bool {
+    // (1) aliased coordinate actually moves.
+    if refshift::shift_formula(name, &edit.sheet, edit).0 == name {
+        return false;
+    }
+    // (2) mentioned in a shifted formula body.
+    let mentions = |xml: &[u8]| {
+        element_text_semantics(
+            xml,
+            &[b"f", b"definedName", b"formula", b"formula1", b"formula2"],
+        )
+        .iter()
+        .any(|f| f.contains(name))
+    };
+    // Edited sheet and workbook (defined-name bodies) are always in the shift path.
+    if crate::ooxml::read_part(input, edited_part)
+        .map(|x| mentions(&x))
+        .unwrap_or(true)
+    {
+        return true;
+    }
+    if crate::ooxml::read_part(input, "xl/workbook.xml")
+        .map(|x| mentions(&x))
+        .unwrap_or(true)
+    {
+        return true;
+    }
+    // Chart data references are shifted too.
+    if let Ok(parts) = archive_names(input) {
+        for p in &parts {
+            if p.starts_with("xl/charts/")
+                && p.ends_with(".xml")
+                && crate::ooxml::read_part(input, p)
+                    .map(|x| mentions(&x))
+                    .unwrap_or(false)
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Does the sheet's OWN xml declare structured tables (`<tableParts>`)? This is the
 /// authoritative, relationship-independent signal that a table's extent lives in this
 /// sheet's coordinates. Consulted so a sheet whose `.rels` part is missing or
@@ -1654,6 +1711,7 @@ fn scan_extra_residuals(
     input: &[u8],
     edit: &StructuralEdit,
     edited_part: &str,
+    sheet_names: &[String],
     report: &mut StructuralReport,
 ) {
     // (0a) NON-STANDARD WORKSHEET PATHS. The main shift loop keys foreign-sheet
@@ -1794,14 +1852,16 @@ fn scan_extra_residuals(
     // names table the file already carries: detect it and REFUSE (fail closed).
     if let Ok(bytes) = crate::ooxml::read_part(input, "xl/workbook.xml") {
         for (name, _scope, _refers) in defined_names(&bytes) {
-            if refshift::looks_like_cell_ref(&name) {
+            if refshift::looks_like_cell_ref(&name)
+                && defined_name_collision_risk(input, &name, edit, edited_part)
+            {
                 report.residuals.push(Residual {
                     part: "xl/workbook.xml".into(),
                     reason: "defined_name_ref_collision".into(),
                     detail: format!(
-                        "defined name '{}' is spelled like a cell reference; its uses \
-                         cannot be safely distinguished from cell refs — edit refused",
-                        name
+                        "defined name '{name}' is spelled like a cell reference this edit moves, \
+                         and is used in a formula the edit shifts — its uses cannot be \
+                         distinguished from cell refs; edit refused (fail-closed)"
                     ),
                 });
             }
@@ -1850,13 +1910,15 @@ fn scan_extra_residuals(
             }
             if formula_texts
                 .iter()
-                .any(|f| refshift::has_unverifiable_3d_span(f, &edit.sheet))
+                .any(|f| refshift::has_unverifiable_3d_span(f, sheet_names, edit))
             {
                 report.residuals.push(Residual {
                     part: n.clone(),
                     reason: "threeD_span_unverifiable".into(),
                     detail:
-                        "a 3D span not anchored on the edited sheet may cover it as an interior tab"
+                        "a multi-sheet 3D span covering the edited sheet has a coordinate this \
+                             edit moves, which cannot be shifted uniformly across the span — edit \
+                             refused (fail-closed)"
                             .into(),
                 });
             }
@@ -4694,50 +4756,45 @@ mod tests {
     }
 
     #[test]
-    fn three_d_interior_span_forces_residual() {
-        assert!(crate::refshift::has_unverifiable_3d_span(
-            "=SUM(Sheet1:Sheet3!A5)",
-            "Sheet2"
-        ));
-        // REGRESSION (round-23): editing a NAMED ENDPOINT of a multi-sheet span is ALSO
-        // unverifiable — the single shared A5 coordinate would be shifted uniformly, orphaning
-        // the other spanned sheets' data (a silent value change). Was wrongly allowed.
-        assert!(crate::refshift::has_unverifiable_3d_span(
-            "=SUM(Sheet1:Sheet3!A5)",
-            "Sheet1"
-        ));
-        assert!(crate::refshift::has_unverifiable_3d_span(
-            "=SUM(Sheet1:Sheet3!A5)",
-            "Sheet3"
-        ));
-        // A SELF-span (Sheet1:Sheet1) is a normal reference, not a multi-sheet span -> safe.
-        assert!(!crate::refshift::has_unverifiable_3d_span(
-            "=SUM(Sheet1:Sheet1!A5)",
-            "Sheet1"
-        ));
-        assert!(!crate::refshift::has_unverifiable_3d_span(
-            "=A5+B10", "Sheet2"
-        ));
-        // string literal with a colon-bang must not false-positive
-        assert!(!crate::refshift::has_unverifiable_3d_span(
+    fn three_d_span_affect_and_order_aware() {
+        use crate::refshift::has_unverifiable_3d_span as u3d;
+        let order: Vec<String> = ["Sheet1", "Sheet2", "Sheet3"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        // insert at row 1 moves A5; insert at row 50 does not.
+        let ins1 = |sh: &str| edit(sh, Axis::Row, Op::Insert, 1, 1);
+        let ins50 = |sh: &str| edit(sh, Axis::Row, Op::Insert, 50, 1);
+        // Interior tab (Sheet2), endpoint tabs (Sheet1/Sheet3): all WITHIN the span and A5
+        // moves -> unverifiable.
+        assert!(u3d("=SUM(Sheet1:Sheet3!A5)", &order, &ins1("Sheet2")));
+        assert!(u3d("=SUM(Sheet1:Sheet3!A5)", &order, &ins1("Sheet1")));
+        assert!(u3d("=SUM(Sheet1:Sheet3!A5)", &order, &ins1("Sheet3")));
+        // OUTSIDE the span (edit a sheet after Sheet2 for a Sheet1:Sheet2 span) -> safe
+        // (the round-24 over-refusal fix).
+        assert!(!u3d("=SUM(Sheet1:Sheet2!A1)", &order, &ins1("Sheet3")));
+        // WITHIN the span but the edit moves NOTHING the span references (A5 above a row-50
+        // insert) -> safe.
+        assert!(!u3d("=SUM(Sheet1:Sheet3!A5)", &order, &ins50("Sheet1")));
+        // A SELF-span is a normal reference -> safe.
+        assert!(!u3d("=SUM(Sheet1:Sheet1!A5)", &order, &ins1("Sheet1")));
+        assert!(!u3d("=A5+B10", &order, &ins1("Sheet2")));
+        // A string literal with a colon-bang must not false-positive.
+        assert!(!u3d(
             r#"=IF(A1,"Sheet1:Sheet3!x","")"#,
-            "Sheet2"
+            &order,
+            &ins1("Sheet2")
         ));
-        // REGRESSION (round-12): a QUOTED span whose endpoint names contain a special char
-        // (hyphen, ampersand) must still be recognized — the interior-tab edit is refused.
-        assert!(crate::refshift::has_unverifiable_3d_span(
-            "=SUM('A-Sheet:B-Sheet'!A5)",
-            "Mid"
-        ));
-        assert!(crate::refshift::has_unverifiable_3d_span(
-            "=SUM('P&L:Q&R'!A5)",
-            "Mid"
-        ));
-        // ...and a quoted ENDPOINT edit of a multi-sheet span is unverifiable too (round-23).
-        assert!(crate::refshift::has_unverifiable_3d_span(
-            "=SUM('A-Sheet:B-Sheet'!A5)",
-            "A-Sheet"
-        ));
+        // A PARTIAL/mixed-quoted span must be recognized (round-24 silent-wrong).
+        assert!(u3d("=SUM(Sheet1:'Sheet2'!A1)", &order, &ins1("Sheet1")));
+        assert!(u3d("=SUM('Sheet1':Sheet2!A1)", &order, &ins1("Sheet2")));
+        // A quoted span with special-char endpoint names (round-12): order includes them.
+        let qorder: Vec<String> = ["A-Sheet", "Mid", "B-Sheet"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(u3d("=SUM('A-Sheet:B-Sheet'!A5)", &qorder, &ins1("Mid")));
+        assert!(u3d("=SUM('A-Sheet:B-Sheet'!A5)", &qorder, &ins1("A-Sheet")));
     }
 
     #[test]

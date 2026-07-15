@@ -191,7 +191,13 @@ pub(crate) fn classify_kind(
                 Some("cached_value")
             } else if o.formula.is_none() && o.raw != n.raw {
                 Some("value")
-            } else if o.formula.is_none() && o.value != n.value {
+            } else if o.value != n.value {
+                // Same formula (or none) and same RAW value, but a different FORMATTED rendering
+                // — a number-format change. This includes a FORMULA cell (its raw result is
+                // unchanged): benign at full precision, but a value input under
+                // `<calcPr fullPrecision="0">` (precision as displayed), where certify
+                // disqualifies it. Previously a formula cell's format-only diff returned None and
+                // was invisible.
                 Some("format")
             } else {
                 None

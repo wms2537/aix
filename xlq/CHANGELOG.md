@@ -347,13 +347,34 @@ is refused, not committed.
   cell part after the `!` is parsed and the σ oracle is asked whether THIS edit moves it, so an
   edit far from any reference (a row-50 insert vs a row-11 reference) commits, while an edit
   that actually moves the referenced cell still refuses.
-- **A multi-sheet 3D span is refused on an ENDPOINT-sheet edit, not just an interior one
-  (silent-wrong fix).** The 3D-span guard refused only when NEITHER endpoint was the edited
-  sheet; editing a NAMED ENDPOINT (`Sheet1` of `SUM(Sheet1:Sheet3!A5)`) slipped through and the
-  single shared `A5` coordinate was shifted uniformly to `A6`, orphaning the other spanned
-  sheets' data (`=123` silently became `100`) with no residual. Any genuine multi-sheet span
-  (distinct endpoints) is now unverifiable whichever of its sheets is edited; a self-span
-  (`Sheet1:Sheet1`) is a normal reference and still shifts.
+- **The multi-sheet 3D-span guard is now AFFECT- and ORDER-aware (silent-wrong + over-refusal
+  fix).** A 3D span (`SUM(Sheet1:Sheet3!A5)`) shares one coordinate across several tabs, but a
+  row/column edit moves cells on only the edited tab — so shifting the coordinate uniformly
+  orphans the other tabs' data. The guard refused only when NEITHER endpoint was the edited
+  sheet, so editing a NAMED ENDPOINT (`Sheet1`) silently mis-shifted `A5`→`A6` (`123`→`100`,
+  no residual); and once that hole was closed by refusing every span, editing a sheet
+  completely OUTSIDE the span was over-refused (one consolidation formula disabled the whole
+  workbook). The guard now consults the workbook's tab order and the edit's affect: it refuses
+  a span only when the edited sheet lies WITHIN the span's tab range AND the edit actually
+  moves the referenced cell — so an endpoint/interior edit that moves the coordinate refuses,
+  an outside-the-span edit or one that moves nothing commits, and a self-span (`Sheet1:Sheet1`)
+  shifts normally. Partial/mixed and fully quoted span spellings (`Sheet1:'Sheet2'!`,
+  `'A-Sheet:B-Sheet'!`) are now parsed correctly (a partial-quoted span previously evaded the
+  guard and committed a stale reference).
+- **A number-format change on a FORMULA cell is now visible to certify.** The diff classifier
+  reported a format-only difference only for non-formula cells, so a formula cell whose number
+  format changed (same stored formula and result) was classified as "no change" — invisible
+  even under `fullPrecision="0"`, where it corrupts downstream computed values (`A15`
+  reformatted `0.00`→`0` displays `18` not `18.33`, and `=A15*3` recomputes `54` not `54.99`).
+  Format diffs on formula cells are now classified as `format` and, under precision-as-displayed,
+  disqualified.
+- **A defined name spelled like a cell reference is refused only when it is a real hazard
+  (over-refusal fix).** A named range whose text matches an A1 reference (`Q1`, `FY21`, `H1`,
+  `TAX1` — common in financial models) made the WHOLE workbook un-editable: every row/column
+  edit on every sheet was refused. It is now refused only when both conditions hold — the name,
+  read as a cell, would actually MOVE under this edit, AND it is used in a formula the edit
+  SHIFTS (the edited sheet, a chart, or another defined name). A name used only on an unrelated
+  sheet, or whose aliased coordinate the edit doesn't touch, no longer blocks the edit.
 - **`certify` treats a number-format change as value-affecting under "precision as displayed".**
   A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
   computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input
