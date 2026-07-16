@@ -49,6 +49,10 @@ struct Book {
     sheets: Vec<Sheet>,
     defined_names: String,
     calc_pr: String,
+    /// Injected right after `<workbook …>` (e.g. `<workbookProtection …/>`).
+    wb_extra: String,
+    /// Extra workbook relationships as (id, type-suffix, target).
+    wb_rels: Vec<(String, String, String)>,
     extras: Vec<Extra>,
     /// Extra `[Content_Types]` Default entries as (extension, content-type).
     defaults: Vec<(&'static str, &'static str)>,
@@ -60,6 +64,8 @@ impl Book {
             sheets: Vec::new(),
             defined_names: String::new(),
             calc_pr: r#"<calcPr calcId="124519"/>"#.into(),
+            wb_extra: String::new(),
+            wb_rels: Vec::new(),
             extras: Vec::new(),
             defaults: Vec::new(),
         }
@@ -74,6 +80,15 @@ impl Book {
     }
     fn calc(mut self, c: &str) -> Self {
         self.calc_pr = c.into();
+        self
+    }
+    fn wb_extra(mut self, s: &str) -> Self {
+        self.wb_extra = s.into();
+        self
+    }
+    fn wb_rel(mut self, id: &str, type_suffix: &str, target: &str) -> Self {
+        self.wb_rels
+            .push((id.into(), type_suffix.into(), target.into()));
         self
     }
     fn extra(mut self, path: &str, content_type: &'static str, data: String) -> Self {
@@ -149,8 +164,8 @@ impl Book {
         p.push((
             "xl/workbook.xml".into(),
             format!(
-                r#"<workbook xmlns="{SS}" xmlns:r="{REL}"><sheets>{sheets_xml}</sheets>{dn}{}</workbook>"#,
-                self.calc_pr
+                r#"<workbook xmlns="{SS}" xmlns:r="{REL}">{}<sheets>{sheets_xml}</sheets>{dn}{}</workbook>"#,
+                self.wb_extra, self.calc_pr
             )
             .into_bytes(),
         ));
@@ -168,6 +183,11 @@ impl Book {
         wr.push_str(&format!(
             r#"<Relationship Id="rIdStyles" Type="{REL}/styles" Target="styles.xml"/>"#
         ));
+        for (id, ty, target) in &self.wb_rels {
+            wr.push_str(&format!(
+                r#"<Relationship Id="{id}" Type="{REL}/{ty}" Target="{target}"/>"#
+            ));
+        }
         wr.push_str("</Relationships>");
         p.push(("xl/_rels/workbook.xml.rels".into(), wr.into_bytes()));
 
@@ -199,8 +219,14 @@ impl Book {
 
 /// A worksheet from its `<sheetData>` inner rows, with a dimension.
 fn ws(dim: &str, rows: &str) -> String {
+    ws_full(dim, rows, "")
+}
+
+/// A worksheet with a `trailer` appended after `</sheetData>` (sheetProtection, mergeCells,
+/// dataValidations, hyperlinks, … — in OOXML schema order).
+fn ws_full(dim: &str, rows: &str, trailer: &str) -> String {
     format!(
-        r#"<worksheet xmlns="{SS}" xmlns:r="{REL}"><dimension ref="{dim}"/><sheetData>{rows}</sheetData></worksheet>"#
+        r#"<worksheet xmlns="{SS}" xmlns:r="{REL}"><dimension ref="{dim}"/><sheetData>{rows}</sheetData>{trailer}</worksheet>"#
     )
 }
 
@@ -318,6 +344,77 @@ fn names() -> Vec<u8> {
     write_zip(&book.parts())
 }
 
+/// security: the SECURITY-relevant opaque parts — an external data connection (webPr url),
+/// sheet + workbook protection, and a customUI ribbon — plus a populated-cache formula. Drives
+/// the security mangle matrix (repoint the URL, strip protection, inject an onLoad autorun, add
+/// an unknown reference-bearing part) → certify must REFUSE each.
+fn security() -> Vec<u8> {
+    let rows = format!(
+        r#"<row r="1">{}{}</row><row r="2">{}</row><row r="3">{}</row>"#,
+        num("A1", "1"),
+        fcell("B1", "SUM(A1:A3)", "6"),
+        num("A2", "2"),
+        num("A3", "3"),
+    );
+    let sheet = ws_full(
+        "A1:B3",
+        &rows,
+        r#"<sheetProtection sheet="1" password="CC1A" objects="1" scenarios="1"/>"#,
+    );
+    let conn = format!(
+        r#"<connections xmlns="{SS}"><connection id="1" name="q" type="4"><webPr url="https://data.internal.example.com/report.xml"/></connection></connections>"#
+    );
+    let customui = r#"<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui"><ribbon><tabs><tab id="t" label="T"/></tabs></ribbon></customUI>"#;
+    let book = Book::new()
+        .sheet("Sheet1", sheet)
+        .wb_extra(r#"<workbookProtection workbookPassword="ABCD" lockStructure="1"/>"#)
+        .wb_rel("rIdConn", "connections", "connections.xml")
+        .extra(
+            "xl/connections.xml",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml",
+            conn,
+        )
+        .extra(
+            "customUI/customUI14.xml",
+            "application/vnd.ms-office.customUI+xml",
+            customui.into(),
+        );
+    write_zip(&book.parts())
+}
+
+/// constructs: coordinate-bearing NON-CELL constructs — a mergeCell, a dataValidation `sqref`, an
+/// internal hyperlink, and a defined name — plus a populated cache. Drives the non-cell mangle
+/// matrix (retarget the name, move the merge, retarget the hyperlink, flip date1904, set
+/// fullPrecision) → certify must REFUSE each; a benign reserialize must still CERTIFY.
+fn constructs() -> Vec<u8> {
+    let mut rows = String::new();
+    rows.push_str(&format!(
+        r#"<row r="1">{}{}</row>"#,
+        num("A1", "1"),
+        fcell("B1", "Total", "55")
+    ));
+    for r in 2..=10 {
+        rows.push_str(&format!(
+            r#"<row r="{r}">{}</row>"#,
+            num(&format!("A{r}"), &r.to_string())
+        ));
+    }
+    rows.push_str(&format!(
+        r#"<row r="11">{}</row>"#,
+        fcell("A11", "SUM(A1:A10)", "55")
+    ));
+    let trailer = concat!(
+        r#"<mergeCells count="1"><mergeCell ref="C1:D1"/></mergeCells>"#,
+        r#"<dataValidations count="1"><dataValidation type="whole" sqref="A2"><formula1>0</formula1></dataValidation></dataValidations>"#,
+        r#"<hyperlinks><hyperlink ref="A1" location="Sheet1!A11" display="jump"/></hyperlinks>"#,
+    );
+    let dn = r#"<definedName name="Total">Sheet1!$A$11</definedName>"#;
+    let book = Book::new()
+        .sheet("Sheet1", ws_full("A1:D11", &rows, trailer))
+        .names(dn);
+    write_zip(&book.parts())
+}
+
 fn main() {
     let out = std::env::args().nth(1).unwrap_or_else(|| {
         eprintln!("usage: corpus-gen <output_dir>");
@@ -331,6 +428,8 @@ fn main() {
         ("crosssheet.xlsx", crosssheet),
         ("settings.xlsx", settings),
         ("names.xlsx", names),
+        ("security.xlsx", security),
+        ("constructs.xlsx", constructs),
     ];
     for (name, gen) in fixtures {
         let bytes = gen();

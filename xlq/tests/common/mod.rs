@@ -65,6 +65,8 @@ pub fn corpus_names() -> &'static [&'static str] {
         "crosssheet.xlsx",
         "settings.xlsx",
         "names.xlsx",
+        "security.xlsx",
+        "constructs.xlsx",
     ]
 }
 
@@ -247,6 +249,63 @@ pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", h.finalize())
 }
 
+/// Establish that xlq's transform of `name` under `edit` CERTIFIES, then return the (committed)
+/// transform for further mutation. Panics if the transform refuses or the baseline fails to
+/// certify (either would make a mangle assertion prove nothing).
+pub fn certified_baseline(name: &str, edit: &Edit) -> TempWb {
+    let (wb, run) = transform(name, edit);
+    assert!(
+        committed(&run),
+        "{name}: transform must commit for the mangle baseline:\n{}",
+        run.stdout
+    );
+    let base = certify(&corpus_path(name), wb.path(), edit);
+    assert!(
+        base.certified(),
+        "{name}: the unmangled transform must CERTIFY (else the mangle proves nothing):\n{}",
+        base.stdout
+    );
+    wb
+}
+
+/// Apply `mangler` to xlq's certified transform of `name` and assert certify now REFUSES — the
+/// divergence is a value/security change certify must not launder. Rejects a no-op mangle.
+pub fn assert_mangle_refused(name: &str, edit: &Edit, mangler: fn(&[u8]) -> Vec<u8>, label: &str) {
+    let wb = certified_baseline(name, edit);
+    let mangled = mangler(&wb.bytes());
+    assert_ne!(
+        mangled,
+        wb.bytes(),
+        "{name} [{label}]: mangle was a no-op — test is vacuous"
+    );
+    let mwb = temp_from_bytes(&mangled, name);
+    let cert = certify(&corpus_path(name), mwb.path(), edit);
+    assert!(
+        cert.refused(),
+        "{name} [{label}]: this divergence from xlq's transform MUST be REFUSED, got status={:?} \
+         reason={:?}\n{}",
+        cert.status(),
+        cert.reason(),
+        cert.stdout
+    );
+}
+
+/// Apply a benign, value-preserving change and assert certify still CERTIFIES (over-refusal guard).
+pub fn assert_variant_certifies(name: &str, edit: &Edit, f: fn(&[u8]) -> Vec<u8>, label: &str) {
+    let wb = certified_baseline(name, edit);
+    let variant = f(&wb.bytes());
+    let vwb = temp_from_bytes(&variant, name);
+    let cert = certify(&corpus_path(name), vwb.path(), edit);
+    assert!(
+        cert.certified(),
+        "{name} [{label}]: a benign value-preserving change must still CERTIFY, got status={:?} \
+         reason={:?}\n{}",
+        cert.status(),
+        cert.reason(),
+        cert.stdout
+    );
+}
+
 // ---- zip part surgery (shared by the mangle/benign libraries) ----------------------------
 
 pub fn list_parts(bytes: &[u8]) -> Vec<String> {
@@ -393,13 +452,125 @@ pub mod mangle {
         })
     }
 
-    /// Repoint a connections.xml web-query URL — a SECURITY divergence (only meaningful on a
-    /// fixture that carries `xl/connections.xml`).
+    /// Repoint a connections.xml web-query URL — a SECURITY divergence (SSRF/exfiltration).
     pub fn repoint_connection(bytes: &[u8]) -> Vec<u8> {
         if let Some(raw) = read_part(bytes, "xl/connections.xml") {
             let xml = String::from_utf8_lossy(&raw)
                 .replace("data.internal.example", "evil.attacker.example");
             return replace_part(bytes, "xl/connections.xml", xml.as_bytes());
+        }
+        bytes.to_vec()
+    }
+
+    /// Strip sheet protection — a security-control removal the cell diff cannot see.
+    pub fn strip_sheet_protection(bytes: &[u8]) -> Vec<u8> {
+        edit_first_worksheet(bytes, |xml| {
+            if let Some(open) = xml.find("<sheetProtection") {
+                if let Some(rel) = xml[open..].find("/>") {
+                    return format!("{}{}", &xml[..open], &xml[open + rel + 2..]);
+                }
+            }
+            xml
+        })
+    }
+
+    /// Strip workbook protection.
+    pub fn strip_workbook_protection(bytes: &[u8]) -> Vec<u8> {
+        if let Some(raw) = read_part(bytes, "xl/workbook.xml") {
+            let xml = String::from_utf8_lossy(&raw);
+            if let Some(open) = xml.find("<workbookProtection") {
+                if let Some(rel) = xml[open..].find("/>") {
+                    let new = format!("{}{}", &xml[..open], &xml[open + rel + 2..]);
+                    return replace_part(bytes, "xl/workbook.xml", new.as_bytes());
+                }
+            }
+        }
+        bytes.to_vec()
+    }
+
+    /// Inject an `onLoad` autorun callback into the customUI ribbon — a security divergence.
+    pub fn inject_customui_onload(bytes: &[u8]) -> Vec<u8> {
+        let part = list_parts(bytes)
+            .into_iter()
+            .find(|n| n.to_ascii_lowercase().starts_with("customui/"));
+        if let Some(part) = part {
+            if let Some(raw) = read_part(bytes, &part) {
+                let xml = String::from_utf8_lossy(&raw).replacen(
+                    "<customUI ",
+                    r#"<customUI onLoad="Evil" "#,
+                    1,
+                );
+                return replace_part(bytes, &part, xml.as_bytes());
+            }
+        }
+        bytes.to_vec()
+    }
+
+    /// Add an UNKNOWN reference-bearing part (a slicerCache) — certify must fail closed on any
+    /// part outside its verified/known-safe surface.
+    pub fn inject_unknown_part(bytes: &[u8]) -> Vec<u8> {
+        add_part(
+            bytes,
+            "xl/slicerCaches/slicerCache1.xml",
+            br#"<slicerCacheDefinition xmlns="urn:x" name="Slicer_X"><pivotTables/><data><tabular pivotCacheId="1"/></data></slicerCacheDefinition>"#,
+        )
+    }
+
+    /// Retarget a defined name's refers-to (robust to xlq having shifted the row) — a non-cell
+    /// reference divergence.
+    pub fn retarget_defined_name(bytes: &[u8]) -> Vec<u8> {
+        if let Some(raw) = read_part(bytes, "xl/workbook.xml") {
+            let xml = String::from_utf8_lossy(&raw).into_owned();
+            if let Some(pos) = xml.find("!$A$") {
+                let after = pos + "!$A$".len();
+                let end = after
+                    + xml[after..]
+                        .find(|c: char| !c.is_ascii_digit())
+                        .unwrap_or(0);
+                if end > after {
+                    let new = format!("{}99{}", &xml[..after], &xml[end..]);
+                    return replace_part(bytes, "xl/workbook.xml", new.as_bytes());
+                }
+            }
+        }
+        bytes.to_vec()
+    }
+
+    /// Move a mergeCell's extent (C1:D1, above an insert@5, so it is unshifted) — a structural
+    /// reference divergence.
+    pub fn move_mergecell(bytes: &[u8]) -> Vec<u8> {
+        edit_first_worksheet(bytes, |xml| {
+            xml.replacen(r#"ref="C1:D1""#, r#"ref="C2:D2""#, 1)
+        })
+    }
+
+    /// Retarget an internal hyperlink's destination (robust to xlq having shifted the row) — a
+    /// structural reference divergence.
+    pub fn retarget_hyperlink(bytes: &[u8]) -> Vec<u8> {
+        edit_first_worksheet(bytes, |xml| {
+            let anchor = r#"location="Sheet1!"#;
+            if let Some(pos) = xml.find(anchor) {
+                let vstart = pos + anchor.len();
+                if let Some(rel) = xml[vstart..].find('"') {
+                    let vend = vstart + rel;
+                    return format!("{}Z99{}", &xml[..vstart], &xml[vend..]);
+                }
+            }
+            xml
+        })
+    }
+
+    /// Flip the date epoch (`workbookPr@date1904`) — every date value shifts 1462 days, invisible
+    /// to a serial-vs-serial cell diff.
+    pub fn flip_date1904(bytes: &[u8]) -> Vec<u8> {
+        if let Some(raw) = read_part(bytes, "xl/workbook.xml") {
+            let xml = String::from_utf8_lossy(&raw);
+            let new = if xml.contains("<workbookPr") {
+                xml.replacen("<workbookPr", r#"<workbookPr date1904="1""#, 1)
+            } else {
+                xml.replacen("<sheets>", r#"<workbookPr date1904="1"/><sheets>"#, 1)
+            };
+            return replace_part(bytes, "xl/workbook.xml", new.as_bytes());
         }
         bytes.to_vec()
     }

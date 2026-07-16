@@ -19,6 +19,8 @@ mod verify;
 #[cfg(test)]
 pub(crate) mod testkit;
 #[cfg(test)]
+mod tests_algebra;
+#[cfg(test)]
 mod tests_cache_soundness;
 #[cfg(test)]
 mod tests_corpus_lint;

@@ -143,6 +143,28 @@ pub(crate) fn corpus() -> Vec<CorpusCase> {
             constructs: vec!["defined-name", "name-shift", "populated-cache"],
             ironcalc_faithful: true,
         },
+        CorpusCase {
+            name: "security.xlsx",
+            bytes: read_corpus("security.xlsx"),
+            edit_sheet: "Sheet1",
+            faithful_edits: band_edits("Sheet1"),
+            constructs: vec!["connections", "protection", "customui", "populated-cache"],
+            ironcalc_faithful: true,
+        },
+        CorpusCase {
+            name: "constructs.xlsx",
+            bytes: read_corpus("constructs.xlsx"),
+            edit_sheet: "Sheet1",
+            faithful_edits: band_edits("Sheet1"),
+            constructs: vec![
+                "merge-cells",
+                "data-validation",
+                "hyperlink",
+                "defined-name",
+                "populated-cache",
+            ],
+            ironcalc_faithful: true,
+        },
     ]
 }
 
@@ -421,6 +443,54 @@ pub(crate) fn value_faithful(
                     )));
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+fn parse_a1(s: &str) -> Option<(u32, u32)> {
+    let letters: String = s.chars().take_while(char::is_ascii_alphabetic).collect();
+    let digits: String = s
+        .chars()
+        .skip_while(char::is_ascii_alphabetic)
+        .take_while(char::is_ascii_digit)
+        .collect();
+    if letters.is_empty() || digits.is_empty() {
+        return None;
+    }
+    let mut col = 0u32;
+    for c in letters.chars() {
+        col = col * 26 + (c.to_ascii_uppercase() as u32 - 'A' as u32 + 1);
+    }
+    Some((col, digits.parse().ok()?))
+}
+
+/// OUTPUT WELL-FORMEDNESS: every `<c r=…>` coordinate a transform emits must be a valid A1 cell
+/// INSIDE the grid (col ≤ XFD/16384, row ≤ 1048576), and no two cells on a sheet may share a
+/// coordinate. Catches an off-grid materialization (`<c r="A1048577">`) or a duplicate-coordinate
+/// interior delete — invalid outputs a downstream tool would choke on.
+pub(crate) fn wellformed(output: &[u8]) -> Result<(), String> {
+    let sheets = crate::ooxml::all_sheets(output).map_err(|e| e.to_string())?;
+    for (name, part) in &sheets {
+        let xml = crate::ooxml::read_part(output, part).map_err(|e| e.to_string())?;
+        let text = String::from_utf8_lossy(&xml);
+        let mut seen = std::collections::HashSet::new();
+        let mut rest: &str = &text;
+        while let Some(p) = rest.find("<c r=\"") {
+            rest = &rest[p + 6..];
+            let end = rest.find('"').ok_or("unterminated cell ref")?;
+            let cell = &rest[..end];
+            let (col, row) =
+                parse_a1(cell).ok_or_else(|| format!("{name}: malformed cell ref {cell:?}"))?;
+            if col == 0 || col > 16384 || row == 0 || row > 1_048_576 {
+                return Err(format!(
+                    "{name}: OFF-GRID cell {cell} (col {col}, row {row})"
+                ));
+            }
+            if !seen.insert((col, row)) {
+                return Err(format!("{name}: DUPLICATE coordinate {cell}"));
+            }
+            rest = &rest[end..];
         }
     }
     Ok(())
