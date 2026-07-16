@@ -1150,6 +1150,11 @@ fn unverified_formula_caches(
         if edt_map.is_empty() {
             continue;
         }
+        // A VOLATILE formula cell (NOW/RAND/OFFSET/INDIRECT/…) is recomputed by Excel on every
+        // load, so its stored cache never surfaces a stale value — ignore it (do NOT count it as
+        // unverified). This replaces the old workbook-global oracle disable, which refused a
+        // faithful preserved NON-volatile cache as collateral of one volatile function.
+        let volatile = structural::volatile_formula_cells(&edt_xml);
         // xlq's OWN stored caches (a cell the transform did NOT blank — an unshifted formula).
         // When the transform force-recomputes it discards its own caches, so they vouch nothing.
         let exp_map = if expected_forced {
@@ -1162,6 +1167,9 @@ fn unverified_formula_caches(
                 .unwrap_or_default()
         };
         for (cell, ev) in &edt_map {
+            if volatile.contains(cell) {
+                continue;
+            }
             // (a) the transform kept an identical stored cache for this cell, or
             let by_stored =
                 !expected_forced && exp_map.get(cell).is_some_and(|xv| caches_equal(xv, ev));
@@ -1181,10 +1189,13 @@ fn unverified_formula_caches(
 /// computed value of xlq's proven transform, used to vouch a foreign edit's PRESERVED formula
 /// caches (which xlq's own transform blanks, since it cannot recompute engine-free). Returns
 /// None when the engine does not fully and deterministically cover the workbook — any
-/// unsupported, policy-limited, user-defined, or VOLATILE (`NOW`/`RAND`/…) function — because
-/// evaluation could then diverge from Excel; the caller falls back to the conservative
-/// stored-cache comparison rather than risk laundering a wrong value. The signature format
-/// matches [`structural::formula_cache_map`] so [`caches_equal`] compares them directly.
+/// unsupported, policy-limited, or user-defined function — because evaluation could then diverge
+/// from Excel; the caller falls back to the conservative stored-cache comparison rather than risk
+/// laundering a wrong value. A VOLATILE function is NOT a global disqualifier: the oracle is still
+/// built (all functions are supported, so it evaluates correctly), and the CALLER skips each
+/// individual volatile cell (Excel recomputes those on load, so their cache never surfaces stale)
+/// — so a faithful preserved NON-volatile cache is no longer refused as collateral. The signature
+/// format matches [`structural::formula_cache_map`] so [`caches_equal`] compares them directly.
 fn build_cache_oracle(
     model: &mut ironcalc::base::Model,
 ) -> Option<std::collections::HashMap<(String, String), String>> {
@@ -1192,8 +1203,7 @@ fn build_cache_oracle(
     let census = crate::census::function_census(model);
     if !(census.unsupported.is_empty()
         && census.policy_limited.is_empty()
-        && census.user_defined.is_empty()
-        && census.volatile_present.is_empty())
+        && census.user_defined.is_empty())
     {
         return None;
     }
@@ -1391,16 +1401,28 @@ fn compare(expected: &WorkbookSnap, edited: &WorkbookSnap) -> (DiffCounts, Vec<V
             let Some(kind) = diff::classify_kind(e, n) else {
                 continue;
             };
+            // A cell present on only ONE side that carries NO value (no formula, null raw) is a
+            // STYLE-ONLY empty cell — e.g. the covered cells B1/C1/D1 of a merged title, which
+            // Excel/LibreOffice materialize as `<c r="B1" s="1"/>`. It is display-only and cannot
+            // change any computed value, so it is not an "added"/"removed" value divergence.
+            let added_empty =
+                kind == "added" && n.is_some_and(|s| s.formula.is_none() && s.raw.is_null());
+            let removed_empty =
+                kind == "removed" && e.is_some_and(|s| s.formula.is_none() && s.raw.is_null());
             match kind {
                 "formula" => counts.formula += 1,
                 "value" => counts.value += 1,
                 "cached_value" => counts.cached_value += 1,
                 "format" => counts.format += 1,
+                "added" if added_empty => {}
+                "removed" if removed_empty => {}
                 "added" => counts.added += 1,
                 "removed" => counts.removed += 1,
                 _ => {}
             }
-            let disqualifying = matches!(kind, "formula" | "value" | "added" | "removed");
+            let disqualifying = matches!(kind, "formula" | "value" | "added" | "removed")
+                && !added_empty
+                && !removed_empty;
             if disqualifying && samples.len() < 8 {
                 samples.push(json!({
                     "sheet": name,

@@ -602,4 +602,18 @@ pub mod benign {
     pub fn reserialize_whitespace(bytes: &[u8]) -> Vec<u8> {
         edit_first_worksheet(bytes, |xml| xml.replacen("<sheetData>", "<sheetData >", 1))
     }
+
+    /// Materialize empty STYLE-ONLY cells (`<c r="A500" s="0"/>` …) as a new far row — what Excel
+    /// / LibreOffice write for the covered cells of a merged, formatted header row. Value-less, so
+    /// display-only: certify must still CERTIFY. Appended as a well-formed row past the data so it
+    /// stays in row/column order.
+    pub fn materialize_empty_styled_cells(bytes: &[u8]) -> Vec<u8> {
+        edit_first_worksheet(bytes, |xml| {
+            xml.replacen(
+                "</sheetData>",
+                r#"<row r="500"><c r="A500" s="0"/><c r="B500" s="0"/></row></sheetData>"#,
+                1,
+            )
+        })
+    }
 }

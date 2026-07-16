@@ -1084,10 +1084,12 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
     reader.config_mut().expand_empty_elements = false;
     let mut buf = Vec::new();
     let mut out: Vec<(String, String)> = Vec::new();
-    let mut cfdv: Option<(String, String, Vec<String>)> = None;
+    // (kind, sqref, formula bodies, dataValidation `type`)
+    let mut cfdv: Option<(String, String, Vec<String>, String)> = None;
     let mut ext_depth = 0u32;
     let mut ext_refs: Vec<String> = Vec::new();
     let mut cap = Cap::None;
+    let mut cap_is_formula2 = false;
     let mut raw = String::new();
     loop {
         match reader.read_event_into(&mut buf) {
@@ -1098,9 +1100,11 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
                 } else if ext_depth == 0 && is_cfdv(n.as_ref()) {
                     let kind = String::from_utf8_lossy(local_of(n.as_ref())).into_owned();
                     let sqref = attr_by_local(&e, b"sqref").unwrap_or_default();
-                    cfdv = Some((kind, sqref, Vec::new()));
+                    let dv_type = attr_by_local(&e, b"type").unwrap_or_default();
+                    cfdv = Some((kind, sqref, Vec::new(), dv_type));
                 } else if ext_depth == 0 && cfdv.is_some() && is_legacy_f(n.as_ref()) {
                     cap = Cap::Legacy;
+                    cap_is_formula2 = tag_local_eq(n.as_ref(), b"formula2");
                     raw.clear();
                 } else if ext_depth > 0 && is_ext_ref(n.as_ref()) {
                     cap = Cap::Ext;
@@ -1118,18 +1122,25 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
                     let logical = logical_formula(&raw).unwrap_or_else(|| raw.clone());
                     match cap {
                         Cap::Legacy => {
-                            if let Some((_, _, fs)) = cfdv.as_mut() {
-                                fs.push(logical);
+                            if let Some((_, _, fs, dv_type)) = cfdv.as_mut() {
+                                // For a type="list" dropdown, `formula2` (and `operator`) are inert
+                                // — Excel uses formula2 only with between/notBetween, inapplicable
+                                // to a list — so a foreign editor writing `<formula2>0</formula2>`
+                                // (LibreOffice does) is a faithful, value-preserving edit. Skip it.
+                                if !(dv_type == "list" && cap_is_formula2) {
+                                    fs.push(logical);
+                                }
                             }
                         }
                         Cap::Ext => ext_refs.push(logical),
                         Cap::None => {}
                     }
                     cap = Cap::None;
+                    cap_is_formula2 = false;
                     raw.clear();
                 }
                 if ext_depth == 0 && is_cfdv(n.as_ref()) {
-                    if let Some((kind, sqref, fs)) = cfdv.take() {
+                    if let Some((kind, sqref, fs, _dv_type)) = cfdv.take() {
                         out.push((kind, format!("sqref={sqref}|{}", fs.join("|"))));
                     }
                 }
@@ -1495,14 +1506,94 @@ fn implicit_at_positions(body: &str) -> Vec<usize> {
     positions
 }
 
+/// Collapse every run of whitespace to a single space and trim — a canonical form that is
+/// invariant under a foreign tool's benign re-spacing while preserving a SIGNIFICANT space.
+fn collapse_ws(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_ws = false;
+    for c in s.chars() {
+        if c.is_whitespace() {
+            if !prev_ws {
+                out.push(' ');
+                prev_ws = true;
+            }
+        } else {
+            out.push(c);
+            prev_ws = false;
+        }
+    }
+    out.trim().to_string()
+}
+
+/// True if `body` contains Excel's range-INTERSECTION operator: a whitespace run at bracket-depth
+/// 0, outside string/quoted-name literals, flanked by OPERAND characters (a reference/number/name
+/// ends on the left, one begins on the right — NOT an operator, and not a `name (` function call).
+/// ironcalc mis-normalizes a top-level intersection `A1:A10 A4:A4` (the `=Revenue January` idiom)
+/// to `@A1:A10`, DROPPING the second operand, so the loaded-model diff is blind to a change of
+/// that operand's VALUE — a false-certify. certify signs the raw body when this is present.
+fn has_top_level_intersection(body: &str) -> bool {
+    let chars: Vec<char> = body.chars().collect();
+    let mut depth: i32 = 0;
+    let mut in_dq = false;
+    let mut in_sq = false;
+    let is_operand_end =
+        |c: char| c.is_alphanumeric() || matches!(c, ')' | '$' | '!' | '}' | '_' | '.' | '#');
+    let is_operand_start = |c: char| c.is_alphanumeric() || matches!(c, '$' | '\'' | '[' | '_');
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if in_dq {
+            if c == '"' {
+                in_dq = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_sq {
+            if c == '\'' {
+                in_sq = false;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            '"' => in_dq = true,
+            '\'' => in_sq = true,
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            _ if c.is_whitespace() && depth == 0 => {
+                let prev = chars[..i]
+                    .iter()
+                    .rev()
+                    .find(|c| !c.is_whitespace())
+                    .copied();
+                let mut j = i;
+                while j < chars.len() && chars[j].is_whitespace() {
+                    j += 1;
+                }
+                let next = chars.get(j).copied();
+                if let (Some(p), Some(n)) = (prev, next) {
+                    if is_operand_end(p) && is_operand_start(n) {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
 /// Per formula cell (a `<c r>` carrying an `<f>`), the tokens IronCalc NORMALIZES AWAY on
 /// load — which the loaded-model cell diff therefore cannot see — keyed by the cell's `r`
-/// reference. The signature is the implicit-intersection `@` count and the sorted `_xlfn.`
-/// function tokens; only cells with at least one such token are included. certify compares
-/// this map POSITIONALLY (per cell), so it catches not just a DROP/ADD of `@`/`_xlfn.` but a
-/// same-sheet RELOCATION between cells (`@` moved C1→C5, or an `_xlfn.` prefix moved between
-/// two same-function cells) — each a spill-vs-scalar / `#NAME?` value change a per-sheet
-/// multiset would miss.
+/// reference. The signature is the implicit-intersection `@` positions, the sorted `_xlfn.`
+/// function tokens, and — when the body carries a top-level range-INTERSECTION (which ironcalc
+/// collapses, dropping an operand) — the whitespace-canonicalized raw body. Only cells with at
+/// least one such token are included. certify compares this map POSITIONALLY (per cell), so it
+/// catches not just a DROP/ADD of `@`/`_xlfn.` but a same-sheet RELOCATION between cells (`@`
+/// moved C1→C5) and a value-changing edit of an intersection operand — each a value change the
+/// loaded-model diff would miss.
 pub(crate) fn formula_hidden_tokens(xml: &[u8]) -> std::collections::BTreeMap<String, String> {
     let mut reader = Reader::from_reader(xml);
     reader.config_mut().expand_empty_elements = false;
@@ -1527,9 +1618,60 @@ pub(crate) fn formula_hidden_tokens(xml: &[u8]) -> std::collections::BTreeMap<St
                 let body = logical_formula(&raw).unwrap_or_else(|| raw.clone());
                 let at = implicit_at_positions(&body);
                 let xlfn = xlfn_tokens_in(&body);
+                // A top-level range-intersection is signed by its canonical raw body, because
+                // ironcalc drops its 2nd operand and the loaded diff cannot see an operand change.
+                let isect = if has_top_level_intersection(&body) {
+                    collapse_ws(&body)
+                } else {
+                    String::new()
+                };
                 if let Some(r) = cell_ref.clone() {
-                    if !at.is_empty() || !xlfn.is_empty() {
-                        out.insert(r, format!("@{at:?};{}", xlfn.join(",")));
+                    if !at.is_empty() || !xlfn.is_empty() || !isect.is_empty() {
+                        out.insert(r, format!("@{at:?};{};isect={isect}", xlfn.join(",")));
+                    }
+                }
+                raw.clear();
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                cell_ref = None;
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
+/// The A1 references of formula cells whose `<f>` body calls a VOLATILE function (`NOW`/`TODAY`/
+/// `RAND`/`OFFSET`/`INDIRECT`/…). Excel recomputes a volatile cell on every load, so its stored
+/// cache can never surface a stale value; certify ignores such a cell's cache rather than
+/// disabling its cache oracle workbook-wide because one volatile function is present somewhere.
+pub(crate) fn volatile_formula_cells(xml: &[u8]) -> std::collections::BTreeSet<String> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = std::collections::BTreeSet::new();
+    let mut cell_ref: Option<String> = None;
+    let mut in_f = false;
+    let mut raw = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                cell_ref = attr_by_local(&e, b"r");
+            }
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
+                in_f = true;
+                raw.clear();
+            }
+            Ok(Event::Text(t)) if in_f => push_text_raw(&mut raw, &t),
+            Ok(Event::GeneralRef(r)) if in_f => push_ref_raw(&mut raw, &r),
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
+                in_f = false;
+                let body = logical_formula(&raw).unwrap_or_else(|| raw.clone());
+                if let Some(r) = cell_ref.clone() {
+                    if crate::census::is_volatile_formula(&body) {
+                        out.insert(r);
                     }
                 }
                 raw.clear();
@@ -2646,6 +2788,9 @@ fn rewrite_edited_sheet(
     // Reassembled formula body across quick-xml Text + GeneralRef events; the
     // shift/writeback happens once, at the closing </f> (see push_text_raw).
     let mut f_raw = String::new();
+    // When the current `<f>` is an ARRAY, its `ref` extent — the affect decision is DEFERRED to
+    // `</f>` (it needs the reassembled body). The array `<f>`/body are copied verbatim.
+    let mut f_array_ref: Option<String> = None;
 
     loop {
         match reader.read_event_into(&mut buf)? {
@@ -2735,15 +2880,21 @@ fn rewrite_edited_sheet(
             Event::Start(e) => {
                 if is_formula_tag(e.name().as_ref()) {
                     in_f = true;
-                    f_residual = detect_residual(&e).is_some();
                     f_raw.clear();
-                    if f_residual {
+                    f_array_ref = None;
+                    f_residual = false;
+                    if is_array_f(&e) {
+                        // AFFECT-BASED: defer the array refusal to </f> (needs the body). The `<f>`
+                        // and body are copied verbatim, so f_residual stays false (body IS captured).
+                        f_array_ref = Some(attr_by_local(&e, b"ref").unwrap_or_default());
+                    } else if let Some(reason) = detect_residual(&e) {
+                        // shared-formula (should be pre-expanded; refuse if one survives).
+                        f_residual = true;
                         report.residuals.push(Residual {
                             part: part_name.into(),
-                            reason: detect_residual(&e).unwrap().into(),
-                            detail:
-                                "shared/array formula present; refused (sound over-approximation)"
-                                    .into(),
+                            reason: reason.into(),
+                            detail: "shared formula present; refused (sound over-approximation)"
+                                .into(),
                         });
                     }
                 }
@@ -2751,7 +2902,19 @@ fn rewrite_edited_sheet(
             }
             Event::Empty(e) => {
                 if e.name().as_ref() == b"f" {
-                    if let Some(reason) = detect_residual(&e) {
+                    if is_array_f(&e) {
+                        // An array STUB (no body): affect-check its ref extent only.
+                        let ref_extent = attr_by_local(&e, b"ref").unwrap_or_default();
+                        if array_formula_affected(&ref_extent, "", &sheet, edit) {
+                            report.residuals.push(Residual {
+                                part: part_name.into(),
+                                reason: "array_formula_present".into(),
+                                detail: "an array formula whose extent the edit would MOVE is not \
+                                         shifted — edit refused (fail-closed)"
+                                    .into(),
+                            });
+                        }
+                    } else if let Some(reason) = detect_residual(&e) {
                         report.residuals.push(Residual {
                             part: part_name.into(),
                             reason: reason.into(),
@@ -2763,7 +2926,23 @@ fn rewrite_edited_sheet(
             }
             Event::End(e) => {
                 if is_formula_tag(e.name().as_ref()) {
-                    if in_f && !f_residual {
+                    if let Some(ref_extent) = f_array_ref.take() {
+                        // ARRAY formula: copied VERBATIM (never shifted). Refuse only if the edit
+                        // MOVES its extent or a cell its body references (affect-based).
+                        let raw = std::mem::take(&mut f_raw);
+                        if array_formula_affected(&ref_extent, &raw, &sheet, edit) {
+                            report.residuals.push(Residual {
+                                part: part_name.to_string(),
+                                reason: "array_formula_present".into(),
+                                detail:
+                                    "an array/dynamic-array formula whose extent or a cell its \
+                                         body references the edit would MOVE is not shifted — edit \
+                                         refused (fail-closed)"
+                                        .into(),
+                            });
+                        }
+                        writer.write_event(Event::Text(BytesText::from_escaped(raw)))?;
+                    } else if in_f && !f_residual {
                         // The whole <f> body has now been reassembled; shift once.
                         let raw = std::mem::take(&mut f_raw);
                         match logical_formula(&raw) {
@@ -3468,6 +3647,32 @@ fn detect_residual(e: &BytesStart) -> Option<&'static str> {
         Some(b"shared") => Some("shared_formula_present"),
         _ => None,
     }
+}
+
+/// True if this edit MOVES an array formula's extent (`<f t="array" ref=…>`) or a cell its body
+/// references. The array's `<f>` (ref extent) and body are copied VERBATIM (never shifted), so an
+/// affected array must be refused; when nothing it touches moves, it is unaffected and the edit
+/// commits — the affect-based walkback of the presence-based refusal that rejected EVERY
+/// dynamic-array (FILTER/UNIQUE/SORT/SEQUENCE) workbook, since Excel persists all such spills as
+/// `<f t="array" ref=…>`. `body_raw` is the reassembled raw `<f>` body (empty for a stub).
+fn array_formula_affected(
+    ref_extent: &str,
+    body_raw: &str,
+    sheet: &str,
+    edit: &StructuralEdit,
+) -> bool {
+    let ref_moved = !ref_extent.is_empty() && shift_sqref(ref_extent, sheet, edit).0 != ref_extent;
+    let body_moved = if body_raw.is_empty() {
+        false
+    } else {
+        logical_formula(body_raw)
+            .map(|l| {
+                refshift::has_unquoted_non_ascii_qualifier(&l)
+                    || refshift::shift_formula(&l, sheet, edit).0 != l
+            })
+            .unwrap_or(true) // unparseable body -> fail closed
+    };
+    ref_moved || body_moved
 }
 
 fn attr_u32(e: &BytesStart, key: &[u8]) -> Option<u32> {
@@ -4628,13 +4833,38 @@ mod tests {
             br#"<worksheet><sheetData><row r="1"><c r="C1"><f>@A1:A10</f></c><c r="D1"><f>_xlfn.CONCAT(A1,A2)+_xlfn._xlws.FILTER(B1:B5,C1)</f></c><c r="E1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#,
         );
         // `@` cell keyed by ref (signature is the `@` POSITION list); a plain formula excluded.
-        assert_eq!(m.get("C1").map(String::as_str), Some("@[0];"));
+        assert_eq!(m.get("C1").map(String::as_str), Some("@[0];;isect="));
         assert_eq!(
             m.get("D1").map(String::as_str),
-            Some("@[];_xlfn.CONCAT,_xlfn._xlws.FILTER")
+            Some("@[];_xlfn.CONCAT,_xlfn._xlws.FILTER;isect=")
         );
         assert_eq!(m.get("E1"), None);
         assert_eq!(m.len(), 2);
+        // A top-level range-INTERSECTION (round-34): ironcalc drops the 2nd operand, so the raw
+        // body is signed. Two intersections differing only in the 2nd operand differ here.
+        let isa = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="C1"><f>A1:A10 A4:A4</f></c></row></sheetData></worksheet>"#,
+        );
+        let isb = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="C1"><f>A1:A10 A7:A7</f></c></row></sheetData></worksheet>"#,
+        );
+        assert_eq!(
+            isa.get("C1").map(String::as_str),
+            Some("@[];;isect=A1:A10 A4:A4")
+        );
+        assert_ne!(
+            isa.get("C1"),
+            isb.get("C1"),
+            "intersection operand change must differ"
+        );
+        // But a plain arithmetic formula with spaces around an operator is NOT an intersection.
+        let arith = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="C1"><f>A1 + A2</f></c></row></sheetData></worksheet>"#,
+        );
+        assert!(
+            arith.is_empty(),
+            "operator-spacing is not an intersection: {arith:?}"
+        );
         // A `@` inside a `[@Col]` structured ref or a string/quoted-name is NOT counted.
         let bracket = formula_hidden_tokens(
             br#"<worksheet><sheetData><row r="1"><c r="C5"><f>Table1[@Amount]*"a@b"&amp;'x@y'!A1</f></c></row></sheetData></worksheet>"#,
@@ -4985,6 +5215,32 @@ mod tests {
         );
         // a plain sheet (cell formulas only) yields nothing.
         assert!(sheet_ref_construct_semantics(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#).is_empty());
+        // REGRESSION (round-34): for a type="list" DV, the inert `formula2` (which LibreOffice
+        // writes) is IGNORED — Excel uses formula2 only with between/notBetween, inapplicable to a
+        // list — so its presence/absence must NOT change the key (a spurious refusal otherwise).
+        let with_f2 = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="list" sqref="B3:B8"><formula1>"Yes,No"</formula1><formula2>0</formula2></dataValidation></worksheet>"#);
+        let without = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="list" sqref="B3:B8"><formula1>"Yes,No"</formula1></dataValidation></worksheet>"#);
+        assert_eq!(
+            with_f2, without,
+            "list-DV inert formula2 must not affect the key"
+        );
+        // But for a NON-list type (whole/between), formula2 IS a real bound and is kept.
+        let between = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="whole" operator="between" sqref="B3:B8"><formula1>1</formula1><formula2>10</formula2></dataValidation></worksheet>"#);
+        assert!(
+            between[0].1.contains("10"),
+            "non-list formula2 must be kept: {between:?}"
+        );
+    }
+
+    #[test]
+    fn volatile_formula_cells_detects_volatile() {
+        // REGRESSION (round-34): certify skips a volatile cell's cache (Excel recomputes it) rather
+        // than disabling its oracle workbook-wide. The per-cell detector finds the volatile ones.
+        let v = volatile_formula_cells(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>TODAY()</f><v>1</v></c><c r="B1"><f>SUM(A2:A9)</f><v>2</v></c><c r="C1"><f>OFFSET(A1,1,0)</f><v>3</v></c></row></sheetData></worksheet>"#);
+        assert!(v.contains("A1"), "TODAY is volatile");
+        assert!(v.contains("C1"), "OFFSET is volatile");
+        assert!(!v.contains("B1"), "SUM is not volatile");
+        assert_eq!(v.len(), 2);
     }
 
     #[test]
@@ -5510,6 +5766,78 @@ mod tests {
                 .any(|r| r.reason == "array_formula_present"),
             "array must still be refused: {:?}",
             report.residuals
+        );
+    }
+
+    #[test]
+    fn array_formula_is_affect_based() {
+        // REGRESSION (round-34): an array/dynamic-array formula is refused only when the edit MOVES
+        // its extent or a cell its body references — NOT on mere presence (which rejected every
+        // FILTER/UNIQUE/SORT workbook, since Excel persists all spills as <f t="array" ref=...>).
+        let xml = br#"<worksheet><sheetData><row r="3"><c r="C3"><f t="array" ref="C3:C3">A1*2</f><v>2</v></c></row></sheetData></worksheet>"#;
+        // Insert far BELOW (row 100): moves neither C3:C3 nor A1 -> commits, array byte-preserved.
+        let mut r1 = StructuralReport::default();
+        let out = rewrite_edited_sheet(
+            xml,
+            &edit("Sheet1", Axis::Row, Op::Insert, 100, 1),
+            "s",
+            &mut r1,
+        )
+        .unwrap();
+        assert!(
+            r1.residuals.is_empty(),
+            "unaffected array must commit: {:?}",
+            r1.residuals
+        );
+        assert!(
+            String::from_utf8_lossy(&out).contains(r#"<f t="array" ref="C3:C3">A1*2</f>"#),
+            "unaffected array preserved verbatim"
+        );
+        // Insert-cols far right (col 100): unaffected -> commits.
+        let mut r2 = StructuralReport::default();
+        let _ = rewrite_edited_sheet(
+            xml,
+            &edit("Sheet1", Axis::Col, Op::Insert, 100, 1),
+            "s",
+            &mut r2,
+        )
+        .unwrap();
+        assert!(
+            r2.residuals.is_empty(),
+            "col-far array must commit: {:?}",
+            r2.residuals
+        );
+        // Insert ABOVE (row 2): moves C3 and its ref extent -> refused.
+        let mut r3 = StructuralReport::default();
+        let _ = rewrite_edited_sheet(
+            xml,
+            &edit("Sheet1", Axis::Row, Op::Insert, 2, 1),
+            "s",
+            &mut r3,
+        )
+        .unwrap();
+        assert!(
+            r3.residuals
+                .iter()
+                .any(|r| r.reason == "array_formula_present"),
+            "array whose extent the edit moves must refuse: {:?}",
+            r3.residuals
+        );
+        // Insert at row 1: moves the body ref A1 (and the extent) -> refused.
+        let mut r4 = StructuralReport::default();
+        let _ = rewrite_edited_sheet(
+            xml,
+            &edit("Sheet1", Axis::Row, Op::Insert, 1, 1),
+            "s",
+            &mut r4,
+        )
+        .unwrap();
+        assert!(
+            r4.residuals
+                .iter()
+                .any(|r| r.reason == "array_formula_present"),
+            "array whose body ref the edit moves must refuse: {:?}",
+            r4.residuals
         );
     }
 

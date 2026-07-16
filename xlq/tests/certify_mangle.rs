@@ -106,3 +106,16 @@ fn benign_reserialization_still_certifies() {
     // Stripping caches that xlq already blanked is a no-op certify, so assert the semantic point
     // via reserialize only; the cache-repopulation benign path is covered by the in-crate oracle.
 }
+
+#[test]
+fn materialized_empty_styled_cells_still_certify() {
+    // A foreign editor that materializes value-less style-only cells (a merged header's covered
+    // cells) must still CERTIFY — display-only, cannot change any computed value.
+    let edit = Edit::insert_rows("Sheet1", 1, 1);
+    assert_certified(
+        "sum_band.xlsx",
+        &edit,
+        benign::materialize_empty_styled_cells,
+        "materialize_empty_styled_cells",
+    );
+}

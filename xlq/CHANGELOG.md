@@ -555,6 +555,36 @@ is refused, not committed.
   `<x:Row>`/`<x:Anchor>`): refused only when the edit MOVES the anchored cell. The edited sheet's
   own VML is additionally checked for a control binding to a moved cell (edited-sheet host, so a
   local unqualified `$A$8` counts) so the walkback opens no silent-wrong hole.
+- **`certify` catches a value-changing tamper of a range-INTERSECTION formula (false-certify
+  fix).** ironcalc collapses Excel's range-intersection operator — a space between two references,
+  `=A1:A10 A4:A4` (the `=Revenue January` idiom) — to `@A1:A10`, DROPPING the second operand, so
+  the loaded-model diff was blind to a foreign edit changing that operand's value (`A4:A4`→`A7:A7`,
+  4→7). The engine-normalized-token signature now also records the whitespace-canonicalized raw
+  body when a top-level intersection is present, so an operand change differs (and benign
+  re-spacing does not). Operator-spacing (`A1 + A2`) and function calls are not mistaken for it.
+- **`restructure` array/dynamic-array formulas are affect-based, not presence-refused
+  (over-refusal fix).** ANY `<f t="array" ref=…>` on the edited sheet refused EVERY structural
+  edit regardless of distance — and since Excel persists all modern dynamic-array spills
+  (`FILTER`/`UNIQUE`/`SORT`/`SEQUENCE`/`XLOOKUP`) as `t="array"`, that categorically rejected a
+  ubiquitous workbook class. An array is now refused only when the edit MOVES its `ref` extent or
+  a cell its body references; an unaffected array is copied verbatim and the edit commits.
+- **`certify` no longer counts a value-less style-only cell as an add/remove (over-refusal
+  fix).** A merged title's covered cells, which Excel/LibreOffice materialize as `<c r="B1"
+  s="1"/>` (no `<v>`, no `<f>`), were classified as `added`/`removed` and disqualified a faithful
+  edit. A cell present on only one side with no formula and a null value is display-only and
+  cannot change a computed result, so it is no longer a value divergence.
+- **`certify` ignores the inert `formula2` of a list-type data validation (over-refusal fix).**
+  For a `type="list"` dropdown, `formula2`/`operator` are meaningless (Excel uses `formula2` only
+  with `between`/`notBetween`), but LibreOffice writes `<formula2>0</formula2>` for every list DV;
+  comparing it spuriously refused a faithful round-trip. The construct comparator now drops
+  `formula2` for a list DV while keeping it for the types where it is a real bound.
+- **`certify` no longer disables its cache oracle workbook-wide on one volatile function
+  (over-refusal fix).** `NOW`/`TODAY`/`RAND`/`OFFSET`/`INDIRECT` anywhere turned the whole cache
+  oracle off, so a faithful edit that PRESERVED a verifiable NON-volatile cache (a `SUM`) without
+  `fullCalcOnLoad` was refused as collateral. The oracle is now built regardless (all functions
+  are engine-supported, so it evaluates correctly) and each individual VOLATILE cell is skipped
+  (Excel recomputes those on load, so their cache never surfaces stale) — a fabricated non-volatile
+  cache is still caught.
 - **`certify` treats a number-format change as value-affecting under "precision as displayed".**
   A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
   computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input
