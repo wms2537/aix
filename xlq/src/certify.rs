@@ -305,6 +305,19 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
             "detail": "a chart data reference or drawing anchor differs from xlq's transform",
         }));
     }
+    // PIVOT tables/caches carry a source range (`<worksheetSource ref>`), a render location, and
+    // a connection binding the cell diff never sees. The transform shifts the edited-sheet
+    // source and preserves the rest, so a faithful edit matches and a mangle (a repointed
+    // source, a moved render extent, a re-bound connection) differs. COMPARED, not
+    // presence-refused — refusing on presence rejected xlq's own transform of ANY pivot workbook.
+    if pivot_refs(expected) != pivot_refs(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "pivot_reference_mismatch",
+            "detail": "a PivotTable/PivotCache source range, render location, or connection \
+                       binding differs from xlq's transform — a reference the cell diff misses",
+        }));
+    }
     // Tokens the engine NORMALIZES AWAY on load — the required `_xlfn.` prefix on post-2007
     // functions (dropping it makes Excel show `#NAME?`) and the implicit-intersection `@`
     // operator (`@A1:A10` scalar vs the bare `A1:A10` spilling array) — are invisible to the
@@ -448,6 +461,10 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
                                                      // associated table part, compared there)
         || low.starts_with("xl/ctrlprops/")          // modern form-control props — its fmlaLink/
                                                      // fmlaRange bindings ARE compared (below)
+        || (low.starts_with("xl/pivotcache/") && low.ends_with(".xml"))  // pivot cache defn/records:
+                                                     // worksheetSource ref compared via pivot_refs
+        || (low.starts_with("xl/pivottables/") && low.ends_with(".xml")) // pivot table: location/
+                                                     // source refs compared via pivot_refs
         || low.starts_with("xl/theme/")              // colors/fonts
         || low.starts_with("docprops/")              // document metadata
         || low.starts_with("customxml/")             // inert custom-XML data island: Excel
@@ -586,6 +603,23 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
         } else if low.starts_with("xl/drawings/") && low.ends_with(".xml") {
             if let Ok(x) = crate::ooxml::read_part(bytes, n) {
                 drawings.extend(structural::element_text_semantics(&x, &[b"col", b"row"]));
+                // A graphic-frame formula (`<xdr:f>`) — a linked OLE/picture object's source
+                // cell — and a linked shape/textbox's `textlink="Sheet1!$A$8"` attribute are
+                // LIVE cell references the shape mirrors. The transform refuses an edit that
+                // moves one and copies the drawing verbatim otherwise, so a foreign RE-POINT
+                // (mirroring a different cell) must differ. The cell diff never sees them.
+                drawings.extend(structural::element_text_semantics(&x, &[b"f"]));
+                for (_, attrs) in structural::element_attr_semantics(
+                    &x,
+                    &[b"sp", b"cxnSp", b"pic", b"graphicFrame"],
+                ) {
+                    if let Some(tl) = attrs
+                        .split_whitespace()
+                        .find_map(|kv| kv.strip_prefix("textlink="))
+                    {
+                        drawings.push(format!("textlink={tl}"));
+                    }
+                }
                 // A shape/image hyperlink (`<a:hlinkClick r:id>`) resolves through the
                 // drawing's own rels to an external URL — a phishing-swap target the cell
                 // diff and the worksheet hyperlink scan never see.
@@ -607,6 +641,52 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
     charts.sort();
     drawings.sort();
     (charts, drawings)
+}
+
+/// The reference/extent surface of every PivotTable and PivotCache across
+/// `xl/pivotCache/*` + `xl/pivotTables/*`, as a sorted list (keyed by neither part name nor
+/// order, so a benign part renumber does not false-refuse). The transform SHIFTS a
+/// `<worksheetSource ref>` whose `sheet` is the edited one and REFUSES any other pivot
+/// reference to the edited sheet, so a pivot that survives to certify is one xlq left faithful;
+/// a foreign edit that mangles the source range, the render location, or the connection binding
+/// differs and is refused. Comparing this lets certify allowlist pivots (which carry a cell
+/// coordinate the cell diff misses) instead of blanket-refusing every workbook that has one —
+/// including xlq's own correct transform.
+fn pivot_refs(bytes: &[u8]) -> Vec<String> {
+    let names = structural::archive_names(bytes).unwrap_or_default();
+    let mut out = Vec::new();
+    for n in &names {
+        let low = n.to_ascii_lowercase();
+        if (low.starts_with("xl/pivotcache/") || low.starts_with("xl/pivottables/"))
+            && low.ends_with(".xml")
+        {
+            let Ok(x) = crate::ooxml::read_part(bytes, n) else {
+                continue;
+            };
+            for (tag, attrs) in structural::element_attr_semantics(
+                &x,
+                &[b"worksheetSource", b"rangeSet", b"location", b"cacheSource"],
+            ) {
+                let pick = |key: &str| {
+                    attrs
+                        .split_whitespace()
+                        .find_map(|kv| kv.strip_prefix(key))
+                        .unwrap_or("")
+                        .to_string()
+                };
+                out.push(format!(
+                    "{tag}|sheet={}|ref={}|name={}|conn={}|type={}",
+                    pick("sheet="),
+                    pick("ref="),
+                    pick("name="),
+                    pick("connectionId="),
+                    pick("type="),
+                ));
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 /// Every form-control / OLE / web-publish data binding across the workbook: worksheet
@@ -1561,6 +1641,34 @@ mod tests {
         let refusal =
             verify_noncell_refs(&good, &evil).expect("a repointed data source must be refused");
         assert_eq!(refusal["reason"], "external_target_mismatch");
+    }
+
+    #[test]
+    fn pivot_workbook_is_compared_not_presence_refused() {
+        // A pivot part carries a source range the cell diff never sees; it was on neither the
+        // allowlist nor a comparator, so certify refused EVERY pivot workbook — including xlq's
+        // own faithful transform. Now allowlisted + compared: presence is fine, a mangle differs.
+        let pivot = |src_ref: &str| {
+            format!(
+                r#"<pivotCacheDefinition xmlns="urn:x"><cacheSource type="worksheet"><worksheetSource ref="{src_ref}" sheet="Sheet2"/></cacheSource><cacheFields count="1"/></pivotCacheDefinition>"#
+            )
+        };
+        let good_src = pivot("B1:B2");
+        let good = wb(
+            "",
+            &[("xl/pivotCache/pivotCacheDefinition1.xml", good_src.as_str())],
+        );
+        // Presence of a pivot must NOT refuse (the over-refusal fix).
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // A repointed pivot source range IS caught.
+        let bad_src = pivot("B1:B999");
+        let bad = wb(
+            "",
+            &[("xl/pivotCache/pivotCacheDefinition1.xml", bad_src.as_str())],
+        );
+        let refusal =
+            verify_noncell_refs(&good, &bad).expect("a repointed pivot source must be caught");
+        assert_eq!(refusal["reason"], "pivot_reference_mismatch");
     }
 
     #[test]

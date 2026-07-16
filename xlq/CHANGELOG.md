@@ -497,6 +497,34 @@ is refused, not committed.
   comparison could not tell a correct cache (`55`) from a fabricated one (`999`) — both were
   refused; now the correct one certifies and the lie is refused. Gated on coverage, so an
   unsupported or volatile function never launders a wrong value.
+- **`restructure` invalidates every formula cache on commit, never committing a STALE computed
+  value (silent-wrong fix).** A structural edit changes computed values — a deleted data row
+  changes a `SUM`, which changes a cell that reads that `SUM`, transitively across the whole
+  workbook — but the byte-surgery path copied each formula's stored result cache (`<v>`)
+  verbatim, so `SUM(A1:A10)` shifted to `SUM(A1:A9)` still displayed the OLD `55` (true `50`),
+  and a `#REF!`-orphaned cell kept a fabricated numeric cache. Excel/LibreOffice (with no
+  `fullCalcOnLoad`), and every cache-reading tool (openpyxl `data_only`, pandas), showed the
+  stale value. xlq is engine-free and cannot recompute nor track the transitive affected set, so
+  it now drops the `<v>` of EVERY formula cell on EVERY worksheet — exactly what openpyxl does on
+  save — leaving `<f>` intact for the reader to recompute; literal (non-formula) values are
+  untouched. (Earlier rounds missed this because the test fixtures shipped blank `<v/>` caches.)
+- **`restructure` refuses an edit that would move a drawing shape's live cell reference
+  (silent-wrong fix).** A linked shape/textbox mirrors a cell via `textlink="Sheet1!$A$8"` (what
+  Excel writes for a shape whose formula bar reads `=A8`); a graphic frame does the same via
+  `<xdr:f>`. The drawing guard checked only the shape's ANCHOR position, so a shape anchored away
+  from the edit was copied verbatim with its textlink left pointing at the pre-edit cell —
+  silently mirroring a different cell's value. The guard now also affect-checks the textlink /
+  graphic-frame reference (σ oracle, edited sheet as host, so qualified and unqualified refs both
+  count) and refuses when the edit moves it; `certify` now compares these references too, so a
+  foreign re-point on an unaffected shape is caught rather than certified.
+- **`certify` no longer refuses a PivotTable workbook — including xlq's own transform
+  (over-refusal fix).** `xl/pivotCache/*` and `xl/pivotTables/*` were on neither the fail-closed
+  allowlist nor a comparator, so certify refused every workbook with a pivot, even when the pivot
+  sourced an unrelated sheet and restructure produced a provably faithful transform of it. They
+  are now allowlisted and compared by `pivot_refs`: the source range (`<worksheetSource ref>`,
+  which the transform shifts for the edited sheet), the render location, the consolidation range,
+  and the connection binding. A faithful edit matches; a repointed source, a moved render extent,
+  or a re-bound connection differs.
 - **`certify` treats a number-format change as value-affecting under "precision as displayed".**
   A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
   computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input

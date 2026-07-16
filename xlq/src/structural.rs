@@ -212,6 +212,16 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
                 });
             }
         }
+        // Engine-free xlq cannot recompute a formula result, and a structural edit changes
+        // computed values transitively across the workbook, so every stored formula cache is now
+        // untrustworthy. Invalidate them on EVERY worksheet — the edited sheet, cross-referencing
+        // sheets, AND sheets this edit did not otherwise touch (a transitively-affected value can
+        // live on any of them) — so no reader ever sees a stale computed value. `part_sheet` is
+        // exactly the set of worksheet parts (resolved via the workbook rels), so this is robust
+        // to non-standard part paths.
+        if part_sheet.contains_key(&name) {
+            bytes = strip_formula_caches(&bytes);
+        }
         let touched = name != edited_part && bytes != before;
         if touched {
             report.parts_touched.push(name.clone());
@@ -397,6 +407,78 @@ fn expand_shared_in_sheet(src: &[u8]) -> Result<Vec<u8>> {
         buf.clear();
     }
     Ok(writer.into_inner().into_inner())
+}
+
+/// Drop every FORMULA cell's stored result cache (`<v>`) from a worksheet part, leaving the
+/// `<f>` intact. Engine-free xlq cannot recompute a formula's value, and a structural edit can
+/// change computed values TRANSITIVELY across the whole workbook (a deleted data row changes a
+/// `SUM`, which changes a cell that reads that `SUM`, on any sheet), so no stored cache can be
+/// trusted afterward. Excel/LibreOffice recompute a cache-less formula on load, and a
+/// value-reading tool (openpyxl `data_only`, pandas) then reads NO value rather than a STALE one
+/// — the same invalidation openpyxl itself performs on save. A literal (non-formula) cell keeps
+/// its `<v>`. The current cell's events are buffered so the drop decision holds regardless of
+/// child order; byte-identical when the sheet carries no cached formula result. On an
+/// unparseable part it returns the input unchanged (fail-safe: never corrupt a part we cannot
+/// model).
+fn strip_formula_caches(xml: &[u8]) -> Vec<u8> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut writer = Writer::new(Cursor::new(Vec::new()));
+    let mut buf = Vec::new();
+    let mut cell: Vec<Event<'static>> = Vec::new();
+    let mut in_cell = false;
+    let mut has_f = false;
+    loop {
+        let ev = match reader.read_event_into(&mut buf) {
+            Ok(Event::Eof) => break,
+            Ok(e) => e.into_owned(),
+            Err(_) => return xml.to_vec(),
+        };
+        buf.clear();
+        match &ev {
+            Event::Start(e) if e.name().as_ref() == b"c" => {
+                in_cell = true;
+                has_f = false;
+                cell.clear();
+                cell.push(ev);
+            }
+            Event::End(e) if in_cell && e.name().as_ref() == b"c" => {
+                cell.push(ev);
+                let mut skip_v = false;
+                for c in cell.drain(..) {
+                    if has_f {
+                        match &c {
+                            Event::Start(s) if s.name().as_ref() == b"v" => {
+                                skip_v = true;
+                                continue;
+                            }
+                            Event::Empty(s) if s.name().as_ref() == b"v" => continue,
+                            Event::End(s) if s.name().as_ref() == b"v" => {
+                                skip_v = false;
+                                continue;
+                            }
+                            Event::Text(_) | Event::GeneralRef(_) if skip_v => continue,
+                            _ => {}
+                        }
+                    }
+                    let _ = writer.write_event(c);
+                }
+                in_cell = false;
+            }
+            _ if in_cell => {
+                if let Event::Start(e) | Event::Empty(e) = &ev {
+                    if e.name().as_ref() == b"f" {
+                        has_f = true;
+                    }
+                }
+                cell.push(ev);
+            }
+            _ => {
+                let _ = writer.write_event(ev);
+            }
+        }
+    }
+    writer.into_inner().into_inner()
 }
 
 /// True if the proven shift algebra σ would CHANGE `logical` for this edit — i.e. the
@@ -684,7 +766,12 @@ fn edited_sheet_bad_attachment(
                         let affected = attr_by_local(&e, b"Target")
                             .map(|t| crate::ooxml::resolve_target(dir, &t))
                             .and_then(|p| crate::ooxml::read_part(input, &p).ok())
-                            .map(|x| drawing_anchor_affected(&x, edit))
+                            // Refuse if the edit moves either a drawing ANCHOR (image/chart
+                            // displaced) or a live cell REFERENCE inside it (a linked shape's
+                            // textlink / graphic-frame formula left pointing at the wrong cell).
+                            .map(|x| {
+                                drawing_anchor_affected(&x, edit) || drawing_ref_affected(&x, edit)
+                            })
                             .unwrap_or(true); // unresolved/unreadable -> fail closed
                         if affected {
                             return Some("drawing".into());
@@ -750,6 +837,59 @@ fn drawing_anchor_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
             }
             Ok(Event::Eof) => return false,
             Err(_) => return true, // fail closed
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
+/// True if this edit would MOVE a LIVE CELL REFERENCE carried inside a drawing part — a linked
+/// shape/textbox's `textlink="Sheet1!$A$8"` (what Excel writes when you select a shape and type
+/// `=A8` in the formula bar) or a graphic-frame `<xdr:f>` formula. The drawing is copied
+/// verbatim, so such a reference is NEVER shifted; if the edit moves the cell it names, the
+/// shape silently mirrors a DIFFERENT cell's value. `drawing_anchor_affected` inspects only the
+/// `<from>/<to>` anchor position, so a textlink on a shape anchored away from the edit slipped
+/// through. Runs the σ oracle with the edited sheet as host, so both an explicitly-qualified
+/// (`Sheet1!$A$8`) and an unqualified (`$A$8`, local to the sheet the drawing is attached to)
+/// reference count, while a reference to another sheet does not. Fail-closed on a parse error.
+fn drawing_ref_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut in_f = false;
+    let mut raw = String::new();
+    let sigma_moves = |logical: &str| -> bool {
+        let (shifted, _n) = refshift::shift_formula(logical, &edit.sheet, edit);
+        shifted != logical
+    };
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                // `textlink` attr is already unescaped by attr_by_local -> shift directly.
+                if let Some(tl) = attr_by_local(&e, b"textlink") {
+                    if !tl.trim().is_empty() && sigma_moves(&tl) {
+                        return true;
+                    }
+                }
+                if tag_local_eq(e.name().as_ref(), b"f") {
+                    in_f = true;
+                    raw.clear();
+                }
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
+                if in_f {
+                    if let Some(logical) = logical_formula(&raw) {
+                        if sigma_moves(&logical) {
+                            return true;
+                        }
+                    }
+                    in_f = false;
+                }
+            }
+            Ok(Event::Text(t)) if in_f => push_text_raw(&mut raw, &t),
+            Ok(Event::GeneralRef(r)) if in_f => push_ref_raw(&mut raw, &r),
+            Ok(Event::Eof) => return false,
+            Err(_) => return true, // unparseable -> fail closed
             _ => {}
         }
         buf.clear();
@@ -3967,6 +4107,40 @@ mod tests {
     }
 
     #[test]
+    fn strip_formula_caches_drops_only_formula_results() {
+        // REGRESSION (round-32): a structural edit changes computed values, so xlq must
+        // invalidate every formula cache (Excel/openpyxl recompute a cache-less formula) —
+        // committing the stale `<v>` was a silent value corruption. Formula `<v>` is dropped,
+        // the `<f>` is kept, and a LITERAL cell's `<v>` survives.
+        let xml = br#"<worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>SUM(A1:A1)</f><v>55</v></c><c r="C1" t="str"><f>A1&amp;"x"</f><v>1x</v></c><c r="D1"><f>A1</f><v /></c><c r="E1"><f t="shared" si="0"/><v>9</v></c></row></sheetData></worksheet>"#;
+        let out = strip_formula_caches(xml);
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            s.contains(r#"<c r="A1"><v>1</v></c>"#),
+            "literal value kept: {s}"
+        );
+        assert!(
+            s.contains(r#"<c r="B1"><f>SUM(A1:A1)</f></c>"#),
+            "B1 formula kept, cache dropped: {s}"
+        );
+        assert!(
+            s.contains(r#"<f>A1&amp;"x"</f>"#) && !s.contains("1x"),
+            "C1 string-result cache dropped, formula kept: {s}"
+        );
+        assert!(
+            !s.contains("<v>9</v>"),
+            "shared-dependent formula cache dropped: {s}"
+        );
+        assert!(
+            !s.contains("</f><v>"),
+            "no populated formula cache remains: {s}"
+        );
+        // A sheet with no cached formula result is byte-identical.
+        let plain = br#"<worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>"#;
+        assert_eq!(strip_formula_caches(plain), plain.to_vec());
+    }
+
+    #[test]
     fn shared_master_with_entity_expands_correctly() {
         // The shared-master body (A2>0) carries an entity; it must be captured
         // whole across Text+GeneralRef so dependents expand to A3>0, A4>0.
@@ -4173,6 +4347,30 @@ mod tests {
             two,
             &edit("S", Axis::Row, Op::Insert, 25, 1)
         ));
+    }
+
+    #[test]
+    fn drawing_textlink_affect_check() {
+        // REGRESSION (round-32): a linked shape's `textlink` (or graphic-frame `<xdr:f>`) is a
+        // live cell reference, invisible to the anchor-only guard. An edit that MOVES the cell
+        // it names must be refused even when the shape's anchor is unaffected.
+        let ins5 = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
+        let tl = |v: &str| {
+            format!(
+                r#"<xdr:wsDr xmlns:xdr="u"><xdr:twoCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:row>0</xdr:row></xdr:from><xdr:to><xdr:col>1</xdr:col><xdr:row>1</xdr:row></xdr:to><xdr:sp macro="" textlink="{v}"><xdr:spPr/></xdr:sp></xdr:twoCellAnchor></xdr:wsDr>"#
+            )
+        };
+        // qualified ref to a MOVED cell (A8, row >= 5) -> affected
+        assert!(drawing_ref_affected(tl("Sheet1!$A$8").as_bytes(), &ins5));
+        // ref ABOVE the edit (A2) -> unaffected (no over-refusal)
+        assert!(!drawing_ref_affected(tl("Sheet1!$A$2").as_bytes(), &ins5));
+        // ref to ANOTHER sheet -> unaffected by an edit on Sheet1
+        assert!(!drawing_ref_affected(tl("Sheet2!$A$8").as_bytes(), &ins5));
+        // UNQUALIFIED ref ($A$8) is local to the attached (edited) sheet -> affected
+        assert!(drawing_ref_affected(tl("$A$8").as_bytes(), &ins5));
+        // a graphic-frame formula referencing a moved cell -> affected
+        let gf = br#"<xdr:wsDr xmlns:xdr="u"><xdr:graphicFrame><xdr:f>Sheet1!$A$8</xdr:f></xdr:graphicFrame></xdr:wsDr>"#;
+        assert!(drawing_ref_affected(gf, &ins5));
     }
 
     #[test]
