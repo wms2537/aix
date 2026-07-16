@@ -459,6 +459,44 @@ is refused, not committed.
   → `https://example.com/`) — the same resource — was a spurious refusal, since the target was
   byte-compared. A single trailing `/` is now stripped before comparison; a real retarget (a
   different host or path) still differs.
+- **`certify` now compares external DATA-SOURCE targets and ribbon autorun callbacks
+  (security fix).** `xl/connections.xml` (a `<webPr url>` web query, a `<dbPr command>` SQL
+  string, an ODBC/OLEDB connection string, an OLAP source), its `xl/queryTables/*` connection
+  bindings, and `customUI/*` ribbon callbacks were allowlisted as carrying no shiftable cell
+  coordinate but never compared — so a foreign edit that REPOINTED the data source to an
+  attacker host (SSRF / intranet-URL exfiltration, with attacker-controlled data injected into
+  the connected cells on the next refresh — a value change no cell diff can see) or INJECTED an
+  `onLoad` autorun callback was certified. xlq's transform copies these parts verbatim, so they
+  are now compared by a normalized, order-independent element/attribute signature: a faithful
+  edit (and a foreign tool's cosmetic reserialization) matches; a repoint or injection differs.
+- **`restructure` no longer corrupts a cell-shaped suffix of a non-ASCII / backslash-prefixed
+  defined name (silent-wrong fix).** A defined name whose spelling is a Unicode (e.g. CJK) or
+  leading-`\` prefix immediately followed by a grid-valid A1 spelling — `売上A5`, `\A5`, used
+  unqualified in a formula body — had its trailing `A5` shifted as if it were a fresh cell ref
+  (`売上A5`→`売上A6`, an undefined name → `#NAME?`, a silent value corruption). The shift
+  algebra's token-boundary predicate now treats a preceding non-ASCII scalar or backslash as
+  name-continuation (Excel names admit Unicode letters/digits and `\`), so the whole name is
+  left intact while a genuinely separate reference in the same formula still shifts. Root-cause
+  fix in `shift_formula`, so every call site (worksheet `<f>`, shared-formula materialization,
+  defined names) is covered.
+- **`certify` treats the two OOXML encodings of an internal hyperlink as equivalent
+  (over-refusal fix).** An in-workbook jump (`A4`→`Data!A1`) has two standard encodings: a
+  relationship `Target="#Data!A1"` (openpyxl and other library writers) and a
+  `location="Data!A1"` attribute (Excel/LibreOffice). certify keyed them as independent
+  `(location, target)` fields, so a faithful edit that merely round-tripped the encoding was
+  refused. Both now canonicalize to the same `(dest, ext="")`; a genuine external retarget (a
+  phishing URL, a mispoint to another file) still lands in `ext` and differs.
+- **`certify` vouches a faithful edit's PRESERVED formula caches by evaluation, not just by a
+  stored-cache match (over-refusal + strengthening).** xlq's transform BLANKS every shifted
+  formula's cache (it cannot recompute engine-free), so a stored-cache-vs-stored-cache
+  comparison refused the common case — a normal Excel/LibreOffice save that preserves the
+  correct cache but does not set `fullCalcOnLoad`. When the engine fully and deterministically
+  covers xlq's proven transform (no unsupported / policy-limited / user-defined / VOLATILE
+  function), certify now EVALUATES the transform and vouches each foreign cache against the true
+  computed value. This both removes the over-refusal AND strengthens the guard: the prior
+  comparison could not tell a correct cache (`55`) from a fabricated one (`999`) — both were
+  refused; now the correct one certifies and the lie is refused. Gated on coverage, so an
+  unsupported or volatile function never launders a wrong value.
 - **`certify` treats a number-format change as value-affecting under "precision as displayed".**
   A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
   computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input

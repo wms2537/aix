@@ -115,7 +115,7 @@ pub fn run(
 
     // (2) Load xlq's transform (from a unique temp file, same discipline as
     // restructure.rs's proof-carrying re-open) and the foreign edited file.
-    let expected_model =
+    let mut expected_model =
         load_from_bytes(&expected_bytes, original).context("load xlq structural transform")?;
     // Anti-bomb preflight on the untrusted foreign edit before ironcalc loads it.
     crate::ooxml::guard_decompression(edited)
@@ -145,10 +145,20 @@ pub fn run(
     let unverified_caches = if recalc_on_load_forced(&edited_bytes) {
         0
     } else {
+        // A faithful foreign edit (the normal Excel/LibreOffice save) PRESERVES each shifted
+        // formula's correct stored cache, but xlq's own transform BLANKS them (it cannot
+        // recompute engine-free) — so a stored-cache-vs-stored-cache comparison alone refuses
+        // the common case. When the engine fully and deterministically covers xlq's proven
+        // transform, evaluate it and vouch each foreign cache against the TRUE computed value:
+        // a correct cache is certified, a fabricated or stale one still differs (a strict
+        // strengthening — the prior comparison could not tell 55 from 999). Gated on coverage
+        // so an unsupported/volatile function never launders a wrong value.
+        let oracle = build_cache_oracle(&mut expected_model);
         unverified_formula_caches(
             &expected_bytes,
             &edited_bytes,
             recalc_on_load_forced(&expected_bytes),
+            oracle.as_ref(),
         )
     };
     // A `format` (number-format) difference is normally benign — display only. But under
@@ -359,6 +369,21 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        control was stripped or weakened",
         }));
     }
+    // EXTERNAL DATA-SOURCE targets (connections.xml url/command/connection string), their
+    // query-table connection bindings, and customUI autorun callbacks — allowlisted as
+    // carrying no shiftable cell coordinate, but never compared. xlq's transform copies them
+    // verbatim, so a foreign edit that REPOINTS a data source (SSRF/exfiltration + injected
+    // refresh data) or INJECTS an autorun ribbon callback must not certify. Compare them.
+    if opaque_target_signature(expected) != opaque_target_signature(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "external_target_mismatch",
+            "detail": "an external data-source target (a connections.xml URL / SQL command / \
+                       connection string), a query-table connection binding, or a customUI \
+                       autorun callback differs from xlq's transform — a value/security change \
+                       the cell diff cannot see",
+        }));
+    }
     // Fail-closed ALLOWLIST over PARTS. certify positionally compares only worksheet cells
     // (diff::snapshot), defined names, and the mergeCell/hyperlink/autoFilter refs above.
     // Any OTHER part can carry a cell reference that comparison never sees — charts,
@@ -453,6 +478,94 @@ fn table_refs(bytes: &[u8]) -> Vec<String> {
         }
     }
     out.sort();
+    out
+}
+
+/// A normalized, order-independent signature of the SECURITY-relevant parts certify
+/// otherwise passes through untouched via the fail-closed allowlist: the external DATA
+/// SOURCES (`xl/connections.xml` — a `<webPr url>` web query, a `<dbPr command>` SQL
+/// string, an ODBC/OLEDB `connection` string, an OLAP source) and their query-table
+/// bindings (`xl/queryTables/*`, whose `connectionId` selects which source fills a range),
+/// plus the RIBBON extensibility callbacks (`customUI/*` — an `onLoad`/`onAction` names a
+/// macro that autoruns on open). xlq's transform copies every one of these verbatim (they
+/// carry no shiftable cell coordinate, which is WHY they are allowlisted), so a faithful
+/// edit's signature matches — while a foreign edit that REPOINTS a data source (an SSRF /
+/// intranet-URL exfiltration, with attacker-controlled data injected into the connected
+/// cells on the next refresh — a value change no cell diff sees) or INJECTS an autorun
+/// callback differs and is refused. Allowlisting without comparing them was a reachable
+/// false-certification of a security change. Keyed by part CLASS, not exact name, so a
+/// benign part renumber does not false-refuse; element/attribute order is normalized away
+/// so a foreign tool's benign reserialization (which a byte compare would refuse) does not.
+fn opaque_target_signature(bytes: &[u8]) -> Vec<String> {
+    let names = structural::archive_names(bytes).unwrap_or_default();
+    let mut out = Vec::new();
+    for n in &names {
+        let low = n.to_ascii_lowercase();
+        let class = if low == "xl/connections.xml" {
+            "connections"
+        } else if low.starts_with("xl/querytables/") && low.ends_with(".xml") {
+            "querytable"
+        } else if low.starts_with("customui/") && low.ends_with(".xml") {
+            "customui"
+        } else {
+            continue;
+        };
+        let Ok(part) = crate::ooxml::read_part(bytes, n) else {
+            continue;
+        };
+        for sig in element_attr_signatures(&part) {
+            out.push(format!("{class}|{sig}"));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Every element in `xml` rendered as `local(attr=val;attr=val;…)` with attributes SORTED,
+/// plus each non-empty trimmed text run as `#text(…)` — an element/attribute-order- and
+/// whitespace-independent view of the part's content. A byte comparison would spuriously
+/// refuse a foreign tool's benign reserialization; this catches any attribute-value or
+/// text change (a repointed URL/command/connectionId/callback) while tolerating formatting.
+/// Namespace-prefix-agnostic (local names only).
+fn element_attr_signatures(xml: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let local =
+                    String::from_utf8_lossy(structural::local_of(e.name().as_ref())).into_owned();
+                let mut attrs: Vec<String> = e
+                    .attributes()
+                    .filter_map(|a| a.ok())
+                    .map(|a| {
+                        let key = String::from_utf8_lossy(structural::local_of(a.key.as_ref()))
+                            .into_owned();
+                        let val = a
+                            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                            .map(|v| v.into_owned())
+                            .unwrap_or_else(|_| String::from_utf8_lossy(&a.value).into_owned());
+                        format!("{key}={val}")
+                    })
+                    .collect();
+                attrs.sort();
+                out.push(format!("{local}({})", attrs.join(";")));
+            }
+            Ok(Event::Text(t)) => {
+                let text = String::from_utf8_lossy(t.as_ref());
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    out.push(format!("#text({trimmed})"));
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
     out
 }
 
@@ -726,7 +839,22 @@ fn structural_ref_attrs(bytes: &[u8]) -> Vec<(String, String, String)> {
                         // single trailing `/` so a benign renormalization is not a spurious
                         // mismatch — a real retarget (different host/path) still differs.
                         let target = target.strip_suffix('/').unwrap_or(&target);
-                        format!("ref={r}|loc={location}|tgt={target}")
+                        // An in-workbook (internal) jump has two EQUIVALENT OOXML encodings for the
+                        // SAME destination cell: (A) a relationship Target `#Data!A1` with no
+                        // `location` (openpyxl and other library writers), and (B) a
+                        // `location="Data!A1"` attribute with no relationship (Excel/LibreOffice).
+                        // Comparing (location, target) as independent fields refused a faithful edit
+                        // that merely round-tripped the encoding, so fold both to (dest, ext=""). A
+                        // genuine external target (URL / other-workbook file) still lands in `ext`,
+                        // so a real retarget (a phishing swap, a mispoint to another file) differs.
+                        let (dest, ext) = if let Some(internal) = target.strip_prefix('#') {
+                            (internal.to_string(), String::new())
+                        } else if target.is_empty() {
+                            (location.clone(), String::new())
+                        } else {
+                            (location.clone(), target.to_string())
+                        };
+                        format!("ref={r}|dest={dest}|ext={ext}")
                     } else {
                         format!("ref={r}")
                     };
@@ -907,7 +1035,12 @@ fn local_element_tag(text: &str, local: &str) -> Option<String> {
 /// one. In that case EVERY present edited cache is unverified (certify cannot recompute to
 /// check it), so the caller's own-cache comparison must not launder it through a matching but
 /// equally-stale expected cache.
-fn unverified_formula_caches(expected: &[u8], edited: &[u8], expected_forced: bool) -> usize {
+fn unverified_formula_caches(
+    expected: &[u8],
+    edited: &[u8],
+    expected_forced: bool,
+    oracle: Option<&std::collections::HashMap<(String, String), String>>,
+) -> usize {
     let exp_by_name: std::collections::HashMap<String, String> = crate::ooxml::all_sheets(expected)
         .unwrap_or_default()
         .into_iter()
@@ -924,25 +1057,105 @@ fn unverified_formula_caches(expected: &[u8], edited: &[u8], expected_forced: bo
         if edt_map.is_empty() {
             continue;
         }
-        // When the transform force-recomputes, its stored caches are moot: every present
-        // edited cache is unverifiable, so count them all.
-        if expected_forced {
-            count += edt_map.len();
-            continue;
-        }
-        let exp_map = exp_by_name
-            .get(&name)
-            .and_then(|p| crate::ooxml::read_part(expected, p).ok())
-            .map(|x| structural::formula_cache_map(&x))
-            .unwrap_or_default();
+        // xlq's OWN stored caches (a cell the transform did NOT blank — an unshifted formula).
+        // When the transform force-recomputes it discards its own caches, so they vouch nothing.
+        let exp_map = if expected_forced {
+            Default::default()
+        } else {
+            exp_by_name
+                .get(&name)
+                .and_then(|p| crate::ooxml::read_part(expected, p).ok())
+                .map(|x| structural::formula_cache_map(&x))
+                .unwrap_or_default()
+        };
         for (cell, ev) in &edt_map {
-            match exp_map.get(cell) {
-                Some(xv) if caches_equal(xv, ev) => {}
-                _ => count += 1,
+            // (a) the transform kept an identical stored cache for this cell, or
+            let by_stored =
+                !expected_forced && exp_map.get(cell).is_some_and(|xv| caches_equal(xv, ev));
+            // (b) the engine's evaluation of the proven transform (when covered) computes it.
+            let by_eval = oracle
+                .and_then(|o| o.get(&(name.clone(), cell.clone())))
+                .is_some_and(|ov| caches_equal(ov, ev));
+            if !(by_stored || by_eval) {
+                count += 1;
             }
         }
     }
     count
+}
+
+/// An oracle mapping (sheet name, A1 cell) -> the `type:value` cache signature of the TRUE
+/// computed value of xlq's proven transform, used to vouch a foreign edit's PRESERVED formula
+/// caches (which xlq's own transform blanks, since it cannot recompute engine-free). Returns
+/// None when the engine does not fully and deterministically cover the workbook — any
+/// unsupported, policy-limited, user-defined, or VOLATILE (`NOW`/`RAND`/…) function — because
+/// evaluation could then diverge from Excel; the caller falls back to the conservative
+/// stored-cache comparison rather than risk laundering a wrong value. The signature format
+/// matches [`structural::formula_cache_map`] so [`caches_equal`] compares them directly.
+fn build_cache_oracle(
+    model: &mut ironcalc::base::Model,
+) -> Option<std::collections::HashMap<(String, String), String>> {
+    use ironcalc::base::cell::CellValue;
+    let census = crate::census::function_census(model);
+    if !(census.unsupported.is_empty()
+        && census.policy_limited.is_empty()
+        && census.user_defined.is_empty()
+        && census.volatile_present.is_empty())
+    {
+        return None;
+    }
+    model.evaluate();
+    let names: Vec<String> = model
+        .get_worksheets_properties()
+        .into_iter()
+        .map(|p| p.name)
+        .collect();
+    let mut out = std::collections::HashMap::new();
+    for cell in model.get_all_cells() {
+        // Formula cells only — a stored cache is a formula's remembered result.
+        match model.get_cell_formula(cell.index, cell.row, cell.column) {
+            Ok(Some(_)) => {}
+            _ => continue,
+        }
+        let Some(name) = names.get(cell.index as usize) else {
+            continue;
+        };
+        let Ok(a1) = diff::a1(cell.row, cell.column) else {
+            continue;
+        };
+        let sig = match model.get_cell_value_by_index(cell.index, cell.row, cell.column) {
+            Ok(CellValue::Number(n)) => format!("n:{n}"),
+            Ok(CellValue::Boolean(b)) => format!("b:{}", if b { "1" } else { "0" }),
+            Ok(CellValue::String(s)) if is_excel_error(&s) => format!("e:{s}"),
+            Ok(CellValue::String(s)) => format!("str:{s}"),
+            _ => continue,
+        };
+        out.insert((name.clone(), a1), sig);
+    }
+    Some(out)
+}
+
+/// Whether `s` is exactly an Excel error literal (`#REF!`, `#DIV/0!`, …). An engine-evaluated
+/// error cell surfaces as this string; its STORED cache carries `t="e"`, so the oracle
+/// signature must use the `e:` type to match it (a plain `str:` would spuriously differ).
+fn is_excel_error(s: &str) -> bool {
+    matches!(
+        s,
+        "#DIV/0!"
+            | "#N/A"
+            | "#NAME?"
+            | "#NULL!"
+            | "#NUM!"
+            | "#REF!"
+            | "#VALUE!"
+            | "#SPILL!"
+            | "#CALC!"
+            | "#GETTING_DATA"
+            | "#FIELD!"
+            | "#BLOCKED!"
+            | "#CONNECT!"
+            | "#UNKNOWN!"
+    )
 }
 
 /// Two stored formula caches are equal. Each is `type:value` (the cell `t` plus its `<v>`
@@ -1318,6 +1531,62 @@ mod tests {
     }
 
     #[test]
+    fn external_data_source_repoint_is_refused() {
+        // An external data-source part (connections.xml) is allowlisted (no cell coordinate) but
+        // must be COMPARED: a foreign edit that repoints its URL/command is a SECURITY change
+        // (SSRF/exfiltration + attacker data injected on refresh) the cell diff cannot see.
+        let conn = |url: &str| {
+            format!(
+                r#"<connections xmlns="urn:c"><connection id="1" name="q"><webPr url="{url}"/></connection></connections>"#
+            )
+        };
+        let good_conn = conn("https://data.internal.example/report.xml");
+        let good = wb("", &[("xl/connections.xml", good_conn.as_str())]);
+        // Identical connection target -> not refused (must not blanket-refuse a data workbook).
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // A benign reserialization (attribute reorder / whitespace) is tolerated.
+        let reserialized = wb(
+            "",
+            &[(
+                "xl/connections.xml",
+                r#"<connections xmlns="urn:c">
+                     <connection name="q" id="1"><webPr  url="https://data.internal.example/report.xml" /></connection>
+                   </connections>"#,
+            )],
+        );
+        assert!(verify_noncell_refs(&good, &reserialized).is_none());
+        // A repointed URL -> refused as an external-target mismatch.
+        let evil_conn = conn("https://evil.attacker.example/exfil.xml");
+        let evil = wb("", &[("xl/connections.xml", evil_conn.as_str())]);
+        let refusal =
+            verify_noncell_refs(&good, &evil).expect("a repointed data source must be refused");
+        assert_eq!(refusal["reason"], "external_target_mismatch");
+    }
+
+    #[test]
+    fn customui_autorun_callback_injection_is_refused() {
+        // A customUI ribbon is allowlisted, but injecting an onLoad autorun callback (a macro
+        // that runs on open) is a security change certify must catch.
+        let inert = wb(
+            "",
+            &[(
+                "customUI/customUI14.xml",
+                r#"<customUI xmlns="urn:ui"><ribbon><tabs><tab id="t"/></tabs></ribbon></customUI>"#,
+            )],
+        );
+        let autorun = wb(
+            "",
+            &[(
+                "customUI/customUI14.xml",
+                r#"<customUI xmlns="urn:ui" onLoad="Evil"><ribbon><tabs><tab id="t"/></tabs></ribbon></customUI>"#,
+            )],
+        );
+        let refusal = verify_noncell_refs(&inert, &autorun)
+            .expect("an injected customUI autorun callback must be refused");
+        assert_eq!(refusal["reason"], "external_target_mismatch");
+    }
+
+    #[test]
     fn unverified_formula_caches_flags_present_not_dropped() {
         // A formula cell (in Sheet2's body) with various stored caches.
         let cell = |v: &str| format!(r#"<row r="1"><c r="Z1"><f>SUM(A1:A2)</f>{v}</c></row>"#);
@@ -1326,19 +1595,48 @@ mod tests {
         let dropped = wb(&cell(""), &[]); // openpyxl drops it (no <v>)
         let honest = wb(&cell("<v>3</v>"), &[]);
         let honest_renum = wb(&cell("<v>3.0</v>"), &[]);
-        // present cache the transform did not vouch -> counted.
-        assert_eq!(unverified_formula_caches(&blank, &fabricated, false), 1);
+        // present cache the transform did not vouch (no eval oracle) -> counted.
+        assert_eq!(
+            unverified_formula_caches(&blank, &fabricated, false, None),
+            1
+        );
         // a dropped cache (no <v>) -> Excel recomputes -> not counted.
-        assert_eq!(unverified_formula_caches(&blank, &dropped, false), 0);
+        assert_eq!(unverified_formula_caches(&blank, &dropped, false, None), 0);
         // identical present caches, and a benign 3 vs 3.0 renumber -> not counted.
-        assert_eq!(unverified_formula_caches(&honest, &honest, false), 0);
-        assert_eq!(unverified_formula_caches(&honest, &honest_renum, false), 0);
+        assert_eq!(unverified_formula_caches(&honest, &honest, false, None), 0);
+        assert_eq!(
+            unverified_formula_caches(&honest, &honest_renum, false, None),
+            0
+        );
         // a present cache that DIFFERS from the transform's present cache -> counted.
-        assert_eq!(unverified_formula_caches(&honest, &fabricated, false), 1);
+        assert_eq!(
+            unverified_formula_caches(&honest, &fabricated, false, None),
+            1
+        );
         // when xlq's transform FORCES recalc, its own caches are moot: an identical present
         // edited cache (which would otherwise verify) is unverifiable because the transform
         // discards it and recomputes -> every present edited cache is counted.
-        assert_eq!(unverified_formula_caches(&honest, &honest, true), 1);
+        assert_eq!(unverified_formula_caches(&honest, &honest, true, None), 1);
+        // BUT an evaluation oracle (built when the engine covers the workbook) vouches the
+        // correct cache even when the transform blanked or force-discarded its own: 3 matches
+        // the true SUM, 999 does not — the strengthening the stored-cache compare cannot do.
+        let oracle: std::collections::HashMap<(String, String), String> =
+            [(("Sheet2".to_string(), "Z1".to_string()), "n:3".to_string())]
+                .into_iter()
+                .collect();
+        assert_eq!(
+            unverified_formula_caches(&blank, &honest, false, Some(&oracle)),
+            0
+        );
+        assert_eq!(
+            unverified_formula_caches(&honest, &honest, true, Some(&oracle)),
+            0
+        );
+        // a fabricated cache is NOT vouched by the oracle (999 != the true 3).
+        assert_eq!(
+            unverified_formula_caches(&blank, &fabricated, false, Some(&oracle)),
+            1
+        );
     }
 
     #[test]
@@ -1665,13 +1963,45 @@ mod tests {
             .map(|(_, _, k)| k)
             .collect();
         assert!(
-            keys.iter().any(|k| k.contains("loc=Sheet2!C3")),
+            keys.iter().any(|k| k.contains("dest=Sheet2!C3")),
             "internal location captured: {keys:?}"
         );
         assert!(
             keys.iter()
-                .any(|k| k.contains("tgt=https://good.example.com/safe")),
+                .any(|k| k.contains("ext=https://good.example.com/safe")),
             "external target captured: {keys:?}"
+        );
+    }
+
+    #[test]
+    fn hyperlink_internal_target_and_location_encodings_are_equivalent() {
+        // The SAME in-workbook jump (A4 -> Data!A1) has two standard OOXML encodings: (A) a
+        // relationship Target `#Data!A1` with no `location` (openpyxl), and (B) a
+        // `location="Data!A1"` attribute with no relationship (Excel/LibreOffice). They must
+        // produce the SAME key so a faithful edit that round-trips the encoding is not refused.
+        let form_a = wb(
+            r#"<hyperlinks><hyperlink xmlns:r="urn:r" ref="A4" r:id="rIdH"/></hyperlinks>"#,
+            &[(
+                "xl/worksheets/_rels/sheet2.xml.rels",
+                r##"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdH" Type="x/hyperlink" Target="#Data!A1"/></Relationships>"##,
+            )],
+        );
+        let form_b = wb(
+            r#"<hyperlinks><hyperlink ref="A4" location="Data!A1"/></hyperlinks>"#,
+            &[],
+        );
+        assert_eq!(structural_ref_attrs(&form_a), structural_ref_attrs(&form_b));
+        // A genuine external retarget still differs (the equivalence must not blur real swaps).
+        let external = wb(
+            r#"<hyperlinks><hyperlink xmlns:r="urn:r" ref="A4" r:id="rIdH"/></hyperlinks>"#,
+            &[(
+                "xl/worksheets/_rels/sheet2.xml.rels",
+                r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdH" Type="x/hyperlink" Target="https://evil.example/x" TargetMode="External"/></Relationships>"#,
+            )],
+        );
+        assert_ne!(
+            structural_ref_attrs(&form_a),
+            structural_ref_attrs(&external)
         );
     }
 

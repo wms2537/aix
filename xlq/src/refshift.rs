@@ -534,6 +534,16 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
         // or a '$' or a digit (whole-row like 5:5) — but only if the previous
         // emitted char isn't part of an identifier/number (so we don't grab the
         // digits of a numeric literal or the tail of a name).
+        //
+        // A defined NAME may contain more than ASCII word chars: Excel names admit
+        // Unicode letters/digits and a leading/embedded backslash (`売上A5`, `\A5`).
+        // A cell-shaped ASCII suffix glued to such a name (`売上A5` — the `A5` after
+        // the CJK `上`, `\A5` — the `A5` after `\`) is the TAIL of the name, not a
+        // fresh cell ref, and must NOT shift (doing so rewrote `売上A5`→`売上A6`, an
+        // undefined name → `#NAME?`). An unquoted non-ASCII scalar in a formula body
+        // is only ever a name char here (operators/functions are ASCII, a non-ASCII
+        // sheet qualifier is fail-closed upstream, string literals are skipped), so
+        // treating it as name-continuation is sound.
         let prev = out.chars().last();
         let boundary = match prev {
             None => true,
@@ -543,7 +553,9 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
                     || p == '.'
                     || p == '$'
                     || p == '!'
-                    || p == '\'')
+                    || p == '\''
+                    || p == '\\'
+                    || !p.is_ascii())
             }
         };
         if boundary
@@ -1605,6 +1617,27 @@ mod tests {
             sf("Q3.total*2", "Sheet1", &row_edit(Op::Insert, 1, 1)),
             "Q3.total*2"
         );
+    }
+    #[test]
+    fn formula_non_ascii_or_backslash_prefixed_name_suffix_not_shifted() {
+        // REGRESSION (round-31): a defined name whose spelling is a non-ASCII (CJK) or
+        // backslash prefix immediately followed by a grid-valid A1 spelling (`売上A5`,
+        // `\A5`) is ONE name, not a name + cell ref. A row insert must NOT rewrite the
+        // trailing `A5` (it did → `売上A6`, an undefined name → `#NAME?`, a silent value
+        // corruption). A genuinely separate ref in the same formula still shifts.
+        let ins1 = row_edit(Op::Insert, 1, 1);
+        assert_eq!(sf("売上A5", "Sheet1", &ins1), "売上A5");
+        assert_eq!(sf("予算Q1", "Sheet1", &ins1), "予算Q1");
+        assert_eq!(sf("\\A5", "Sheet1", &ins1), "\\A5");
+        assert_eq!(sf("SUM(売上A5)", "Sheet1", &ins1), "SUM(売上A5)");
+        // name is left alone while a real, separately-tokenized ref shifts
+        assert_eq!(
+            sf("IF(A1=1,\"x\",売上A5)", "Sheet1", &ins1),
+            "IF(A2=1,\"x\",売上A5)"
+        );
+        // the non-ASCII char must not shield a following, genuinely separate ref:
+        // `売上&A5` — the `A5` after the ASCII `&` operator is its own ref and shifts.
+        assert_eq!(sf("売上&A5", "Sheet1", &ins1), "売上&A6");
     }
     #[test]
     fn formula_out_of_grid_tokens_not_shifted() {

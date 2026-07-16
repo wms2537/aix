@@ -3586,7 +3586,7 @@ fn shift_defined_names(
 }
 
 /// The local part of a (possibly namespace-prefixed) XML name: `x:table` -> `table`.
-fn local_of(name: &[u8]) -> &[u8] {
+pub(crate) fn local_of(name: &[u8]) -> &[u8] {
     match name.iter().rposition(|&b| b == b':') {
         Some(i) => &name[i + 1..],
         None => name,
