@@ -645,6 +645,26 @@ is refused, not committed.
   still REFUSES. Uses the engine's real dependency graph, so it covers defined names / structured
   references / `INDIRECT` that a hand-written reference walker would miss. The RTD cell's OWN cache
   (external data the engine cannot reproduce) remains, correctly, unverifiable → refused.
+- **`certify` now compares an Excel Table's OWN AutoFilter criteria, not just worksheet AutoFilters
+  (false-certify fix).** A `<table>` in `xl/tables/*.xml` carries its own `<autoFilter>`; scanning
+  only worksheets let a foreign change to a table-filter predicate — a value input to a table
+  `SUBTOTAL(1–11)` / hidden-ignoring `AGGREGATE` — certify silently. The table parts are now scanned
+  too, keyed by class (`"table"`, so a benign part-renumber does not false-refuse while a real
+  criterion change still differs within the sorted set).
+- **`certify` normalizes an inert leading `=` in a CF/DV formula body (over-refusal fix).** A
+  conditional-formatting / data-validation formula may carry a leading `=` (`=Lists!$A$1:$A$3`) that
+  Excel and LibreOffice both accept and normalize away, so a foreign editor dropping (or adding) it
+  is a value-identical edit. A single leading `=` is now stripped before keying the construct, so its
+  presence/absence no longer flips the comparison.
+- **`restructure` refuses an unquoted non-ASCII sheet qualifier only when the edit actually MOVES a
+  reference, not on its mere presence (over-refusal fix, soundly).** On an ASCII-named edited sheet a
+  non-ASCII qualifier (`集計!A5`) necessarily names a *different* sheet the edit cannot move, so a
+  formula that references only such sheets is now written verbatim instead of refused. The check is
+  affect-based: the non-ASCII-qualified references are neutralized and the σ algebra is run over the
+  remainder — if any edited-sheet reference (bare or ASCII-qualified) still shifts, the edit is
+  refused (never a stale bare reference); a non-ASCII 3D span, which may enclose the edited sheet as
+  an interior tab, is also refused. The back-walk captures the whole qualifier including any ASCII
+  cell-like prefix (`A1計!`), so that prefix can never leak out to be mis-shifted as an edited cell.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

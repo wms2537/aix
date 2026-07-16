@@ -674,6 +674,128 @@ pub fn has_unquoted_non_ascii_qualifier(f: &str) -> bool {
     false
 }
 
+/// Replace every reference qualified by an UNQUOTED, NON-ASCII sheet name
+/// (`集計!A5`, `A1計!B2`) with a neutral `0`, leaving all other references
+/// untouched. Returns `None` when the formula carries a non-ASCII 3D SPAN
+/// qualifier (`集計:売上!A5`) — such a span may enclose the edited sheet as an
+/// interior tab, so it cannot be neutralized soundly and the caller must
+/// fall back to refusing.
+///
+/// This lets a caller decide, on an ASCII-named EDITED sheet, whether an edit
+/// touches a formula that also carries non-ASCII qualifiers: a non-ASCII
+/// qualifier cannot name the (ASCII) edited sheet, so it references a sheet the
+/// edit never moves. After neutralizing those refs, `shift_formula` sees only
+/// the ASCII/unqualified (edited-sheet) references and reliably reports whether
+/// the edit shifts any of them. The back-walk captures the FULL qualifier —
+/// including an ASCII cell-like prefix such as `A1` in `A1計!` — so the danger
+/// of `shift_formula` mis-tokenizing that prefix as an edited-sheet cell is
+/// removed along with the rest of the qualified reference.
+pub(crate) fn neutralize_non_ascii_quals(f: &str) -> Option<String> {
+    let b = f.as_bytes();
+    // Pass 1: collect [qualifier_start, ref_end) spans of non-ASCII-qualified refs.
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'"' => {
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'"' {
+                        if i + 1 < b.len() && b[i + 1] == b'"' {
+                            i += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'\'' => {
+                // Quoted qualifier — safe (shift_formula parses it); skip verbatim.
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'\'' {
+                        if i + 1 < b.len() && b[i + 1] == b'\'' {
+                            i += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'!' => {
+                // Back-walk the unquoted qualifier token (same delimiter set as
+                // has_unquoted_non_ascii_qualifier; ':' stays IN the token so a
+                // 3D span is captured whole).
+                let mut j = i;
+                while j > 0 {
+                    let p = b[j - 1];
+                    if p < 0x80
+                        && matches!(
+                            p,
+                            b'(' | b')'
+                                | b','
+                                | b'+'
+                                | b'-'
+                                | b'*'
+                                | b'/'
+                                | b'^'
+                                | b'&'
+                                | b'='
+                                | b'<'
+                                | b'>'
+                                | b';'
+                                | b' '
+                                | b'{'
+                                | b'}'
+                                | b'%'
+                                | b'"'
+                                | b'\''
+                        )
+                    {
+                        break;
+                    }
+                    j -= 1;
+                }
+                if b[j..i].iter().any(|&c| c >= 0x80) {
+                    if b[j..i].contains(&b':') {
+                        // Non-ASCII 3D span: may enclose the edited sheet — cannot relax.
+                        return None;
+                    }
+                    // Ref body after '!': A1-style cell/range chars.
+                    let mut k = i + 1;
+                    while k < b.len()
+                        && (b[k].is_ascii_alphanumeric() || b[k] == b'$' || b[k] == b':')
+                    {
+                        k += 1;
+                    }
+                    spans.push((j, k));
+                    i = k;
+                    continue;
+                }
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    if spans.is_empty() {
+        return Some(f.to_string());
+    }
+    // Pass 2: rebuild, replacing each recorded span with a neutral `0`.
+    let mut out = String::with_capacity(f.len());
+    let mut pos = 0;
+    for (s, e) in spans {
+        out.push_str(&f[pos..s]);
+        out.push('0');
+        pos = e;
+    }
+    out.push_str(&f[pos..]);
+    Some(out)
+}
+
 /// Parse the optional `[n]` external prefix and `'sheet'!`/`sheet!` qualifier
 /// at the start of `s`. Returns the index where the reference BODY begins, or
 /// None if `s` opens with a quoted token that is not a sheet qualifier.
@@ -1235,6 +1357,44 @@ mod tests {
         // plain ASCII cross-sheet and same-sheet — must NOT trip
         assert!(!has_unquoted_non_ascii_qualifier("Sheet2!A1+SUM(B1:B9)"));
         assert!(!has_unquoted_non_ascii_qualifier("SUM(A1:B2)"));
+    }
+
+    /// The affect-based relaxation for non-ASCII qualifiers rests on neutralizing
+    /// exactly the non-ASCII-qualified references (they name non-edited sheets on an
+    /// ASCII edited sheet) while leaving edited-sheet references intact, and bailing
+    /// out on non-ASCII 3D spans.
+    #[test]
+    fn neutralizes_non_ascii_qualified_refs() {
+        // A lone non-ASCII-qualified ref -> replaced whole; nothing edited-sheet remains.
+        assert_eq!(neutralize_non_ascii_quals("集計!A5").as_deref(), Some("0"));
+        // Bare edited-sheet ref alongside a non-ASCII-qualified ref -> only the latter goes.
+        assert_eq!(
+            neutralize_non_ascii_quals("集計!A5+A5").as_deref(),
+            Some("0+A5")
+        );
+        // ASCII CELL-LIKE prefix in the qualifier (`A1計!`) is captured WHOLE by the
+        // back-walk, so the `A1` cannot leak out to be mis-shifted as an edited cell.
+        assert_eq!(neutralize_non_ascii_quals("A1計!B5").as_deref(), Some("0"));
+        assert_eq!(
+            neutralize_non_ascii_quals("A1計!B5:B9+Sheet1!A5").as_deref(),
+            Some("0+Sheet1!A5")
+        );
+        // A non-ASCII 3D SPAN may enclose the edited sheet -> cannot neutralize soundly.
+        assert_eq!(neutralize_non_ascii_quals("SUM(集計:売上!A5)"), None);
+        // Quoted qualifiers and string literals are left untouched (shift_formula parses them).
+        assert_eq!(
+            neutralize_non_ascii_quals("'集計'!A5").as_deref(),
+            Some("'集計'!A5")
+        );
+        assert_eq!(
+            neutralize_non_ascii_quals(r#"IF(A1=1,"集計!",A5)"#).as_deref(),
+            Some(r#"IF(A1=1,"集計!",A5)"#)
+        );
+        // Pure ASCII -> identity.
+        assert_eq!(
+            neutralize_non_ascii_quals("Sheet2!A1+A5").as_deref(),
+            Some("Sheet2!A1+A5")
+        );
     }
     fn col_edit(op: Op, at: u32, count: u32) -> StructuralEdit {
         StructuralEdit {

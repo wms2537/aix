@@ -826,53 +826,60 @@ fn subtotal_hidden_rows(bytes: &[u8]) -> Vec<(String, Vec<String>)> {
     out
 }
 
-/// The autoFilter FILTER-CRITERION elements across every worksheet, keyed by sheet, as
-/// sorted attribute strings. The transform preserves these verbatim, so a foreign change to
-/// which rows the filter hides (a value input to SUBTOTAL/AGGREGATE) is caught.
+/// The autoFilter FILTER-CRITERION elements across every worksheet AND every Excel Table
+/// (`xl/tables/*.xml`), keyed by owner, as sorted attribute strings. The transform preserves
+/// these verbatim, so a foreign change to which rows the filter hides — a value input to
+/// `SUBTOTAL(1–11)` (excludes FILTER-hidden rows) / `SUBTOTAL(101–111)` / hidden-ignoring
+/// `AGGREGATE` — is caught. A TABLE carries its own `<autoFilter>`, so scanning only worksheets
+/// let a table-filter change (feeding a table `SUBTOTAL`) certify silently.
 fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
-    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
-        return Vec::new();
-    };
     let mut out = Vec::new();
-    for (sheet_name, part) in sheets {
-        if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
-            for (elem, attrs) in structural::element_attr_semantics(
-                &x,
-                &[
-                    b"filterColumn",
-                    // Container attributes that change WHICH rows are hidden: `<customFilters
-                    // and>` (the AND/OR combinator over two predicates) and `<filters blank>`
-                    // (show-blanks). Comparing only the leaf predicates missed a combinator flip
-                    // — a value input to SUBTOTAL(101-111)/hidden-ignoring AGGREGATE.
-                    b"customFilters",
-                    b"customFilter",
-                    b"filters",
-                    b"filter",
-                    b"dynamicFilter",
-                    b"top10",
-                    b"dateGroupItem",
-                    b"colorFilter",
-                    b"iconFilter",
-                ],
-            ) {
-                // On a `<filterColumn>`, `hiddenButton` (default false) and `showButton` (default
-                // true) govern ONLY whether the column's filter DROPDOWN BUTTON is shown — pure
-                // display, with no effect on which rows the filter hides. A faithful foreign editor
-                // (openpyxl) writes them explicitly at their defaults, so comparing them spuriously
-                // refused a value-identical edit. Drop them; the value-affecting `colId` and the
-                // predicate child elements remain compared.
-                let attrs = if elem == "filterColumn" {
-                    attrs
-                        .split(' ')
-                        .filter(|t| {
-                            !t.starts_with("hiddenButton=") && !t.starts_with("showButton=")
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                } else {
-                    attrs
-                };
-                out.push((sheet_name.clone(), elem, attrs));
+    let mut extract = |owner: &str, x: &[u8]| {
+        for (elem, attrs) in structural::element_attr_semantics(
+            x,
+            &[
+                b"filterColumn",
+                // Container attributes that change WHICH rows are hidden: `<customFilters and>`
+                // (the AND/OR combinator over two predicates) and `<filters blank>` (show-blanks).
+                b"customFilters",
+                b"customFilter",
+                b"filters",
+                b"filter",
+                b"dynamicFilter",
+                b"top10",
+                b"dateGroupItem",
+                b"colorFilter",
+                b"iconFilter",
+            ],
+        ) {
+            // On a `<filterColumn>`, `hiddenButton`/`showButton` govern ONLY the filter DROPDOWN
+            // BUTTON's visibility (pure display), so drop them (openpyxl writes them at defaults).
+            let attrs = if elem == "filterColumn" {
+                attrs
+                    .split(' ')
+                    .filter(|t| !t.starts_with("hiddenButton=") && !t.starts_with("showButton="))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else {
+                attrs
+            };
+            out.push((owner.to_string(), elem, attrs));
+        }
+    };
+    if let Ok(sheets) = crate::ooxml::all_sheets(bytes) {
+        for (sheet_name, part) in sheets {
+            if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
+                extract(&sheet_name, &x);
+            }
+        }
+    }
+    // Table autoFilters, keyed by CLASS ("table") not part name so a benign renumber does not
+    // false-refuse (a real filter change still differs within the sorted set).
+    for n in structural::archive_names(bytes).unwrap_or_default() {
+        let low = n.to_ascii_lowercase();
+        if low.starts_with("xl/tables/") && low.ends_with(".xml") {
+            if let Ok(x) = crate::ooxml::read_part(bytes, &n) {
+                extract("table", &x);
             }
         }
     }
@@ -1725,6 +1732,24 @@ mod tests {
                 .expect("combinator flip must refuse")["reason"],
             "autofilter_criteria_mismatch"
         );
+    }
+
+    #[test]
+    fn table_autofilter_criteria_is_compared() {
+        // An Excel Table carries its OWN <autoFilter> in xl/tables/*.xml. A foreign change to a
+        // table-filter predicate is a value input to a table SUBTOTAL(1-11) — scanning only
+        // worksheets missed it and certified silently. Now the table part is compared too.
+        let table = |v: &str| {
+            format!(
+                r#"<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="T1" ref="A1:A10"><autoFilter ref="A1:A10"><filterColumn colId="0"><customFilters><customFilter operator="lessThanOrEqual" val="{v}"/></customFilters></filterColumn></autoFilter></table>"#
+            )
+        };
+        let (t5, t9) = (table("5"), table("9"));
+        let good = wb("", &[("xl/tables/table1.xml", &t5)]);
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let refusal = verify_noncell_refs(&good, &wb("", &[("xl/tables/table1.xml", &t9)]))
+            .expect("table filter criterion change must refuse");
+        assert_eq!(refusal["reason"], "autofilter_criteria_mismatch");
     }
 
     #[test]

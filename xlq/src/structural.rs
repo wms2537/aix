@@ -1173,6 +1173,15 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
                 let n = e.name();
                 if cap != Cap::None && (is_legacy_f(n.as_ref()) || is_ext_ref(n.as_ref())) {
                     let logical = logical_formula(&raw).unwrap_or_else(|| raw.clone());
+                    // A conditional-formatting / data-validation formula body may carry an INERT
+                    // leading `=` (`=Lists!$A$1:$A$3`); Excel and LibreOffice both accept and
+                    // normalize it away, so a foreign editor dropping it is a faithful, value-
+                    // identical edit. Strip a single leading `=` so its presence/absence does not
+                    // flip the key.
+                    let logical = logical
+                        .strip_prefix('=')
+                        .map(str::to_string)
+                        .unwrap_or(logical);
                     match cap {
                         Cap::Legacy => {
                             if let Some((_, _, fs, dv_type)) = cfdv.as_mut() {
@@ -3024,16 +3033,31 @@ fn rewrite_edited_sheet(
                                     )))?;
                                 }
                             }
+                            Some(logical)
+                                if sheet.is_ascii()
+                                    && refshift::neutralize_non_ascii_quals(&logical)
+                                        .is_some_and(|resid| {
+                                            refshift::shift_formula(&resid, &sheet, edit).0 == resid
+                                        }) =>
+                            {
+                                // The edited sheet is ASCII, so every non-ASCII qualifier names a
+                                // DIFFERENT sheet the edit cannot move; with those refs neutralized
+                                // the remaining edited-sheet references do not shift. Nothing moves
+                                // -> the body is verbatim-correct (affect-based, not presence-based).
+                                writer.write_event(Event::Text(BytesText::from_escaped(raw)))?;
+                            }
                             Some(_) => {
-                                // FAIL-CLOSED: unquoted non-ASCII sheet qualifiers are
-                                // outside the tokenizer's ASCII grammar — refuse rather
+                                // FAIL-CLOSED: an unquoted non-ASCII qualifier that the affect
+                                // check could NOT clear (an edited-sheet reference would shift, or
+                                // a non-ASCII 3D span may enclose the edited sheet) — refuse rather
                                 // than mis-shift, and write the body back verbatim.
                                 report.residuals.push(Residual {
                                     part: part_name.to_string(),
                                     reason: "non_ascii_sheet_qualifier".into(),
-                                    detail: "a formula carries an UNQUOTED non-ASCII sheet qualifier, \
-                                             which the reference tokenizer cannot parse — edit refused \
-                                             (fail-closed)".into(),
+                                    detail: "a formula carries an UNQUOTED non-ASCII sheet qualifier \
+                                             the edit would move (or an unverifiable non-ASCII 3D span), \
+                                             which the reference tokenizer cannot safely shift — edit \
+                                             refused (fail-closed)".into(),
                                 });
                                 writer.write_event(Event::Text(BytesText::from_escaped(raw)))?;
                             }
@@ -3258,14 +3282,31 @@ fn rewrite_edited_sheet_move(
                                 Event::Text(BytesText::from_escaped(text_escape(&nf)))
                             }
                         }
+                        Some(logical)
+                            if sheet.is_ascii()
+                                && refshift::neutralize_non_ascii_quals(&logical).is_some_and(
+                                    |resid| {
+                                        refshift::shift_formula(&resid, &sheet, edit).0 == resid
+                                    },
+                                ) =>
+                        {
+                            // The edited sheet is ASCII, so every non-ASCII qualifier names a
+                            // DIFFERENT sheet the move cannot touch; with those refs neutralized the
+                            // remaining edited-sheet references do not shift. Nothing moves -> the
+                            // body is verbatim-correct (affect-based, not presence-based).
+                            Event::Text(BytesText::from_escaped(raw))
+                        }
                         Some(_) => {
-                            // FAIL-CLOSED: same non-ASCII-qualifier guard as insert/delete.
+                            // FAIL-CLOSED: an unquoted non-ASCII qualifier the affect check could
+                            // NOT clear (an edited-sheet reference would shift, or a non-ASCII 3D
+                            // span may enclose the edited sheet) — refuse rather than mis-shift.
                             report.residuals.push(Residual {
                                 part: part_name.to_string(),
                                 reason: "non_ascii_sheet_qualifier".into(),
-                                detail: "a formula carries an UNQUOTED non-ASCII sheet qualifier, \
-                                         which the reference tokenizer cannot parse — edit refused \
-                                         (fail-closed)"
+                                detail: "a formula carries an UNQUOTED non-ASCII sheet qualifier \
+                                         the move would shift (or an unverifiable non-ASCII 3D span), \
+                                         which the reference tokenizer cannot safely shift — edit \
+                                         refused (fail-closed)"
                                     .into(),
                             });
                             Event::Text(BytesText::from_escaped(raw))
@@ -5039,6 +5080,72 @@ mod tests {
         ));
     }
 
+    /// On an ASCII-named EDITED sheet a formula whose only non-ASCII qualifier names a
+    /// DIFFERENT sheet moves nothing, so the write path must keep the body verbatim
+    /// rather than presence-refuse it — but must still refuse when a co-located
+    /// edited-sheet reference shifts or a non-ASCII 3D span may enclose the edited sheet.
+    #[test]
+    fn non_ascii_qualifier_edited_sheet_ascii_affect_based() {
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 3, 1);
+
+        // (a) OVER-REFUSAL FIX: `集計!A5` names a non-edited sheet -> verbatim, no residual.
+        let xml = r#"<worksheet><sheetData><row r="1"><c r="B1"><f>集計!A5</f></c></row></sheetData></worksheet>"#;
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml.as_bytes(), &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            report.residuals.is_empty(),
+            "no residual: {:?}",
+            report.residuals
+        );
+        assert!(s.contains("<f>集計!A5</f>"), "body verbatim: {s}");
+
+        // (b) SILENT-WRONG GUARD: `集計!A5+A5` — the bare A5 is an edited-sheet ref that the
+        //     insert at row 3 shifts to A6 -> must REFUSE (never write a stale bare ref).
+        let xml = r#"<worksheet><sheetData><row r="1"><c r="B1"><f>集計!A5+A5</f></c></row></sheetData></worksheet>"#;
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml.as_bytes(), &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            report
+                .residuals
+                .iter()
+                .any(|r| r.reason == "non_ascii_sheet_qualifier"),
+            "refused: {:?}",
+            report.residuals
+        );
+        assert!(
+            s.contains("集計!A5+A5"),
+            "body left verbatim on refusal: {s}"
+        );
+
+        // (c) LATENT MIS-SHIFT PREVENTED: `A1計!B5` — the ASCII `A1` prefix would tempt a naive
+        //     tokenizer to shift it; the whole qualified ref names a non-edited sheet -> verbatim.
+        let xml = r#"<worksheet><sheetData><row r="1"><c r="B1"><f>A1計!B5</f></c></row></sheetData></worksheet>"#;
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml.as_bytes(), &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            report.residuals.is_empty(),
+            "no residual: {:?}",
+            report.residuals
+        );
+        assert!(s.contains("<f>A1計!B5</f>"), "prefix not mis-shifted: {s}");
+
+        // (d) NON-ASCII 3D SPAN: may enclose the edited sheet as an interior tab -> REFUSE.
+        let xml = r#"<worksheet><sheetData><row r="1"><c r="B1"><f>SUM(集計:売上!A5)</f></c></row></sheetData></worksheet>"#;
+        let mut report = StructuralReport::default();
+        let _ = rewrite_edited_sheet(xml.as_bytes(), &e, "s", &mut report).unwrap();
+        assert!(
+            report
+                .residuals
+                .iter()
+                .any(|r| r.reason == "non_ascii_sheet_qualifier"),
+            "3D span refused: {:?}",
+            report.residuals
+        );
+    }
+
     #[test]
     fn datatable_f_attrs_are_shifted() {
         // <f t="dataTable" ref/r1/r2> carries live coordinates in ATTRIBUTES; an insert must
@@ -5324,6 +5431,19 @@ mod tests {
         // A DIFFERENT cell set still differs (the canonicalization must not over-merge).
         let bigger = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="list" sqref="B1:D11"><formula1>"a,b"</formula1></dataValidation></worksheet>"#);
         assert_ne!(split, bigger, "a genuinely larger sqref must differ");
+        // REGRESSION (round-38): a CF/DV formula body may carry an INERT leading `=`
+        // (`=Lists!$A$1:$A$3`) that Excel/LibreOffice normalize away; a foreign editor dropping
+        // it is value-identical, so its presence/absence must NOT change the key.
+        let with_eq = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="list" sqref="B1:B5"><formula1>=Sheet2!$A$1:$A$3</formula1></dataValidation></worksheet>"#);
+        let without_eq = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="list" sqref="B1:B5"><formula1>Sheet2!$A$1:$A$3</formula1></dataValidation></worksheet>"#);
+        assert_eq!(
+            with_eq, without_eq,
+            "inert leading = must not change the DV key"
+        );
+        // The same for a legacy CF expression body.
+        let cf_eq = sheet_ref_construct_semantics(br#"<worksheet><conditionalFormatting sqref="A1:A10"><cfRule type="expression"><formula>=$A1&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#);
+        let cf_noeq = sheet_ref_construct_semantics(br#"<worksheet><conditionalFormatting sqref="A1:A10"><cfRule type="expression"><formula>$A1&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#);
+        assert_eq!(cf_eq, cf_noeq, "inert leading = must not change the CF key");
     }
 
     #[test]
