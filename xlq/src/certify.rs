@@ -940,7 +940,17 @@ fn defined_names(bytes: &[u8]) -> Vec<(String, String, String)> {
     let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") else {
         return Vec::new();
     };
-    structural::defined_names(&wb)
+    // Canonicalize REDUNDANT sheet-name quoting in the refers-to body: openpyxl writes the
+    // autofilter `_xlnm._FilterDatabase` name QUOTED (`'Data'!$A$1:$B$10`) while Excel/
+    // LibreOffice write it unquoted (`Data!$A$1:$B$10`) — semantically identical, so comparing
+    // the raw bodies spuriously refused a faithful edit of a ubiquitous autofilter workbook.
+    // Re-sort afterward because the canonical body can reorder the (name, scope, refers) key.
+    let mut names: Vec<(String, String, String)> = structural::defined_names(&wb)
+        .into_iter()
+        .map(|(name, scope, refers)| (name, scope, structural::canonicalize_sheet_quotes(&refers)))
+        .collect();
+    names.sort();
+    names
 }
 
 /// (sheet-name, element, ref) for every mergeCell/hyperlink/autoFilter, sorted — the
@@ -949,6 +959,7 @@ fn defined_names(bytes: &[u8]) -> Vec<(String, String, String)> {
 /// renumbering sheet PARTS) so that RELOCATING a reference to a different sheet — which
 /// leaves the cross-sheet multiset unchanged — is still detected as a divergence.
 fn structural_ref_attrs(bytes: &[u8]) -> Vec<(String, String, String)> {
+    use quick_xml::events::Event;
     let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
         return Vec::new();
     };
@@ -957,59 +968,102 @@ fn structural_ref_attrs(bytes: &[u8]) -> Vec<(String, String, String)> {
         let Ok(part) = crate::ooxml::read_part(bytes, &part_path) else {
             continue;
         };
-        let text = String::from_utf8_lossy(&part);
         // Per-sheet relationship targets, to resolve an external hyperlink's r:id -> URL.
         let rels = rels_targets(bytes, &part_path);
-        for elem in ["mergeCell", "hyperlink", "autoFilter"] {
-            let open = format!("<{elem}");
-            let mut rest: &str = &text;
-            while let Some(p) = rest.find(&open) {
-                rest = &rest[p..];
-                let Some(gt) = rest.find('>') else { break };
-                let tag = &rest[..gt];
-                if let Some(r) = attr(tag, "ref") {
-                    // For a hyperlink, the DESTINATION is also part of the semantic identity
-                    // and is preserved verbatim by xlq's transform: the internal `location`
-                    // (in-workbook jump) and the external `r:id` -> rels Target (the URL). A
-                    // foreign edit that retargets either — an internal mispoint or a phishing
-                    // URL swap — would otherwise leave (sheet, elem, ref) unchanged and certify.
-                    let key = if elem == "hyperlink" {
-                        let location = attr(tag, "location").unwrap_or_default();
-                        let target = attr_relid(tag)
-                            .and_then(|id| rels.get(&id).cloned())
-                            .unwrap_or_default();
-                        // A trailing slash on a URL navigates to the same resource; openpyxl/Excel
-                        // add one to a bare authority (`https://example.com` -> `…/`). Strip a
-                        // single trailing `/` so a benign renormalization is not a spurious
-                        // mismatch — a real retarget (different host/path) still differs.
-                        let target = target.strip_suffix('/').unwrap_or(&target);
-                        // An in-workbook (internal) jump has two EQUIVALENT OOXML encodings for the
-                        // SAME destination cell: (A) a relationship Target `#Data!A1` with no
-                        // `location` (openpyxl and other library writers), and (B) a
-                        // `location="Data!A1"` attribute with no relationship (Excel/LibreOffice).
-                        // Comparing (location, target) as independent fields refused a faithful edit
-                        // that merely round-tripped the encoding, so fold both to (dest, ext=""). A
-                        // genuine external target (URL / other-workbook file) still lands in `ext`,
-                        // so a real retarget (a phishing swap, a mispoint to another file) differs.
-                        let (dest, ext) = if let Some(internal) = target.strip_prefix('#') {
-                            (internal.to_string(), String::new())
-                        } else if target.is_empty() {
-                            (location.clone(), String::new())
-                        } else {
-                            (location.clone(), target.to_string())
-                        };
-                        format!("ref={r}|dest={dest}|ext={ext}")
-                    } else {
-                        format!("ref={r}")
+        // Namespace-aware walk keyed by LOCAL name. A raw `<hyperlink` substring scan (the old
+        // code) was blind to a prefixed `<x:hyperlink>` (x bound to the spreadsheetML main
+        // namespace) — a foreign editor injecting a prefixed external (phishing) hyperlink, or a
+        // prefixed mergeCell/autoFilter change, evaded the comparison and CERTIFIED. This mirrors
+        // the same fix already applied to defined_names().
+        let mut reader = quick_xml::Reader::from_reader(part.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        loop {
+            let mut item = None;
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                    let elem = match structural::local_of(e.name().as_ref()) {
+                        b"mergeCell" => Some("mergeCell"),
+                        b"hyperlink" => Some("hyperlink"),
+                        b"autoFilter" => Some("autoFilter"),
+                        _ => None,
                     };
-                    out.push((sheet_name.clone(), elem.to_string(), key));
+                    if let (Some(elem), Some(r)) = (elem, attr_local(&e, b"ref")) {
+                        // For a hyperlink, the DESTINATION is also part of the semantic identity
+                        // and is preserved verbatim by xlq's transform: the internal `location`
+                        // (in-workbook jump) and the external `r:id` -> rels Target (the URL). A
+                        // foreign edit that retargets either — an internal mispoint or a phishing
+                        // URL swap — would otherwise leave (sheet, elem, ref) unchanged and certify.
+                        let key = if elem == "hyperlink" {
+                            let location = attr_local(&e, b"location").unwrap_or_default();
+                            let target = rel_id(&e)
+                                .and_then(|id| rels.get(&id).cloned())
+                                .unwrap_or_default();
+                            // A trailing slash on a URL navigates to the same resource;
+                            // openpyxl/Excel add one to a bare authority
+                            // (`https://example.com` -> `…/`). Strip a single trailing `/` so a
+                            // benign renormalization is not a spurious mismatch — a real retarget
+                            // (different host/path) still differs.
+                            let target = target.strip_suffix('/').unwrap_or(&target);
+                            // An in-workbook (internal) jump has two EQUIVALENT OOXML encodings for
+                            // the SAME destination cell: (A) a relationship Target `#Data!A1` with
+                            // no `location` (openpyxl and other library writers), and (B) a
+                            // `location="Data!A1"` attribute with no relationship (Excel/
+                            // LibreOffice). Comparing (location, target) as independent fields
+                            // refused a faithful edit that merely round-tripped the encoding, so
+                            // fold both to (dest, ext=""). A genuine external target (URL / other-
+                            // workbook file) still lands in `ext`, so a real retarget (a phishing
+                            // swap, a mispoint to another file) differs.
+                            let (dest, ext) = if let Some(internal) = target.strip_prefix('#') {
+                                (internal.to_string(), String::new())
+                            } else if target.is_empty() {
+                                (location.clone(), String::new())
+                            } else {
+                                (location.clone(), target.to_string())
+                            };
+                            format!("ref={r}|dest={dest}|ext={ext}")
+                        } else {
+                            format!("ref={r}")
+                        };
+                        item = Some((sheet_name.clone(), elem.to_string(), key));
+                    }
                 }
-                rest = &rest[gt..];
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
             }
+            if let Some(it) = item {
+                out.push(it);
+            }
+            buf.clear();
         }
     }
     out.sort();
     out
+}
+
+/// Value of the attribute whose LOCAL name is `local` (namespace-prefix-insensitive),
+/// XML-attribute-normalized. Returns None if the attribute is absent.
+fn attr_local(e: &quick_xml::events::BytesStart, local: &[u8]) -> Option<String> {
+    e.attributes().flatten().find_map(|a| {
+        (structural::local_of(a.key.as_ref()) == local).then(|| {
+            a.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .map(|c| c.into_owned())
+                .unwrap_or_default()
+        })
+    })
+}
+
+/// The relationship id (`r:id`) of a start tag: the attribute whose LOCAL name is `id` AND
+/// which carries a namespace prefix (`r:id`, not a bare `id`), matching `attr_relid`'s intent.
+fn rel_id(e: &quick_xml::events::BytesStart) -> Option<String> {
+    e.attributes().flatten().find_map(|a| {
+        let key = a.key.as_ref();
+        (structural::local_of(key) == b"id" && key.contains(&b':')).then(|| {
+            a.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .map(|c| c.into_owned())
+                .unwrap_or_default()
+        })
+    })
 }
 
 /// (relationship-Id -> Target) for the relationships part of `sheet_part`. Used to resolve
@@ -1434,24 +1488,6 @@ fn attr_value_at(tag: &str, name_end: usize) -> Option<String> {
     let rest = &tag[j + 1..];
     let end = rest.find(q as char)?;
     Some(rest[..end].to_string())
-}
-
-/// The relationship-id value of a start tag: a namespace-prefixed `*:id="..."` attribute.
-/// The relationships-namespace prefix is arbitrary (`r:id`, `x:id`, `r2:id`), so we match
-/// by LOCAL name — a literal `r:id` lookup let a rebound prefix hide a hyperlink's target.
-fn attr_relid(tag: &str) -> Option<String> {
-    let mut from = 0;
-    while let Some(rel) = tag[from..].find(":id") {
-        let start = from + rel;
-        from = start + 1;
-        // `:id` must be the tail of a QName (`r:id`), so a prefix name char precedes the
-        // colon; `attr_value_at` rejects a longer local name (`:identifier`) by requiring
-        // `Eq` immediately after, so no explicit after-boundary check is needed here.
-        if let Some(v) = attr_value_at(tag, start + ":id".len()) {
-            return Some(v);
-        }
-    }
-    None
 }
 
 /// Value of attribute `key` in a start tag (quote-agnostic). `key` is matched only as a
@@ -2313,26 +2349,6 @@ mod tests {
     }
 
     #[test]
-    fn attr_relid_is_namespace_prefix_insensitive() {
-        // REGRESSION: a literal "r:id" lookup let a rebound prefix (x:id) hide a hyperlink's
-        // external target — a phishing-URL swap that certified. Match by local name instead.
-        assert_eq!(
-            attr_relid(r#"<hyperlink ref="A1" r:id="rId5"/"#).as_deref(),
-            Some("rId5")
-        );
-        assert_eq!(
-            attr_relid(r#"<hyperlink ref="A1" x:id="rId9"/"#).as_deref(),
-            Some("rId9")
-        );
-        assert_eq!(attr_relid(r#"<hyperlink ref="A1"/"#), None);
-        // XML-legal whitespace around `=` (Eq ::= S? '=' S?) must not hide the value.
-        assert_eq!(
-            attr_relid(r#"<hyperlink ref="A1" r:id = "rId7"/"#).as_deref(),
-            Some("rId7")
-        );
-    }
-
-    #[test]
     fn attr_matches_whole_name_and_tolerates_eq_whitespace() {
         // REGRESSION: `attr` did a literal `key=` substring search, so XML-legal whitespace
         // around `=` (`date1904 = "1"`, which Excel honors) read as the default — a foreign
@@ -2415,6 +2431,49 @@ mod tests {
         assert_ne!(
             structural_ref_attrs(&form_a),
             structural_ref_attrs(&external)
+        );
+    }
+
+    #[test]
+    fn structural_ref_attrs_is_namespace_prefix_aware() {
+        // REGRESSION (round-40 HIGH security): the old raw `<hyperlink` substring scan was blind
+        // to a namespace-PREFIXED element. A foreign editor binds a prefix to the spreadsheetML
+        // main namespace and injects `<x:hyperlink r:id=…>` at an external phishing URL; the
+        // prefixed element evaded the scan, so its ref set stayed empty and matched xlq's own
+        // (also empty) transform -> CERTIFIED. The walk is now namespace-aware (by local name).
+        let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        let main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        let evil_rels = (
+            "xl/worksheets/_rels/sheet2.xml.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId100" Type="x/hyperlink" Target="https://evil-phishing.example/steal" TargetMode="External"/></Relationships>"#,
+        );
+        // xlq's own transform: NO hyperlink.
+        let clean = wb("", &[]);
+        assert!(structural_ref_attrs(&clean).is_empty());
+        // Attacker injects a PREFIXED hyperlink (x bound to the main ns) with an external target.
+        let evil = wb(
+            &format!(
+                r#"<x:hyperlinks xmlns:x="{main}" xmlns:r="{r}"><x:hyperlink ref="A1" r:id="rId100"/></x:hyperlinks>"#
+            ),
+            &[evil_rels],
+        );
+        assert!(
+            !structural_ref_attrs(&evil).is_empty(),
+            "prefixed hyperlink must now be captured"
+        );
+        let refusal = verify_noncell_refs(&clean, &evil)
+            .expect("an injected prefixed external hyperlink must refuse");
+        assert_eq!(refusal["reason"], "structural_ref_mismatch");
+        // DUAL GUARD (no new over-refusal): a benign prefix rebind of the SAME hyperlink keys
+        // identically to the unprefixed form, so a faithful re-serialization is not refused.
+        let plain = wb(
+            r#"<hyperlinks><hyperlink xmlns:r="urn:r" ref="A1" r:id="rId100"/></hyperlinks>"#,
+            &[evil_rels],
+        );
+        assert_eq!(
+            structural_ref_attrs(&evil),
+            structural_ref_attrs(&plain),
+            "prefixed and unprefixed must key identically"
         );
     }
 

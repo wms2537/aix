@@ -665,6 +665,29 @@ is refused, not committed.
   refused (never a stale bare reference); a non-ASCII 3D span, which may enclose the edited sheet as
   an interior tab, is also refused. The back-walk captures the whole qualifier including any ASCII
   cell-like prefix (`A1計!`), so that prefix can never leak out to be mis-shifted as an edited cell.
+- **`certify`'s structural-reference scan is now namespace-aware — a prefixed `<x:hyperlink>`/
+  `<x:mergeCell>`/`<x:autoFilter>` can no longer evade it (SECURITY, false-certify fix).** The scan
+  matched elements by a raw `<hyperlink` substring, blind to a namespace-PREFIXED form. A foreign
+  editor could bind a prefix to the spreadsheetML main namespace and inject `<x:hyperlink r:id=…>`
+  pointing at an external phishing/malware URL (the target living in the sheet's `_rels`, which no
+  other comparator scans); the prefixed element was invisible, so its reference set stayed empty and
+  matched xlq's own (empty) transform — a **CERTIFIED phishing hyperlink**. The scan now walks the
+  part with a namespace-aware parser keyed by local name (mirroring the earlier `definedName` fix); a
+  benign prefix rebind of the same reference still keys identically, so no faithful edit is refused.
+- **`certify` normalizes redundant sheet-name quoting in a defined name (over-refusal fix).** openpyxl
+  writes the ubiquitous `_xlnm._FilterDatabase` autofilter name QUOTED (`'Data'!$A$1:$B$10`) while
+  Excel/LibreOffice write it unquoted (`Data!$A$1:$B$10`) — semantically identical, so comparing the
+  raw refers-to bodies spuriously refused a faithful edit of essentially any autofiltered workbook. A
+  redundant quote around a plain-identifier sheet name (immediately followed by `!`/`:`) is now
+  dropped before keying; names that genuinely need quotes (spaces, a leading digit, an embedded `''`)
+  keep them, so no two distinct sheet names can collide. Applied to the CF/DV construct bodies too.
+- **`restructure` counts only NEWLY introduced `#REF!`, not one already present (over-refusal fix).**
+  The auxiliary shift helpers (defined names, chart/cross-sheet formula bodies) counted `#REF!` in the
+  shifted output with no baseline subtraction, so a workbook already carrying a dangling `#REF!` (a
+  common leftover from an earlier column/name deletion) inflated the reported error count — and for a
+  **move-rows** edit, which refuses on any nonzero error count as a straddle, that spuriously blocked
+  the operation on a whole class of real files. These sites now subtract the pre-shift `#REF!` count
+  (matching the edited-sheet path), so only a reference *this* edit breaks is counted.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

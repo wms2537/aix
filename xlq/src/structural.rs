@@ -1182,6 +1182,9 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
                         .strip_prefix('=')
                         .map(str::to_string)
                         .unwrap_or(logical);
+                    // Redundant sheet-name quoting (`'Data'!A1` vs `Data!A1`) is semantically
+                    // inert; canonicalize it so a faithful re-serialization is not refused.
+                    let logical = canonicalize_sheet_quotes(&logical);
                     match cap {
                         Cap::Legacy => {
                             if let Some((_, _, fs, dv_type)) = cfdv.as_mut() {
@@ -2812,6 +2815,87 @@ fn logical_formula(raw: &str) -> Option<String> {
         .map(|c| c.into_owned())
 }
 
+/// A sheet name is safe to write UNQUOTED iff it is a plain identifier: a non-empty run of
+/// `[A-Za-z0-9_.]` that does not begin with a digit. Names needing quotes (spaces,
+/// punctuation, an embedded apostrophe, a leading digit) return false and keep their quotes,
+/// so canonicalization can never merge two DISTINCT sheet names.
+fn sheet_name_safe_unquoted(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+}
+
+/// Normalize REDUNDANT sheet-name quoting in a formula / refers-to body so two encodings of the
+/// SAME reference key identically. A sheet name that needs no quoting may be written quoted
+/// (`'Data'!$A$1`, as openpyxl emits for the `_xlnm._FilterDatabase` autofilter name) or
+/// unquoted (`Data!$A$1`, as Excel/LibreOffice emit) — semantically identical, so comparing the
+/// raw bodies spuriously refuses a faithful edit. Only a quoted token that (a) is immediately
+/// followed by `!` or `:` (a sheet qualifier, never a string literal — those use `"`) and (b)
+/// holds a plain identifier is unquoted; everything else is copied verbatim, so no two distinct
+/// references collide (a `#REF!` swap, a different sheet, an apostrophe-bearing name all differ).
+pub(crate) fn canonicalize_sheet_quotes(f: &str) -> String {
+    let mut out = String::with_capacity(f.len());
+    let mut chars = f.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                // Double-quoted string literal: copy verbatim, honoring `""` escapes.
+                out.push('"');
+                while let Some(d) = chars.next() {
+                    out.push(d);
+                    if d == '"' {
+                        if chars.peek() == Some(&'"') {
+                            out.push('"');
+                            chars.next();
+                            continue;
+                        }
+                        break;
+                    }
+                }
+            }
+            '\'' => {
+                // Single-quoted sheet qualifier: capture the inner name (honoring `''` escapes).
+                let mut inner = String::new();
+                let mut closed = false;
+                while let Some(d) = chars.next() {
+                    if d == '\'' {
+                        if chars.peek() == Some(&'\'') {
+                            inner.push('\'');
+                            chars.next();
+                            continue;
+                        }
+                        closed = true;
+                        break;
+                    }
+                    inner.push(d);
+                }
+                let is_qualifier = matches!(chars.peek(), Some('!') | Some(':'));
+                if closed && is_qualifier && sheet_name_safe_unquoted(&inner) {
+                    out.push_str(&inner);
+                } else {
+                    // Not a redundant quote — reconstruct the token exactly.
+                    out.push('\'');
+                    for ch in inner.chars() {
+                        out.push(ch);
+                        if ch == '\'' {
+                            out.push('\'');
+                        }
+                    }
+                    if closed {
+                        out.push('\'');
+                    }
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Build a BytesStart from raw inner bytes (name + attributes).
 fn tag_from_inner(inner: Vec<u8>, name_len: usize) -> BytesStart<'static> {
     BytesStart::from_content(String::from_utf8_lossy(&inner).into_owned(), name_len)
@@ -3019,9 +3103,14 @@ fn rewrite_edited_sheet(
                             Some(logical)
                                 if !refshift::has_unquoted_non_ascii_qualifier(&logical) =>
                             {
+                                let before_ref = logical.matches("#REF!").count();
                                 let (nf, n) = refshift::shift_formula(&logical, &sheet, edit);
                                 report.refs_shifted += n;
-                                report.ref_errors += nf.matches("#REF!").count() as u32;
+                                // Only #REF! this edit NEWLY introduced — a formula that already
+                                // carried a dangling #REF! (from an earlier deletion) must not
+                                // inflate the reported error count.
+                                report.ref_errors +=
+                                    nf.matches("#REF!").count().saturating_sub(before_ref) as u32;
                                 if nf == logical {
                                     // unchanged: preserve the ORIGINAL bytes exactly
                                     // (do not let the writer re-escape e.g. ' -> &apos;)
@@ -4019,9 +4108,15 @@ fn shift_text_in_element(
                     let raw = std::mem::take(&mut f_raw);
                     let out_ev = match logical_formula(&raw) {
                         Some(logical) if !refshift::has_unquoted_non_ascii_qualifier(&logical) => {
+                            let before_ref = logical.matches("#REF!").count();
                             let (nf, n) = refshift::shift_formula(&logical, host, edit);
                             shifted += n;
-                            errs += nf.matches("#REF!").count() as u32;
+                            // Count only NEWLY introduced #REF! (a genuine straddle/overflow),
+                            // subtracting any pre-existing #REF! the formula already carried — a
+                            // dangling reference left by an earlier column/name deletion is not a
+                            // fault of THIS edit and must not inflate ref_errors (which, for a
+                            // move, would spuriously trip the straddle net).
+                            errs += nf.matches("#REF!").count().saturating_sub(before_ref) as u32;
                             if nf == logical {
                                 Event::Text(BytesText::from_escaped(raw))
                             } else {
@@ -4109,9 +4204,14 @@ fn shift_defined_names(
                     let raw = std::mem::take(&mut f_raw);
                     let out_ev = match logical_formula(&raw) {
                         Some(logical) if !refshift::has_unquoted_non_ascii_qualifier(&logical) => {
+                            let before_ref = logical.matches("#REF!").count();
                             let (nf, n) = refshift::shift_formula(&logical, &host, edit);
                             shifted += n;
-                            errs += nf.matches("#REF!").count() as u32;
+                            // Only NEWLY introduced #REF! counts — a defined name that already
+                            // held a dangling #REF! (a common leftover from an earlier column/
+                            // name deletion) is not this edit's fault and must not inflate
+                            // ref_errors (which would spuriously trip the move straddle net).
+                            errs += nf.matches("#REF!").count().saturating_sub(before_ref) as u32;
                             if nf == logical {
                                 Event::Text(BytesText::from_escaped(raw))
                             } else {
@@ -5447,6 +5547,34 @@ mod tests {
     }
 
     #[test]
+    fn canonicalize_sheet_quotes_drops_only_redundant_quotes() {
+        // REGRESSION (round-40): openpyxl writes the autofilter _FilterDatabase name QUOTED
+        // (`'Data'!…`) while Excel/LibreOffice write it unquoted — a faithful edit was refused.
+        assert_eq!(
+            canonicalize_sheet_quotes("'Data'!$A$1:$B$10"),
+            "Data!$A$1:$B$10"
+        );
+        assert_eq!(
+            canonicalize_sheet_quotes("SUM('Data'!A1,'Sheet2'!B2)"),
+            "SUM(Data!A1,Sheet2!B2)"
+        );
+        // A 3D span: both endpoints unquoted.
+        assert_eq!(canonicalize_sheet_quotes("'S1':'S2'!A1"), "S1:S2!A1");
+        // Names that NEED quotes keep them — no two distinct names may collide.
+        assert_eq!(canonicalize_sheet_quotes("'My Sheet'!A1"), "'My Sheet'!A1");
+        assert_eq!(canonicalize_sheet_quotes("'2020'!A1"), "'2020'!A1");
+        assert_eq!(canonicalize_sheet_quotes("'O''Brien'!A1"), "'O''Brien'!A1");
+        // A DOUBLE-quoted string literal containing an apostrophe is untouched; the real
+        // qualifier after it is still normalized.
+        assert_eq!(
+            canonicalize_sheet_quotes(r#"IF(A1="it's",'Data'!B1,0)"#),
+            r#"IF(A1="it's",Data!B1,0)"#
+        );
+        // No quotes -> identity.
+        assert_eq!(canonicalize_sheet_quotes("Data!A1+B2"), "Data!A1+B2");
+    }
+
+    #[test]
     fn canonical_sqref_coalesces_adjacent_ranges() {
         // A single range is its own canonical form (existing keys unchanged).
         assert_eq!(canonical_sqref("A1:A10"), "A1:A10");
@@ -6147,6 +6275,35 @@ mod tests {
             "straddle must be refused: {:?}",
             report.residuals
         );
+    }
+
+    #[test]
+    fn preexisting_ref_error_not_counted_by_aux_shift_helpers() {
+        // REGRESSION (round-40): a dangling #REF! already present in a defined name / chart /
+        // cross-sheet formula (a common leftover from an earlier column or name deletion) must
+        // NOT count toward ref_errors. The raw count did, so a move-rows on any such workbook
+        // spuriously tripped the move_straddles_range net even though the move touched nothing.
+        let e = move_edit("Sheet1", 5, 1, 2);
+        // (a) defined names: a Broken=#REF!+1 name the move never touches.
+        let wbxml = br#"<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><definedNames><definedName name="Broken">#REF!+1</definedName><definedName name="Total">Sheet1!$A$100</definedName></definedNames></workbook>"#;
+        let (_o, _s, errs, _q) = shift_defined_names(wbxml, &e, &["Sheet1".to_string()]).unwrap();
+        assert_eq!(
+            errs, 0,
+            "pre-existing #REF! in a defined name must not count"
+        );
+        // (b) foreign element body (chart series / cross-sheet <f>): same rule.
+        let el = br#"<chartSpace><f>#REF!+Sheet1!A100</f></chartSpace>"#;
+        let (_o, _s, errs, _q) = shift_text_in_element(el, b"f", &e, "Sheet2").unwrap();
+        assert_eq!(
+            errs, 0,
+            "pre-existing #REF! in a foreign <f> must not count"
+        );
+        // NON-VACUITY: an edit that GENUINELY breaks a reference still counts (a delete that
+        // consumes the target). Delete the row A100 sits on -> the ref becomes a NEW #REF!.
+        let del = edit("Sheet1", Axis::Row, Op::Delete, 100, 1);
+        let clean = br#"<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><definedNames><definedName name="Total">Sheet1!$A$100</definedName></definedNames></workbook>"#;
+        let (_o, _s, errs, _q) = shift_defined_names(clean, &del, &["Sheet1".to_string()]).unwrap();
+        assert_eq!(errs, 1, "a newly-broken reference must still count");
     }
 
     #[test]
