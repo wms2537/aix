@@ -585,6 +585,26 @@ is refused, not committed.
   are engine-supported, so it evaluates correctly) and each individual VOLATILE cell is skipped
   (Excel recomputes those on load, so their cache never surfaces stale) — a fabricated non-volatile
   cache is still caught.
+- **The volatile-cache skip now respects MANUAL calc mode (false-certify fix).** The skip above
+  assumed Excel recomputes a volatile cell on load — true in AUTO mode, but a workbook in MANUAL
+  calc mode (`<calcPr calcMode="manual">`, no `fullCalcOnLoad`) is NOT recalculated on open and
+  displays every stored cache verbatim, so a fabricated cache in an `OFFSET`/`INDIRECT`/`NOW` cell
+  was certified. The skip is now disabled under manual calc mode, where a volatile cell's cache is
+  verified like any other.
+- **`certify` catches a cross-sheet SUBTOTAL/AGGREGATE hidden-row change (false-certify fix).**
+  The manual-hidden-row guard paired each sheet's hidden rows with THAT sheet's hidden-ignoring
+  aggregate, but `Sheet2!B1 = SUBTOTAL(109, Sheet1!A1:A10)` takes its hidden-row input from the
+  REFERENCED sheet — so hiding a data row on `Sheet1` changed the aggregate (55→50) with the guard
+  never linking them, and certify blessed it. When any sheet carries such an aggregate, every
+  sheet's hidden-row set is now compared (a sound over-approximation), since the aggregate can
+  reference any sheet.
+- **`certify` tolerates a foreign editor coalescing adjacent data-validation / conditional-
+  formatting ranges (over-refusal fix).** A `sqref` of two adjacent ranges (`B1:B11 C1:C11`, what
+  openpyxl writes) that a real editor saves as the equivalent single rectangle (`B1:C11`, what
+  Excel/LibreOffice write) was compared as a raw string and refused despite covering the identical
+  cells. The `sqref` is now canonicalized to its cell coverage (a full rectangle collapses to that
+  rectangle, so single ranges are unchanged), so a lossless coalesce certifies while a genuinely
+  different cell set still differs.
 - **`certify` treats a number-format change as value-affecting under "precision as displayed".**
   A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
   computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input

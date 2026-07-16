@@ -167,11 +167,17 @@ pub fn run(
             } else {
                 build_cache_oracle(&mut expected_model)
             };
+        // A volatile cell's cache is self-healing ONLY when Excel recomputes it on load — i.e.
+        // AUTO calc mode (we are already in the branch where fullCalcOnLoad is NOT set on the
+        // edited file). Under MANUAL mode Excel shows the stored cache verbatim, so a volatile
+        // cache must be verified like any other; the skip is disabled there (fail-closed).
+        let volatile_recomputed_on_load = !manual_calc_mode(&edited_bytes);
         unverified_formula_caches(
             &expected_bytes,
             &edited_bytes,
             recalc_on_load_forced(&expected_bytes),
             oracle.as_ref(),
+            volatile_recomputed_on_load,
         )
     };
     // A `format` (number-format) difference is normally benign — display only. But under
@@ -779,22 +785,38 @@ fn array_formula_all(bytes: &[u8]) -> Vec<(String, String, String)> {
     out
 }
 
-/// The set of manually hidden rows on each worksheet that USES a hidden-row-excluding
-/// aggregate (`SUBTOTAL(101–111)` / hidden-ignoring `AGGREGATE`), keyed by sheet, sorted.
-/// A sheet without such a function contributes nothing — a hidden row there is pure display
-/// state — so the comparison only fires where a hidden row actually changes a computed value.
+/// The set of manually hidden rows on each worksheet, keyed by sheet, sorted — but ONLY when the
+/// workbook uses a hidden-row-excluding aggregate (`SUBTOTAL(101–111)` / hidden-ignoring
+/// `AGGREGATE`) SOMEWHERE. Such an aggregate can reference ANY sheet's rows — a cross-sheet
+/// `Sheet2!B1 = SUBTOTAL(109, Sheet1!A1:A10)` takes its hidden-row input from the REFERENCED sheet
+/// (Sheet1), not the aggregate's own sheet — so keying the guard to each aggregate's own sheet
+/// let a foreign edit hide a data row on the referenced sheet and certify a value change. If any
+/// aggregate is present, a manually hidden row on ANY sheet is potentially value-affecting, so
+/// compare every sheet's hidden-row set (a sound over-approximation); with no such aggregate,
+/// a hidden row is pure display state and ignored.
 fn subtotal_hidden_rows(bytes: &[u8]) -> Vec<(String, Vec<String>)> {
     let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
         return Vec::new();
     };
-    let mut out = Vec::new();
-    for (sheet_name, part) in sheets {
-        if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
-            if structural::hidden_row_exclusion_present(&x) {
-                out.push((sheet_name, structural::hidden_rows(&x)));
-            }
-        }
+    let sheet_xml: Vec<(String, Vec<u8>)> = sheets
+        .into_iter()
+        .filter_map(|(name, part)| {
+            crate::ooxml::read_part(bytes, &part)
+                .ok()
+                .map(|x| (name, x))
+        })
+        .collect();
+    let any_aggregate = sheet_xml
+        .iter()
+        .any(|(_, x)| structural::hidden_row_exclusion_present(x));
+    if !any_aggregate {
+        return Vec::new();
     }
+    let mut out: Vec<(String, Vec<String>)> = sheet_xml
+        .iter()
+        .map(|(name, x)| (name.clone(), structural::hidden_rows(x)))
+        .filter(|(_, rows)| !rows.is_empty())
+        .collect();
     out.sort();
     out
 }
@@ -1069,6 +1091,24 @@ fn recalc_on_load_forced(bytes: &[u8]) -> bool {
     )
 }
 
+/// True if the workbook is in MANUAL calc mode (`<calcPr calcMode="manual"/"manualNoRecalc">`).
+/// In manual mode Excel does NOT recalculate on open — it displays every stored cache VERBATIM,
+/// including a volatile cell's, until the user presses F9 — so a volatile cell's cache is NOT
+/// self-healing there and must be verified like any other (its skip is unsound under manual mode).
+fn manual_calc_mode(bytes: &[u8]) -> bool {
+    let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&wb);
+    let Some(tag) = local_element_tag(&text, "calcPr") else {
+        return false;
+    };
+    matches!(
+        attr(&tag, "calcMode").as_deref(),
+        Some("manual") | Some("manualNoRecalc")
+    )
+}
+
 /// True if the workbook computes formulas on the ROUNDED DISPLAYED values
 /// (`<calcPr fullPrecision="0"/"false">`, "precision as displayed"). In that mode a cell's
 /// number format is a value input to any formula reading it, so a format change is not benign.
@@ -1133,6 +1173,7 @@ fn unverified_formula_caches(
     edited: &[u8],
     expected_forced: bool,
     oracle: Option<&std::collections::HashMap<(String, String), String>>,
+    volatile_recomputed_on_load: bool,
 ) -> usize {
     let exp_by_name: std::collections::HashMap<String, String> = crate::ooxml::all_sheets(expected)
         .unwrap_or_default()
@@ -1150,11 +1191,16 @@ fn unverified_formula_caches(
         if edt_map.is_empty() {
             continue;
         }
-        // A VOLATILE formula cell (NOW/RAND/OFFSET/INDIRECT/…) is recomputed by Excel on every
-        // load, so its stored cache never surfaces a stale value — ignore it (do NOT count it as
-        // unverified). This replaces the old workbook-global oracle disable, which refused a
-        // faithful preserved NON-volatile cache as collateral of one volatile function.
-        let volatile = structural::volatile_formula_cells(&edt_xml);
+        // A VOLATILE formula cell (NOW/RAND/OFFSET/INDIRECT/…) is recomputed by Excel on load in
+        // AUTO calc mode, so its stored cache never surfaces a stale value there — ignore it. But
+        // under MANUAL calc mode Excel shows the stored cache verbatim, so the skip is UNSOUND
+        // (it would launder a fabricated volatile cache); disable it. (Replaces the old workbook-
+        // global oracle disable, which refused a faithful preserved NON-volatile cache.)
+        let volatile = if volatile_recomputed_on_load {
+            structural::volatile_formula_cells(&edt_xml)
+        } else {
+            std::collections::BTreeSet::new()
+        };
         // xlq's OWN stored caches (a cell the transform did NOT blank — an unshifted formula).
         // When the transform force-recomputes it discards its own caches, so they vouch nothing.
         let exp_map = if expected_forced {
@@ -1740,26 +1786,35 @@ mod tests {
         let honest_renum = wb(&cell("<v>3.0</v>"), &[]);
         // present cache the transform did not vouch (no eval oracle) -> counted.
         assert_eq!(
-            unverified_formula_caches(&blank, &fabricated, false, None),
+            unverified_formula_caches(&blank, &fabricated, false, None, true),
             1
         );
         // a dropped cache (no <v>) -> Excel recomputes -> not counted.
-        assert_eq!(unverified_formula_caches(&blank, &dropped, false, None), 0);
-        // identical present caches, and a benign 3 vs 3.0 renumber -> not counted.
-        assert_eq!(unverified_formula_caches(&honest, &honest, false, None), 0);
         assert_eq!(
-            unverified_formula_caches(&honest, &honest_renum, false, None),
+            unverified_formula_caches(&blank, &dropped, false, None, true),
+            0
+        );
+        // identical present caches, and a benign 3 vs 3.0 renumber -> not counted.
+        assert_eq!(
+            unverified_formula_caches(&honest, &honest, false, None, true),
+            0
+        );
+        assert_eq!(
+            unverified_formula_caches(&honest, &honest_renum, false, None, true),
             0
         );
         // a present cache that DIFFERS from the transform's present cache -> counted.
         assert_eq!(
-            unverified_formula_caches(&honest, &fabricated, false, None),
+            unverified_formula_caches(&honest, &fabricated, false, None, true),
             1
         );
         // when xlq's transform FORCES recalc, its own caches are moot: an identical present
         // edited cache (which would otherwise verify) is unverifiable because the transform
         // discards it and recomputes -> every present edited cache is counted.
-        assert_eq!(unverified_formula_caches(&honest, &honest, true, None), 1);
+        assert_eq!(
+            unverified_formula_caches(&honest, &honest, true, None, true),
+            1
+        );
         // BUT an evaluation oracle (built when the engine covers the workbook) vouches the
         // correct cache even when the transform blanked or force-discarded its own: 3 matches
         // the true SUM, 999 does not — the strengthening the stored-cache compare cannot do.
@@ -1768,16 +1823,16 @@ mod tests {
                 .into_iter()
                 .collect();
         assert_eq!(
-            unverified_formula_caches(&blank, &honest, false, Some(&oracle)),
+            unverified_formula_caches(&blank, &honest, false, Some(&oracle), true),
             0
         );
         assert_eq!(
-            unverified_formula_caches(&honest, &honest, true, Some(&oracle)),
+            unverified_formula_caches(&honest, &honest, true, Some(&oracle), true),
             0
         );
         // a fabricated cache is NOT vouched by the oracle (999 != the true 3).
         assert_eq!(
-            unverified_formula_caches(&blank, &fabricated, false, Some(&oracle)),
+            unverified_formula_caches(&blank, &fabricated, false, Some(&oracle), true),
             1
         );
     }

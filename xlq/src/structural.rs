@@ -1067,6 +1067,59 @@ fn edited_sheet_body_unshifted_ref(
 /// certify COMPARES them against its transform — a faithful edit matches, a mangle differs
 /// — instead of refusing on their mere PRESENCE, which rejected xlq's own transform of any
 /// workbook carrying a dropdown or CF rule (ubiquitous constructs).
+/// Canonicalize a `sqref` (space-separated A1 ranges) so that a foreign editor coalescing or
+/// splitting ADJACENT ranges over the SAME cells does not change it: `B1:B11 C1:C11` and `B1:C11`
+/// both canonicalize to `B1:C11`. Enumerates the covered cells (capped); when their union is a
+/// full rectangle it emits that rectangle (so a single range like `A1:A10` is unchanged — its own
+/// canonical form), otherwise the sorted cell list. A very large coverage (whole rows/columns) or
+/// an unparseable range falls back to a sorted-token join (a coalesce of huge ranges is rare, and
+/// refusing it is the safe direction).
+fn canonical_sqref(sqref: &str) -> String {
+    const CAP: usize = 262_144;
+    let token_sort = || {
+        let mut toks: Vec<&str> = sqref.split_whitespace().collect();
+        toks.sort_unstable();
+        toks.join(" ")
+    };
+    let mut cells: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
+    let mut total = 0usize;
+    for range in sqref.split_whitespace() {
+        let (a, b) = range.split_once(':').unwrap_or((range, range));
+        let (Some((c0, r0)), Some((c1, r1))) = (parse_cell_rc(a), parse_cell_rc(b)) else {
+            return token_sort();
+        };
+        let (cmin, cmax) = (c0.min(c1), c0.max(c1));
+        let (rmin, rmax) = (r0.min(r1), r0.max(r1));
+        total += (cmax - cmin + 1) as usize * (rmax - rmin + 1) as usize;
+        if total > CAP {
+            return token_sort();
+        }
+        for c in cmin..=cmax {
+            for r in rmin..=rmax {
+                cells.insert((c, r));
+            }
+        }
+    }
+    if cells.is_empty() {
+        return String::new();
+    }
+    let cmin = cells.iter().map(|(c, _)| *c).min().unwrap();
+    let cmax = cells.iter().map(|(c, _)| *c).max().unwrap();
+    let rmin = cells.iter().map(|(_, r)| *r).min().unwrap();
+    let rmax = cells.iter().map(|(_, r)| *r).max().unwrap();
+    let a1 = |c: u32, r: u32| crate::diff::a1(r as i32, c as i32).unwrap_or_default();
+    let area = (cmax - cmin + 1) as usize * (rmax - rmin + 1) as usize;
+    if cells.len() == area {
+        format!("{}:{}", a1(cmin, rmin), a1(cmax, rmax))
+    } else {
+        cells
+            .iter()
+            .map(|(c, r)| a1(*c, *r))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
 pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)> {
     #[derive(PartialEq)]
     enum Cap {
@@ -1099,7 +1152,7 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
                     ext_depth += 1;
                 } else if ext_depth == 0 && is_cfdv(n.as_ref()) {
                     let kind = String::from_utf8_lossy(local_of(n.as_ref())).into_owned();
-                    let sqref = attr_by_local(&e, b"sqref").unwrap_or_default();
+                    let sqref = canonical_sqref(&attr_by_local(&e, b"sqref").unwrap_or_default());
                     let dv_type = attr_by_local(&e, b"type").unwrap_or_default();
                     cfdv = Some((kind, sqref, Vec::new(), dv_type));
                 } else if ext_depth == 0 && cfdv.is_some() && is_legacy_f(n.as_ref()) {
@@ -1113,7 +1166,7 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
             }
             Ok(Event::Empty(e)) if ext_depth == 0 && is_cfdv(e.name().as_ref()) => {
                 let kind = String::from_utf8_lossy(local_of(e.name().as_ref())).into_owned();
-                let sqref = attr_by_local(&e, b"sqref").unwrap_or_default();
+                let sqref = canonical_sqref(&attr_by_local(&e, b"sqref").unwrap_or_default());
                 out.push((kind, format!("sqref={sqref}")));
             }
             Ok(Event::End(e)) => {
@@ -5230,6 +5283,33 @@ mod tests {
             between[0].1.contains("10"),
             "non-list formula2 must be kept: {between:?}"
         );
+        // REGRESSION (round-35): a foreign editor coalescing ADJACENT sqref ranges over the SAME
+        // cells (`B1:B11 C1:C11` -> `B1:C11`) is a lossless serialization normalization — the key
+        // must be identical so a faithful edit is not spuriously refused.
+        let split = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="list" sqref="B1:B11 C1:C11"><formula1>"a,b"</formula1></dataValidation></worksheet>"#);
+        let coalesced = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="list" sqref="B1:C11"><formula1>"a,b"</formula1></dataValidation></worksheet>"#);
+        assert_eq!(
+            split, coalesced,
+            "adjacent-range coalescing must not change the key"
+        );
+        // A DIFFERENT cell set still differs (the canonicalization must not over-merge).
+        let bigger = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="list" sqref="B1:D11"><formula1>"a,b"</formula1></dataValidation></worksheet>"#);
+        assert_ne!(split, bigger, "a genuinely larger sqref must differ");
+    }
+
+    #[test]
+    fn canonical_sqref_coalesces_adjacent_ranges() {
+        // A single range is its own canonical form (existing keys unchanged).
+        assert_eq!(canonical_sqref("A1:A10"), "A1:A10");
+        // Two adjacent ranges whose union is a rectangle -> that rectangle.
+        assert_eq!(canonical_sqref("B1:B11 C1:C11"), "B1:C11");
+        assert_eq!(canonical_sqref("C1:C11 B1:B11"), "B1:C11"); // order-independent
+                                                                // A non-rectangular union is stable but not merged (an L-shape).
+        assert_eq!(
+            canonical_sqref("A1:A2 B1:B1"),
+            canonical_sqref("B1:B1 A1:A2")
+        );
+        assert_ne!(canonical_sqref("B1:B11 C1:C11"), canonical_sqref("B1:D11"));
     }
 
     #[test]
