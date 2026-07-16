@@ -622,25 +622,27 @@ is refused, not committed.
   copies them verbatim — but they were outside certify's fail-closed allowlist, so certify refused
   its own faithful transform of any slicer/timeline dashboard. They are now allowlisted; their
   filter effect surfaces in the pivot's cached output cells, which the cell diff already compares.
+- **`certify`'s cache oracle isolates trustworthy cells in a live-data workbook instead of
+  disabling itself (over-refusal fix, soundly).** When a workbook uses an UNSUPPORTED,
+  policy-limited (`RTD`/`WEBSERVICE`/`CUBEVALUE`), or user-defined function *anywhere*, the
+  evaluation oracle was disabled workbook-wide, so a faithful edit preserving a verifiable cache
+  (a pure `SUM`) was spuriously REFUSED. It now isolates the trustworthy cells by POISON-AND-DIFF:
+  every cell whose formula calls such a function is overwritten with a constant and the model
+  re-evaluated; a cell whose value CHANGES depends on an unreproducible result and is excluded,
+  while a cell that is unchanged across the normal evaluation and two distinct poisonings is
+  provably independent of it and its engine value equals Excel's. This is SOUND where the naive
+  "vouch any clean matching value" is not: an error-masking wrapper (`IFERROR(RTD(),5)`, `ISERROR`,
+  `COUNT`, …) yields a clean-but-WRONG engine value, but poisoning the `RTD` cell changes the
+  wrapper's result, so it is correctly excluded — a fabricated cache matching the engine's `5`
+  still REFUSES. Uses the engine's real dependency graph, so it covers defined names / structured
+  references / `INDIRECT` that a hand-written reference walker would miss. The RTD cell's OWN cache
+  (external data the engine cannot reproduce) remains, correctly, unverifiable → refused.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
 completeness over non-cell references is asserted, not proven — the honesty caveat the
 accompanying paper states in its scope section. The whole-part boundary, however, is now
 fail-closed.
-
-**Known conservative over-refusal (deliberately not "fixed").** When a workbook contains an
-UNSUPPORTED, policy-limited (`RTD`/`WEBSERVICE`/`CUBEVALUE`), or user-defined function *anywhere*,
-certify's cache-evaluation oracle is disabled workbook-wide, so a faithful edit that preserves an
-otherwise-verifiable cache (e.g. a pure `SUM`) can be spuriously REFUSED. This is fail-closed (it
-never corrupts or false-certifies). A naive fix — vouch a cache whenever the engine's clean value
-matches it — is UNSOUND: an error-masking wrapper (`IFERROR(RTD(),5)`, `ISERROR`, `COUNT`, …)
-makes the engine compute a clean-but-WRONG value (the fallback, not Excel's live value), which a
-fabricated cache could match to launder a value divergence. A sound fix requires transitive taint
-analysis (refuse any cell whose formula, or a cell it transitively references, uses such a
-function). That is deferred rather than risk adding regression-prone complexity to the security-
-critical certify path for a fail-closed edge; live-data workbooks that force full recalc
-(`fullCalcOnLoad`) or drop their caches are unaffected.
 
 ### Robustness
 - A panic in any command becomes a machine-readable JSON error (exit 70) with a

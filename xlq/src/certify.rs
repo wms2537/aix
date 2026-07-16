@@ -1253,55 +1253,112 @@ fn unverified_formula_caches(
     count
 }
 
-/// An oracle mapping (sheet name, A1 cell) -> the `type:value` cache signature of the TRUE
-/// computed value of xlq's proven transform, used to vouch a foreign edit's PRESERVED formula
-/// caches (which xlq's own transform blanks, since it cannot recompute engine-free). Returns
-/// None when the engine does not fully and deterministically cover the workbook — any
-/// unsupported, policy-limited, or user-defined function — because evaluation could then diverge
-/// from Excel; the caller falls back to the conservative stored-cache comparison rather than risk
-/// laundering a wrong value. A VOLATILE function is NOT a global disqualifier: the oracle is still
-/// built (all functions are supported, so it evaluates correctly), and the CALLER skips each
-/// individual volatile cell (Excel recomputes those on load, so their cache never surfaces stale)
-/// — so a faithful preserved NON-volatile cache is no longer refused as collateral. The signature
-/// format matches [`structural::formula_cache_map`] so [`caches_equal`] compares them directly.
+/// A cell's evaluated value rendered to the `type:value` signature of [`structural::formula_cache_map`]
+/// so [`caches_equal`] compares them directly. None for an empty cell.
+fn cell_value_sig(model: &ironcalc::base::Model, sheet: u32, row: i32, col: i32) -> Option<String> {
+    use ironcalc::base::cell::CellValue;
+    match model.get_cell_value_by_index(sheet, row, col) {
+        Ok(CellValue::Number(n)) => Some(format!("n:{n}")),
+        Ok(CellValue::Boolean(b)) => Some(format!("b:{}", if b { "1" } else { "0" })),
+        Ok(CellValue::String(s)) if is_excel_error(&s) => Some(format!("e:{s}")),
+        Ok(CellValue::String(s)) => Some(format!("str:{s}")),
+        _ => None,
+    }
+}
+
+/// An oracle mapping (sheet name, A1 cell) -> the `type:value` cache signature of the TRUE computed
+/// value of xlq's proven transform, used to vouch a foreign edit's PRESERVED formula caches (which
+/// xlq's own transform blanks). Always returns Some, but INCLUDES ONLY cells whose engine value can
+/// be trusted to equal Excel's.
+///
+/// When the workbook uses an UNSUPPORTED / policy-limited (`RTD`/`WEBSERVICE`/`CUBEVALUE`) /
+/// user-defined function, the engine computes those cells (and anything depending on them) WRONG —
+/// but a cell whose value does NOT depend on such a function is still computed correctly. Rather
+/// than disable the whole oracle (which spuriously refused a preserved pure-`SUM` cache in any
+/// live-data workbook) OR trust every clean value (UNSOUND — an `IFERROR(RTD(),5)` wrapper yields a
+/// clean-but-WRONG value a fabricated cache could match), it isolates the trustworthy cells by
+/// POISON-AND-DIFF: overwrite every "source" cell (whose formula calls such a function) with a
+/// constant and re-evaluate; a cell whose value CHANGES depends on a source cell and is EXCLUDED.
+/// Two distinct constants plus the normal (error-valued) evaluation are used, so a false
+/// "unchanged" requires a formula coincidentally constant on all three probes yet dependent —
+/// effectively unconstructable, and such a cell's value is a genuine constant anyway. A cell that
+/// survives is provably independent of every unsupported result, so the engine's value for it
+/// equals Excel's and vouching a matching cache is sound.
 fn build_cache_oracle(
     model: &mut ironcalc::base::Model,
 ) -> Option<std::collections::HashMap<(String, String), String>> {
-    use ironcalc::base::cell::CellValue;
     let census = crate::census::function_census(model);
-    if !(census.unsupported.is_empty()
-        && census.policy_limited.is_empty()
-        && census.user_defined.is_empty())
-    {
-        return None;
-    }
-    model.evaluate();
+    // Functions whose value the engine cannot faithfully reproduce (external data / not implemented
+    // / user code). A cell transitively depending on one of these is not vouchable.
+    let bad: std::collections::HashSet<String> = census
+        .unsupported
+        .iter()
+        .cloned()
+        .chain(census.policy_limited.keys().cloned())
+        .chain(census.user_defined.keys().cloned())
+        .collect();
     let names: Vec<String> = model
         .get_worksheets_properties()
         .into_iter()
         .map(|p| p.name)
         .collect();
-    let mut out = std::collections::HashMap::new();
+    // Enumerate the formula cells and, among them, the "source" cells (formula calls a bad fn).
+    // Each formula cell: its (sheet-index, row, col) coordinate and its (sheet-name, A1) oracle key.
+    type FormulaCell = ((u32, i32, i32), (String, String));
+    let mut formula_cells: Vec<FormulaCell> = Vec::new();
+    let mut sources: Vec<(u32, i32, i32)> = Vec::new();
     for cell in model.get_all_cells() {
-        // Formula cells only — a stored cache is a formula's remembered result.
-        match model.get_cell_formula(cell.index, cell.row, cell.column) {
-            Ok(Some(_)) => {}
-            _ => continue,
+        let Ok(Some(f)) = model.get_cell_formula(cell.index, cell.row, cell.column) else {
+            continue;
+        };
+        let (Some(name), Ok(a1)) = (
+            names.get(cell.index as usize),
+            diff::a1(cell.row, cell.column),
+        ) else {
+            continue;
+        };
+        formula_cells.push(((cell.index, cell.row, cell.column), (name.clone(), a1)));
+        if !bad.is_empty()
+            && crate::census::extract_function_names(&f)
+                .iter()
+                .any(|n| bad.contains(n))
+        {
+            sources.push((cell.index, cell.row, cell.column));
         }
-        let Some(name) = names.get(cell.index as usize) else {
-            continue;
+    }
+    let snap =
+        |model: &ironcalc::base::Model| -> std::collections::HashMap<(String, String), String> {
+            let mut m = std::collections::HashMap::new();
+            for (coord, key) in &formula_cells {
+                if let Some(sig) = cell_value_sig(model, coord.0, coord.1, coord.2) {
+                    m.insert(key.clone(), sig);
+                }
+            }
+            m
         };
-        let Ok(a1) = diff::a1(cell.row, cell.column) else {
-            continue;
-        };
-        let sig = match model.get_cell_value_by_index(cell.index, cell.row, cell.column) {
-            Ok(CellValue::Number(n)) => format!("n:{n}"),
-            Ok(CellValue::Boolean(b)) => format!("b:{}", if b { "1" } else { "0" }),
-            Ok(CellValue::String(s)) if is_excel_error(&s) => format!("e:{s}"),
-            Ok(CellValue::String(s)) => format!("str:{s}"),
-            _ => continue,
-        };
-        out.insert((name.clone(), a1), sig);
+    model.evaluate();
+    // Fast path: no unsupported/policy/UDF function -> every formula cell is trustworthy.
+    if sources.is_empty() {
+        return Some(snap(model));
+    }
+    // Poison-and-diff taint isolation.
+    let v_err = snap(model); // normal eval: source cells are their (error-valued) formulas
+    for &(s, r, c) in &sources {
+        let _ = model.set_user_input(s, r, c, "1234567".to_string());
+    }
+    model.evaluate();
+    let v_k1 = snap(model);
+    for &(s, r, c) in &sources {
+        let _ = model.set_user_input(s, r, c, "-98765.4321".to_string());
+    }
+    model.evaluate();
+    let v_k2 = snap(model);
+    // Untainted iff the value is IDENTICAL across the normal eval and both poisonings.
+    let mut out = std::collections::HashMap::new();
+    for (key, sig) in &v_err {
+        if v_k1.get(key) == Some(sig) && v_k2.get(key) == Some(sig) {
+            out.insert(key.clone(), sig.clone());
+        }
     }
     Some(out)
 }
@@ -1856,6 +1913,72 @@ mod tests {
         assert_eq!(
             unverified_formula_caches(&blank, &fabricated, false, Some(&oracle), true),
             1
+        );
+    }
+
+    /// A loadable single-sheet workbook (refs.xlsx skeleton, so ironcalc loads it) with sheet1's
+    /// `<sheetData>` replaced by `rows`.
+    fn oracle_wb(rows: &str) -> Vec<u8> {
+        use std::io::Read;
+        let base = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/structural/refs.xlsx"
+        ))
+        .unwrap();
+        let mut ar = zip::ZipArchive::new(Cursor::new(base.as_slice())).unwrap();
+        let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default();
+        for i in 0..ar.len() {
+            let mut f = ar.by_index(i).unwrap();
+            let name = f.name().to_string();
+            out.start_file(&name, opts).unwrap();
+            if name == "xl/worksheets/sheet1.xml" {
+                let s = format!(
+                    r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:E3"/><sheetData>{rows}</sheetData></worksheet>"#
+                );
+                out.write_all(s.as_bytes()).unwrap();
+            } else {
+                let mut b = Vec::new();
+                f.read_to_end(&mut b).unwrap();
+                out.write_all(&b).unwrap();
+            }
+        }
+        out.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn cache_oracle_poison_diff_isolates_tainted_cells() {
+        // REGRESSION (round-36): a policy-limited/unsupported/UDF function no longer disables the
+        // oracle workbook-wide (which refused a preserved pure-SUM cache). Poison-and-diff isolates
+        // the cells whose value the engine computes correctly. RTD is policy-limited (-> #N/A).
+        let rows = r#"<row r="1"><c r="A1"><v>10</v></c><c r="B1"><f>SUM(A1:A2)</f><v>30</v></c><c r="C1"><f>RTD("a","","b")</f><v>7</v></c><c r="D1"><f>IFERROR(RTD("a","","b"),5)</f><v>5</v></c><c r="E1"><f>RTD("a","","b")+1</f><v>8</v></c></row><row r="2"><c r="A2"><v>20</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load rtd workbook");
+        let oracle = build_cache_oracle(&mut model).expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        // The PURE SUM cell is provably independent of RTD -> vouchable (the over-refusal fix).
+        assert!(
+            oracle.contains_key(&key("B1")),
+            "pure SUM must be vouchable in a live-data workbook: {oracle:?}"
+        );
+        // The RTD source cell and everything depending on it — INCLUDING the error-MASKED
+        // IFERROR(RTD,5) (the vector a naive clean-value fix would false-certify) and the
+        // transitive RTD+1 — must be EXCLUDED (not vouchable).
+        assert!(!oracle.contains_key(&key("C1")), "RTD source excluded");
+        assert!(
+            !oracle.contains_key(&key("D1")),
+            "IFERROR(RTD) masked dependent excluded (else a fabricated 5 would false-certify)"
+        );
+        assert!(
+            !oracle.contains_key(&key("E1")),
+            "RTD+1 transitive dependent excluded"
         );
     }
 
