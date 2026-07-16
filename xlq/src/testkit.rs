@@ -18,9 +18,10 @@
 // warnings here are expected and would otherwise trip `clippy -D warnings` on --all-targets.
 #![allow(dead_code)]
 
-use crate::refshift::{Axis, Op, StructuralEdit};
+use crate::refshift::{shift_index, Axis, Op, StructuralEdit};
 use crate::structural::{self, StructuralReport};
 use anyhow::{anyhow, Context, Result};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -300,6 +301,123 @@ pub(crate) fn cache_soundness(output: &[u8]) -> Result<(), CacheMismatch> {
                         "{name}!{a1} carries a STALE cache: stored {stored:?} but the engine \
                          recomputes {:?}",
                         other
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The image of a 1-based cell `(row, col)` on `sheet` under this edit's σ: on the EDITED sheet
+/// the affected axis moves (None if the line is deleted / pushed off-grid); a cell on any other
+/// sheet keeps its position (its VALUE may still change through a cross-reference, which the
+/// value-differential accounts for by comparing values at the mapped position).
+pub(crate) fn sigma(sheet: &str, row: i32, col: i32, edit: &StructuralEdit) -> Option<(i32, i32)> {
+    if !sheet.eq_ignore_ascii_case(&edit.sheet) {
+        return Some((row, col));
+    }
+    match edit.axis {
+        Axis::Row => shift_index(row as u32, edit).map(|r| (r as i32, col)),
+        Axis::Col => shift_index(col as u32, edit).map(|c| (row, c as i32)),
+    }
+}
+
+fn is_error_raw(v: &Value) -> bool {
+    matches!(v, Value::String(s) if s.starts_with('#'))
+}
+
+/// Two raw evaluated values are equal, tolerating a benign numeric renumber (`55` vs `55.0`).
+fn raw_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => matches!(
+            (x.as_f64(), y.as_f64()),
+            (Some(p), Some(q)) if p == q
+        ),
+        _ => a == b,
+    }
+}
+
+/// A concrete value-faithfulness violation.
+#[derive(Debug)]
+pub(crate) struct ValueDrift(pub(crate) String);
+
+/// True if any formula in the workbook is POSITION-INTRINSIC — its value depends on WHERE a cell
+/// or range sits (`ROW`/`COLUMN`/`ROWS`/`COLUMNS`/`OFFSET`/`INDIRECT`/`ADDRESS`/`AREAS`) — so a
+/// structural edit legitimately changes its value and the value-differential must not apply.
+fn has_position_intrinsic_fns(bytes: &[u8]) -> bool {
+    const INTR: &[&str] = &[
+        "ROW(",
+        "ROWS(",
+        "COLUMN(",
+        "COLUMNS(",
+        "OFFSET(",
+        "INDIRECT(",
+        "ADDRESS(",
+        "AREAS(",
+    ];
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return true; // can't tell -> assume yes (skip the property)
+    };
+    for (_, part) in sheets {
+        if let Ok(xml) = crate::ooxml::read_part(bytes, &part) {
+            let up = String::from_utf8_lossy(&xml).to_uppercase();
+            if INTR.iter().any(|f| up.contains(f)) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// VALUE-DIFFERENTIAL: an INSERT or MOVE preserves every computed value, merely relocating the
+/// edited sheet's cells under σ (an inserted row is blank — contributing 0 to a sum — and a move
+/// is a pure permutation, so no datum that feeds a formula is added or removed). Evaluate the
+/// input and the output, then for each clean input value assert the output holds an EQUAL clean
+/// value at the mapped position — so a σ MIS-shift (a straddling range that changes a SUM, a name
+/// whose cell-shaped tail was wrongly shifted turning the value into `#NAME?`, an off-grid
+/// materialization) is caught even though the output's blanked caches reveal nothing.
+///
+/// NOT applicable to DELETE (removing a data row legitimately changes a SUM) or to a workbook with
+/// position-intrinsic functions (whose value depends on absolute position); both return Ok (skip),
+/// as does an engine-unverifiable workbook.
+pub(crate) fn value_faithful(
+    input: &[u8],
+    edit: &StructuralEdit,
+    output: &[u8],
+) -> Result<(), ValueDrift> {
+    if edit.op == Op::Delete || has_position_intrinsic_fns(input) {
+        return Ok(());
+    }
+    let mut m0 = load(input).map_err(|e| ValueDrift(format!("load input: {e}")))?;
+    if engine_unverifiable(input, &m0) {
+        return Ok(());
+    }
+    m0.evaluate();
+    let s0 = crate::diff::snapshot(&m0).map_err(|e| ValueDrift(format!("input snapshot: {e}")))?;
+    let mut m1 = load(output).map_err(|e| ValueDrift(format!("load output: {e}")))?;
+    m1.evaluate();
+    let s1 = crate::diff::snapshot(&m1).map_err(|e| ValueDrift(format!("output snapshot: {e}")))?;
+
+    for (sheet, cells) in &s0 {
+        for ((r, c), snap) in cells {
+            // Only clean (non-error, populated) input values are subject to the invariant.
+            if snap.raw.is_null() || is_error_raw(&snap.raw) {
+                continue;
+            }
+            let Some((r1, c1)) = sigma(sheet, *r, *c, edit) else {
+                continue; // pushed off-grid by an insert — an overflow, not a value drift
+            };
+            let out = s1.get(sheet).and_then(|m| m.get(&(r1, c1)));
+            match out {
+                Some(o) if raw_eq(&snap.raw, &o.raw) => {}
+                other => {
+                    return Err(ValueDrift(format!(
+                        "{sheet}!({r},{c}) value {:?} must relocate to ({r1},{c1}) under σ, but the \
+                         output there holds {:?} (edit {:?})",
+                        snap.raw,
+                        other.map(|o| &o.raw),
+                        edit.op
                     )));
                 }
             }

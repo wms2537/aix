@@ -97,7 +97,7 @@ pub(crate) fn grid_max(axis: Axis) -> u32 {
 /// edit's axis. Returns `Some(new_index)` or `None` if that single line is
 /// consumed by a delete, or (for insert) pushed past the last row/column — an
 /// overflow is #REF!, never a silently out-of-grid reference.
-fn shift_index(pos: u32, edit: &StructuralEdit) -> Option<u32> {
+pub(crate) fn shift_index(pos: u32, edit: &StructuralEdit) -> Option<u32> {
     let (k, n) = (edit.at, edit.count);
     match edit.op {
         Op::Insert => {

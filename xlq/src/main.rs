@@ -22,6 +22,8 @@ pub(crate) mod testkit;
 mod tests_cache_soundness;
 #[cfg(test)]
 mod tests_corpus_lint;
+#[cfg(test)]
+mod tests_value_faithful;
 
 use clap::{Parser, Subcommand};
 use std::sync::Mutex;
