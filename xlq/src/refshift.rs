@@ -502,6 +502,32 @@ fn utf8_len(b0: u8) -> usize {
     }
 }
 
+/// Would a reference token be allowed to START at the current position, given the previously
+/// emitted char `prev`? A reference candidate must be preceded by a NON-identifier char, so we
+/// never grab the digits of a numeric literal or the cell-shaped tail of a NAME. Excel names
+/// admit ASCII word chars, `.`, a leading/embedded backslash, and Unicode letters/digits — plus
+/// `$`/`!`/`'` are reference syntax that also continues a token. A preceding non-ASCII scalar in
+/// a formula body is only ever a name char here (operators/functions are ASCII; a non-ASCII
+/// sheet qualifier is fail-closed upstream; string literals are skipped), so it continues the
+/// name. SINGLE SOURCE OF TRUTH for both `shift_formula` and `offset_formula` — the two drifted
+/// once (offset_formula lacked the `\`/non-ASCII clauses, mis-shifting `名A5`→`名A6` in a
+/// materialized shared-formula dependent), which this shared predicate prevents.
+fn ref_start_boundary(prev: Option<char>) -> bool {
+    match prev {
+        None => true,
+        Some(p) => {
+            !(p.is_ascii_alphanumeric()
+                || p == '_'
+                || p == '.'
+                || p == '$'
+                || p == '!'
+                || p == '\''
+                || p == '\\'
+                || !p.is_ascii())
+        }
+    }
+}
+
 pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) -> (String, u32) {
     let b = formula.as_bytes();
     let mut out = String::with_capacity(formula.len());
@@ -530,34 +556,10 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
             }
             continue;
         }
-        // a reference candidate begins at a sheet qualifier or a column letter
-        // or a '$' or a digit (whole-row like 5:5) — but only if the previous
-        // emitted char isn't part of an identifier/number (so we don't grab the
-        // digits of a numeric literal or the tail of a name).
-        //
-        // A defined NAME may contain more than ASCII word chars: Excel names admit
-        // Unicode letters/digits and a leading/embedded backslash (`売上A5`, `\A5`).
-        // A cell-shaped ASCII suffix glued to such a name (`売上A5` — the `A5` after
-        // the CJK `上`, `\A5` — the `A5` after `\`) is the TAIL of the name, not a
-        // fresh cell ref, and must NOT shift (doing so rewrote `売上A5`→`売上A6`, an
-        // undefined name → `#NAME?`). An unquoted non-ASCII scalar in a formula body
-        // is only ever a name char here (operators/functions are ASCII, a non-ASCII
-        // sheet qualifier is fail-closed upstream, string literals are skipped), so
-        // treating it as name-continuation is sound.
-        let prev = out.chars().last();
-        let boundary = match prev {
-            None => true,
-            Some(p) => {
-                !(p.is_ascii_alphanumeric()
-                    || p == '_'
-                    || p == '.'
-                    || p == '$'
-                    || p == '!'
-                    || p == '\''
-                    || p == '\\'
-                    || !p.is_ascii())
-            }
-        };
+        // A reference candidate begins at a sheet qualifier / column letter / `$` / digit —
+        // but only at a token boundary, so it is not glued to the tail of a NAME (`売上A5`,
+        // `\A5`). Boundary predicate shared with offset_formula (see ref_start_boundary).
+        let boundary = ref_start_boundary(out.chars().last());
         if boundary
             && (c == b'\''
                 || c == b'['
@@ -772,18 +774,9 @@ pub fn offset_formula(formula: &str, dr: i64, dc: i64) -> String {
             }
             continue;
         }
-        let prev = out.chars().last();
-        let boundary = match prev {
-            None => true,
-            Some(p) => {
-                !(p.is_ascii_alphanumeric()
-                    || p == '_'
-                    || p == '.'
-                    || p == '$'
-                    || p == '!'
-                    || p == '\'')
-            }
-        };
+        // Same boundary predicate as shift_formula (shared): a candidate glued to a NAME's tail
+        // (`名A5`, `\A5`) must NOT be offset as a relative ref — the bug this shared fn prevents.
+        let boundary = ref_start_boundary(out.chars().last());
         if boundary
             && (c == b'\''
                 || c == b'['
@@ -1681,6 +1674,20 @@ mod tests {
     fn offset_range_and_cross_sheet() {
         assert_eq!(offset_formula("SUM(A2:A10)", 5, 0), "SUM(A7:A15)");
         assert_eq!(offset_formula("Sheet2!A2*Q1", 0, 1), "Sheet2!B2*R1");
+    }
+    #[test]
+    fn offset_leaves_non_ascii_or_backslash_prefixed_name_intact() {
+        // REGRESSION (round-33): shared-formula dependents are MATERIALIZED through
+        // offset_formula. A defined name with a non-ASCII (CJK) or backslash prefix and a
+        // cell-shaped ASCII tail (`名A5`, `\A5`) is ONE name, invariant under autofill — it must
+        // NOT be offset as a relative cell ref (that rewrote a dependent to `名A6`, an undefined
+        // name → `#NAME?`). Boundary predicate is now shared with shift_formula, so the two
+        // cannot drift again. A genuinely relative ref in the same body still offsets.
+        assert_eq!(offset_formula("名A5*2", 1, 0), "名A5*2");
+        assert_eq!(offset_formula("予算Q1+1", 3, 0), "予算Q1+1");
+        assert_eq!(offset_formula("\\A5", 5, 0), "\\A5");
+        // name left intact, but the separately-tokenized B2 offsets by +3 rows
+        assert_eq!(offset_formula("名A5+B2", 3, 0), "名A5+B5");
     }
     #[test]
     fn offset_underflow_is_ref() {

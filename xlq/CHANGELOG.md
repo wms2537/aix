@@ -525,6 +525,36 @@ is refused, not committed.
   which the transform shifts for the edited sheet), the render location, the consolidation range,
   and the connection binding. A faithful edit matches; a repointed source, a moved render extent,
   or a re-bound connection differs.
+- **Shared-formula materialization no longer corrupts a non-ASCII / backslash-prefixed defined
+  name (silent-wrong fix).** The round-31 fix that taught the token-boundary predicate to treat a
+  Unicode/backslash prefix as name-continuation (`名A5`, `\A5`) was applied to `shift_formula` but
+  NOT to `offset_formula`, which materializes shared-formula dependents — so a shared master
+  `名A5*2` expanded its dependents to `名A6*2`/`名A7*2` (undefined names → `#NAME?`). The two
+  boundary predicates are now a SINGLE shared function (`ref_start_boundary`), so they cannot
+  drift again.
+- **`certify`'s cache oracle respects "precision as displayed" (false-certify + over-refusal
+  fix).** The round-31 evaluation oracle vouches a foreign cache against ironcalc's `evaluate()`,
+  which always computes at FULL precision — but under `<calcPr fullPrecision="0">` Excel computes
+  on the ROUNDED DISPLAYED values, so the oracle would CERTIFY a wrong full-precision cache and
+  REFUSE the correct displayed-precision one (`=A1` with `A1`=1.4 shown as `1`). The oracle is now
+  disabled under precision-as-displayed; a present cache in that mode stays unverified (the safe,
+  conservative refusal).
+- **`restructure` refuses a stale legacy-VML form-control binding on a foreign sheet
+  (silent-wrong fix).** A form control's cell link lives in element TEXT
+  (`<x:FmlaLink>Sheet1!$A$8</x:FmlaLink>`) inside `xl/drawings/*.vml`, which is neither a
+  worksheet nor an attribute — so the worksheet cross-ref scan and the `ctrlProps` attribute scan
+  both skipped it, and a control on another sheet bound to the edited sheet was committed stale
+  (silently re-bound to the wrong cell, and inverting certify, which does compare VML FmlaLink).
+  The residual scan now checks `.vml` bindings via the σ oracle and fails closed, symmetric with
+  the modern `ctrlProps` case.
+- **`restructure` and `certify` no longer refuse an annotated workbook on comment presence
+  (over-refusal fix).** A cell comment / note (and legacy VML anchor) anywhere on the edited sheet
+  blocked ALL row/column edits, even when the edit was nowhere near it — a comment is one of the
+  most common constructs in real financial workbooks. Comments and VML anchors are now
+  AFFECT-checked exactly like drawing anchors (`<comment ref>` / `<threadedComment ref>` /
+  `<x:Row>`/`<x:Anchor>`): refused only when the edit MOVES the anchored cell. The edited sheet's
+  own VML is additionally checked for a control binding to a moved cell (edited-sheet host, so a
+  local unqualified `$A$8` counts) so the walkback opens no silent-wrong hole.
 - **`certify` treats a number-format change as value-affecting under "precision as displayed".**
   A `format`-only difference is normally benign, but with `<calcPr fullPrecision="0">` Excel
   computes formulas on the ROUNDED DISPLAYED values, so a cell's number format is a value input

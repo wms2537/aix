@@ -153,7 +153,20 @@ pub fn run(
         // a correct cache is certified, a fabricated or stale one still differs (a strict
         // strengthening — the prior comparison could not tell 55 from 999). Gated on coverage
         // so an unsupported/volatile function never launders a wrong value.
-        let oracle = build_cache_oracle(&mut expected_model);
+        //
+        // The oracle is ALSO disabled under "precision as displayed" (`<calcPr
+        // fullPrecision="0">`): there Excel computes on the ROUNDED DISPLAYED value of each cell,
+        // but ironcalc's `evaluate()` always computes at FULL precision, so its value diverges
+        // from Excel's true result (`=A1` with `A1`=1.4 formatted "0" is 1 in Excel, 1.4 in
+        // ironcalc). Vouching the full-precision cache would CERTIFY a wrong value and REFUSE the
+        // faithful displayed-precision one; without the oracle a present cache under this mode
+        // stays unverified (the safe, conservative refusal).
+        let oracle =
+            if precision_as_displayed(&expected_bytes) || precision_as_displayed(&edited_bytes) {
+                None
+            } else {
+                build_cache_oracle(&mut expected_model)
+            };
         unverified_formula_caches(
             &expected_bytes,
             &edited_bytes,

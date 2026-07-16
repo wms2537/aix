@@ -778,7 +778,42 @@ fn edited_sheet_bad_attachment(
                         }
                         continue;
                     }
-                    // Any other attachment (comments, VML, controls, …) is presence-refused —
+                    // A legacy note / threaded comment is copied verbatim, so — like a drawing —
+                    // it is a hazard only if THIS edit would MOVE its anchor cell (`<comment ref>`
+                    // / `<threadedComment ref>`). A comment far from the edit is unaffected;
+                    // presence-refusing it rejected almost every real annotated workbook.
+                    if ty.ends_with("/comments") || ty.ends_with("/threadedComment") {
+                        let affected = attr_by_local(&e, b"Target")
+                            .map(|t| crate::ooxml::resolve_target(dir, &t))
+                            .and_then(|p| crate::ooxml::read_part(input, &p).ok())
+                            .map(|x| comment_refs_affected(&x, edit))
+                            .unwrap_or(true); // unresolved/unreadable -> fail closed
+                        if affected {
+                            return Some("comment".into());
+                        }
+                        continue;
+                    }
+                    // A legacy VML drawing carries note/control DISPLAY anchors AND form-control
+                    // cell BINDINGS. Copied verbatim, so it is a hazard iff the edit MOVES an
+                    // anchor (note/control displaced) OR moves a cell a binding names (control
+                    // re-bound to the wrong cell). The binding check uses the EDITED sheet as host
+                    // so a LOCAL unqualified `$A$8` counts — otherwise walking back the presence-
+                    // refuse would open a silent-wrong hole. An unaffected comment-only VML commits.
+                    if ty.ends_with("/vmlDrawing") {
+                        let affected = attr_by_local(&e, b"Target")
+                            .map(|t| crate::ooxml::resolve_target(dir, &t))
+                            .and_then(|p| crate::ooxml::read_part(input, &p).ok())
+                            .map(|x| {
+                                vml_anchor_affected(&x, edit)
+                                    || vml_binding_affected_on_host(&x, edit, &edit.sheet)
+                            })
+                            .unwrap_or(true); // unresolved/unreadable -> fail closed
+                        if affected {
+                            return Some("vmlDrawing".into());
+                        }
+                        continue;
+                    }
+                    // Any other attachment (OLE/ActiveX controls, …) is presence-refused —
                     // its coordinate parsing differs and is left fail-closed.
                     return Some(ty.rsplit('/').next().unwrap_or(&ty).to_string());
                 }
@@ -2284,6 +2319,101 @@ fn scan_extra_residuals(
             }
         }
     }
+    // LEGACY VML FORM CONTROL bindings (`xl/drawings/*.vml`): a form control's cell binding lives
+    // in ELEMENT TEXT (`<x:FmlaLink>Sheet1!$A$8</x:FmlaLink>`, `<x:FmlaRange>`/`<x:FmlaTxbx>`/
+    // `<x:FmlaGroup>`), not an attribute, and .vml is not a worksheet — so both the worksheet
+    // cross-ref scans and the ctrlProps (attribute) scan skip it. A foreign-sheet control bound to
+    // the edited sheet would be committed STALE (the control re-binds to the wrong, now-shifted
+    // cell), and because certify DOES compare VML FmlaLink it would then invert (refuse the
+    // faithful edit, certify xlq's stale one). Refuse — fail-closed, symmetric with ctrlProps.
+    for n in names
+        .iter()
+        .filter(|n| n.to_ascii_lowercase().ends_with(".vml"))
+    {
+        if let Ok(bytes) = crate::ooxml::read_part(input, n) {
+            if vml_binding_crosses_edited(&bytes, edit) {
+                report.residuals.push(Residual {
+                    part: n.clone(),
+                    reason: "cross_sheet_reference_unsupported".into(),
+                    detail: "a legacy VML form control has a cell binding (FmlaLink/FmlaRange/…) \
+                             qualified to the edited sheet that is not shifted — edit refused \
+                             (fail-closed)"
+                        .into(),
+                });
+            }
+        }
+    }
+}
+
+/// True if any legacy VML form-control cell binding (`<x:FmlaLink>`/`<x:FmlaRange>`/`<x:FmlaTxbx>`/
+/// `<x:FmlaGroup>` element TEXT) names a cell this edit MOVES, evaluated with `host` scoping
+/// UNqualified refs. Pass the phantom host (`\0`) for a FOREIGN sheet's VML (only a ref explicitly
+/// qualified to the edited sheet counts); pass the EDITED sheet name for the edited sheet's own VML
+/// (so a local, unqualified `$A$8` counts too). (`FmlaMacro` is a macro NAME, not a cell ref.)
+fn vml_binding_affected_on_host(xml: &[u8], edit: &StructuralEdit, host: &str) -> bool {
+    element_text_semantics(xml, &[b"FmlaLink", b"FmlaRange", b"FmlaTxbx", b"FmlaGroup"])
+        .iter()
+        .any(|t| {
+            let (shifted, _n) = refshift::shift_formula(t, host, edit);
+            shifted != *t
+        })
+}
+
+/// Foreign-sheet variant: a VML binding CROSSES to the edited sheet (phantom host, so only an
+/// explicitly-qualified `Sheet1!…` ref counts — an unqualified binding is local to the control's
+/// own foreign sheet and unaffected by an edit elsewhere).
+fn vml_binding_crosses_edited(xml: &[u8], edit: &StructuralEdit) -> bool {
+    vml_binding_affected_on_host(xml, edit, "\u{0}")
+}
+
+/// True if this edit MOVES the anchor cell of any legacy VML shape (a comment note box or a form
+/// control): `<x:Row>`/`<x:Column>` (0-based single cell) or the 8-number `<x:Anchor>` (indices
+/// 2,6 = top/bottom row; 0,4 = left/right col). The VML is copied verbatim, so a moved anchor
+/// leaves the note/control displaced onto the wrong cell.
+fn vml_anchor_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
+    let row_axis = edit.axis == Axis::Row;
+    let single: &[u8] = if row_axis { b"Row" } else { b"Column" };
+    let moved = |idx0: u32| {
+        let one_based = idx0 + 1;
+        shift_line(one_based, edit) != Some(one_based)
+    };
+    for t in element_text_semantics(xml, &[single]) {
+        if let Ok(i0) = t.trim().parse::<u32>() {
+            if moved(i0) {
+                return true;
+            }
+        }
+    }
+    for t in element_text_semantics(xml, &[b"Anchor"]) {
+        let nums: Vec<u32> = t
+            .split(',')
+            .filter_map(|s| s.trim().parse::<u32>().ok())
+            .collect();
+        let idxs: &[usize] = if row_axis { &[2, 6] } else { &[0, 4] };
+        if idxs.iter().any(|&i| nums.get(i).is_some_and(|&v| moved(v))) {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if this edit MOVES the anchor cell of any legacy note (`<comment ref>`) or threaded
+/// comment (`<threadedComment ref>`), which a verbatim copy would leave anchored to the wrong cell.
+fn comment_refs_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
+    for (_, attrs) in element_attr_semantics(xml, &[b"comment", b"threadedComment"]) {
+        if let Some(r) = attrs
+            .split_whitespace()
+            .find_map(|kv| kv.strip_prefix("ref="))
+        {
+            if let Some((col, row)) = parse_cell_rc(r) {
+                let line = if edit.axis == Axis::Row { row } else { col };
+                if shift_line(line, edit) != Some(line) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// True if any shiftable formula body (`<f>`, `<formula*>`, or `<definedName>`) in
@@ -4248,6 +4378,38 @@ mod tests {
             &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)
         )
         .is_none());
+    }
+
+    #[test]
+    fn comment_and_vml_attachments_are_affect_based() {
+        // REGRESSION (round-33): comments/notes and legacy VML shapes were PRESENCE-refused,
+        // rejecting almost every real annotated workbook. They are now AFFECT-based, exactly like
+        // drawing anchors — refuse only when the edit MOVES the anchored cell or a bound cell.
+        let ins1 = edit("Sheet1", Axis::Row, Op::Insert, 1, 1);
+        let ins100 = edit("Sheet1", Axis::Row, Op::Insert, 100, 1);
+        let ins5 = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
+
+        // A note anchored at A2 MOVES under an insert at row 1, but not one far below at row 100.
+        let cmts = br#"<comments><commentList><comment ref="A2"><text><t>x</t></text></comment></commentList></comments>"#;
+        assert!(comment_refs_affected(cmts, &ins1));
+        assert!(!comment_refs_affected(cmts, &ins100));
+
+        // A VML note anchor <x:Row>1</x:Row> (0-based -> row 2) moves under insert@1, not @100.
+        let vml_note = br#"<xml xmlns:x="u"><x:ClientData ObjectType="Note"><x:Row>1</x:Row><x:Column>0</x:Column></x:ClientData></xml>"#;
+        assert!(vml_anchor_affected(vml_note, &ins1));
+        assert!(!vml_anchor_affected(vml_note, &ins100));
+
+        // A LOCAL unqualified control binding ($A$8, edited-sheet host) moves under insert@5 —
+        // this is why the edited-sheet VML must be checked with the edited sheet as host (the
+        // phantom-host foreign scan would miss it, opening a silent-wrong hole).
+        let vml_bind = br#"<xml xmlns:x="u"><x:ClientData ObjectType="Checkbox"><x:FmlaLink>$A$8</x:FmlaLink></x:ClientData></xml>"#;
+        assert!(vml_binding_affected_on_host(vml_bind, &ins5, "Sheet1"));
+        assert!(!vml_binding_crosses_edited(vml_bind, &ins5)); // phantom host: local ref not "crossing"
+
+        // The FOREIGN-sheet scan flags a binding explicitly qualified to the edited sheet.
+        let vml_x = br#"<xml xmlns:x="u"><x:ClientData ObjectType="Checkbox"><x:FmlaLink>Sheet1!$A$8</x:FmlaLink></x:ClientData></xml>"#;
+        assert!(vml_binding_crosses_edited(vml_x, &ins5));
+        assert!(!vml_binding_crosses_edited(vml_note, &ins5)); // no binding element -> not flagged
     }
 
     #[test]
