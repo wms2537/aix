@@ -82,6 +82,11 @@ name = "oracle-compare"
 path = "src/bin/oracle_compare.rs"
 required-features = ["devtools"]
 
+[[bin]]
+name = "corpus-gen"
+path = "src/bin/corpus_gen.rs"
+required-features = ["devtools"]
+
 [profile.release]
 lto = true
 strip = true
