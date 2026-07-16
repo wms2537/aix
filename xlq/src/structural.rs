@@ -1824,6 +1824,11 @@ pub(crate) fn control_binding_attrs(xml: &[u8]) -> Vec<String> {
                     b"fmlaRange".as_slice(),
                     b"sourceRef".as_slice(),
                     b"link".as_slice(),
+                    // Option-button-GROUP cell link and edit-box (textbox) cell link — genuine
+                    // CT_FormControlPr cell references (the modern mirror of VML FmlaGroup/FmlaTxbx,
+                    // compared below). A foreign RE-POINT of either writes/reads a different cell.
+                    b"fmlaGroup".as_slice(),
+                    b"fmlaTxbx".as_slice(),
                 ] {
                     if let Some(v) = attr_by_local(&e, key) {
                         out.push(format!("{}={}", String::from_utf8_lossy(key), v));
@@ -1882,6 +1887,9 @@ fn foreign_sheet_ref_attr_crosses(xml: &[u8], edit: &StructuralEdit) -> bool {
                     b"fmlaRange".as_slice(),
                     b"sourceRef".as_slice(),
                     b"link".as_slice(),
+                    // Option-button-group / edit-box cell links (mirror of VML FmlaGroup/FmlaTxbx).
+                    b"fmlaGroup".as_slice(),
+                    b"fmlaTxbx".as_slice(),
                 ] {
                     if let Some(v) = attr_by_local(&e, key) {
                         // ref/sqref may be space-separated; test each token via the oracle.
@@ -5075,6 +5083,27 @@ mod tests {
         assert!(foreign_sheet_ref_attr_crosses(qualified, &e));
         let unqualified = br#"<worksheet><sheetData/><controls><control><controlPr linkedCell="$A$5"/></control></controls></worksheet>"#;
         assert!(!foreign_sheet_ref_attr_crosses(unqualified, &e));
+        // REGRESSION (round-37): the option-button-GROUP link (fmlaGroup) and edit-box link
+        // (fmlaTxbx) — modern CT_FormControlPr cell references — must ALSO cross (they were
+        // omitted, so restructure committed a stale group/textbox binding).
+        assert!(foreign_sheet_ref_attr_crosses(
+            br#"<formControlPr fmlaGroup="Sheet1!$A$5"/>"#,
+            &e
+        ));
+        assert!(foreign_sheet_ref_attr_crosses(
+            br#"<formControlPr fmlaTxbx="Sheet1!$A$5"/>"#,
+            &e
+        ));
+        // And control_binding_attrs (certify's compare surface) captures them, so a re-point is
+        // caught rather than false-certified.
+        let g1 = control_binding_attrs(br#"<formControlPr fmlaGroup="Sheet2!$B$1"/>"#);
+        let g2 = control_binding_attrs(br#"<formControlPr fmlaGroup="Sheet2!$Z$9"/>"#);
+        assert!(
+            !g1.is_empty() && g1 != g2,
+            "fmlaGroup re-point must change the binding key"
+        );
+        let t1 = control_binding_attrs(br#"<formControlPr fmlaTxbx="Sheet2!$B$1"/>"#);
+        assert!(!t1.is_empty(), "fmlaTxbx must be captured");
     }
 
     #[test]

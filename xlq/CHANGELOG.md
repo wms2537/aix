@@ -449,6 +449,14 @@ is refused, not committed.
   binding qualified to the edited sheet that the edit would move and fails closed, exactly like
   the inline `<controlPr>` case — so restructure never commits a stale binding and certify never
   inverts.
+- **Form-control `fmlaGroup` / `fmlaTxbx` bindings are now covered (false-certify + silent-wrong
+  fix).** A `<formControlPr>`'s option-button-GROUP cell link (`fmlaGroup`) and edit-box cell link
+  (`fmlaTxbx`) are genuine cell references — the modern mirror of the VML `<x:FmlaGroup>`/
+  `<x:FmlaTxbx>` that were already compared — but both were omitted from the two attribute sets, so
+  `certify` did not compare them (a foreign RE-POINT of an option-group's linked cell was CERTIFIED)
+  and restructure did not refuse one qualified to the edited sheet (the control was committed
+  silently re-bound to the wrong, now-moved cell). Both are now included, so a re-point is refused
+  and an edited-sheet-crossing binding fails closed, matching the `fmlaLink` sibling.
 - **`certify` catches a WITHIN-cell relocation of the implicit-intersection `@` operator.** The
   engine-normalized-token signature counted `@` per cell rather than recording positions, so
   moving `@` between operands in one cell (`@A1:A3-A1:A3` → `A1:A3-@A1:A3` — same count, a
