@@ -94,7 +94,10 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
     for i in 0..archive.len() {
         let file = archive.by_index(i).map_err(|e| anyhow!("zip entry: {e}"))?;
         let name = file.name().to_string();
-        if name == "xl/calcChain.xml" {
+        // Drop rebuildable dependency caches whose cell coordinates would otherwise go stale;
+        // Excel rebuilds both on open. (volatileDependencies is the volatile/RTD analog of
+        // calcChain — value-inert, so dropping never changes a computed result.)
+        if name == "xl/calcChain.xml" || name == "xl/volatileDependencies.xml" {
             continue;
         }
         if file.is_dir() {
@@ -4568,6 +4571,50 @@ mod tests {
         }
         // calcChain is dropped (rebuildable), never present in output
         assert!(!after.contains_key("xl/calcChain.xml"), "calcChain dropped");
+    }
+
+    #[test]
+    fn volatile_dependencies_is_dropped_like_calcchain() {
+        // The volatile/RTD dependency cache carries <tr r> cell coords that would go stale after a
+        // shift; restructure drops it (as it does calcChain) so no stale coordinate is committed —
+        // Excel rebuilds it on open. (certify allowlists it for a foreign edit that keeps it.)
+        let input = std::fs::read(format!("{FIX}refs.xlsx")).unwrap();
+        let with_vd = inject_part(
+            &input,
+            "xl/volatileDependencies.xml",
+            br#"<volTypes xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><volType type="volatile"><main first="1"><tp t="n"><tr r="A1" s="0"/></tp></main></volType></volTypes>"#,
+        );
+        assert!(
+            zip_parts(&with_vd).contains_key("xl/volatileDependencies.xml"),
+            "fixture must contain the part"
+        );
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
+        let (out, _r) = structural_edit(&with_vd, &e).unwrap();
+        assert!(
+            !zip_parts(&out).contains_key("xl/volatileDependencies.xml"),
+            "volatileDependencies must be dropped"
+        );
+    }
+
+    fn inject_part(bytes: &[u8], name: &str, content: &[u8]) -> Vec<u8> {
+        let mut zin = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut out = Vec::new();
+        {
+            let mut zw = zip::ZipWriter::new(Cursor::new(&mut out));
+            let opts = zip::write::SimpleFileOptions::default();
+            for i in 0..zin.len() {
+                let mut f = zin.by_index(i).unwrap();
+                let n = f.name().to_string();
+                let mut data = Vec::new();
+                f.read_to_end(&mut data).unwrap();
+                zw.start_file(n, opts).unwrap();
+                std::io::Write::write_all(&mut zw, &data).unwrap();
+            }
+            zw.start_file(name, opts).unwrap();
+            std::io::Write::write_all(&mut zw, content).unwrap();
+            zw.finish().unwrap();
+        }
+        out
     }
 
     fn read_zip_part(bytes: &[u8], name: &str) -> String {

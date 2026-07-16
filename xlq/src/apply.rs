@@ -579,7 +579,8 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
 
     // ENFORCE the fidelity property (not merely report it). The ONLY parts
     // allowed to differ from the input are (a) sheet parts that received an
-    // edit and (b) xl/calcChain.xml (deliberately dropped). If any OTHER part
+    // edit and (b) the deliberately-dropped rebuildable caches xl/calcChain.xml
+    // and xl/volatileDependencies.xml. If any OTHER part
     // changed, was dropped, or was added, the surgical write did not preserve
     // fidelity — abort the commit (original untouched). This makes the fidelity
     // property a per-apply CHECK, not just a by-construction argument.
@@ -600,7 +601,9 @@ pub fn run(file: &str, patch_path: &str, dry_run: bool, actor: Option<&str>) -> 
         if before == after {
             continue;
         }
-        let allowed = edited_sheet_parts.contains(name) || name == "xl/calcChain.xml";
+        let allowed = edited_sheet_parts.contains(name)
+            || name == "xl/calcChain.xml"
+            || name == "xl/volatileDependencies.xml";
         if !allowed {
             let kind = match (before.is_some(), after.is_some()) {
                 (true, false) => "dropped",

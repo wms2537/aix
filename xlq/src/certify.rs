@@ -180,16 +180,18 @@ pub fn run(
             volatile_recomputed_on_load,
         )
     };
-    // A `format` (number-format) difference is normally benign — display only. But under
-    // "precision as displayed" (`<calcPr fullPrecision="0">`) Excel computes formulas on the
-    // ROUNDED displayed values, so a cell's number format becomes a VALUE input: changing
-    // `A1`'s format from "0.00" to "0" rounds 1.44→1 and recomputes `=A1*10` as 10 instead of
-    // 14.4. When precision-as-displayed is on, format diffs are therefore disqualifying.
-    let format_disqualifying = if precision_as_displayed(&edited_bytes) {
-        counts.format
-    } else {
-        0
-    };
+    // A `format` (number-format) difference is normally benign — display only. But it becomes a
+    // VALUE input in two cases: (1) under "precision as displayed" (`<calcPr fullPrecision="0">`)
+    // Excel computes formulas on the ROUNDED displayed values, so changing `A1`'s format from
+    // "0.00" to "0" rounds 1.44→1 and recomputes `=A1*10` as 10 instead of 14.4; (2) a
+    // `CELL("format"/"color"/"parentheses", A1)` formula reads `A1`'s number format directly, so
+    // restyling `A1` changes that formula's result. In either case format diffs are disqualifying.
+    let format_disqualifying =
+        if precision_as_displayed(&edited_bytes) || has_format_sensitive_cell_fn(&edited_bytes) {
+            counts.format
+        } else {
+            0
+        };
     let disqualifying = counts.formula
         + counts.value
         + counts.added
@@ -420,8 +422,8 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
     // (diff::snapshot), defined names, and the mergeCell/hyperlink/autoFilter refs above.
     // Any OTHER part can carry a cell reference that comparison never sees — charts,
     // drawings, tables, pivots, external links, comments, form controls, but also the
-    // long tail (volatileDependencies, queryTables, metadata/richData, slicerCaches,
-    // timelineCaches, connections, customXml, …). Rather than enumerate that open-ended
+    // long tail (queryTables, metadata/richData, slicerCaches, timelineCaches,
+    // connections, customXml, volatileDependencies, …). Rather than enumerate that open-ended
     // DENYLIST (its incompleteness was a real false-certification), we enumerate the
     // KNOWN-SAFE set — parts certify compares, or that carry no shiftable coordinate — and
     // refuse everything else. A foreign tool that mangles or drops a reference-bearing part
@@ -469,6 +471,10 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
         || low == "xl/sharedstrings.xml"             // string pool (compared via cells)
         || low == "xl/styles.xml"                    // number formats (format diffs are benign)
         || low == "xl/calcchain.xml"                 // rebuildable calc order, no semantic ref
+        || low == "xl/volatiledependencies.xml"      // rebuildable volatile/RTD dep cache (the
+                                                     // volatile analog of calcChain); restructure
+                                                     // DROPS it, but a foreign edit may keep it —
+                                                     // value-inert, no verifiable coordinate
         || low == "xl/metadata.xml"                  // dynamic-array/rich-value metadata: index-
                                                      // linked to cells (cm/vm), no shiftable coord
         || low.starts_with("xl/richdata/")           // rich values (=IMAGE(), Stocks/Geography):
@@ -1209,6 +1215,113 @@ fn precision_as_displayed(bytes: &[u8]) -> bool {
     )
 }
 
+/// True when any worksheet formula calls `CELL()` with a NUMBER-FORMAT-sensitive info type,
+/// making a "format-only" foreign edit value-affecting. `CELL("format"/"color"/"parentheses",
+/// A1)` returns a value DERIVED from `A1`'s number format, so restyling `A1` (numFmtId
+/// `0`→`2`) changes the formula's Excel result — a difference `diff::classify_kind` labels
+/// `format` and certify would otherwise treat as benign. A `CELL()` call whose first argument
+/// is NOT a string literal has an info type certify cannot resolve, so it is treated
+/// conservatively as sensitive. Info types that do not depend on the number format
+/// (`contents`, `type`, `row`, `col`, `address`, …) do not trip this.
+fn has_format_sensitive_cell_fn(bytes: &[u8]) -> bool {
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return false;
+    };
+    sheets.into_iter().any(|(_name, part)| {
+        crate::ooxml::read_part(bytes, &part).is_ok_and(|xml| {
+            structural::element_text_semantics(&xml, &[b"f"])
+                .iter()
+                .any(|f| formula_calls_sensitive_cell(f))
+        })
+    })
+}
+
+/// The number-format-sensitive `CELL()` info types: a change to a cell's number format alters
+/// each. (`prefix`/`protect`/`width` depend on alignment/protection/column width — style, not
+/// number format — and so do not affect a `format`-classified diff.)
+const CELL_FORMAT_SENSITIVE: [&str; 3] = ["format", "color", "parentheses"];
+
+/// Scan one formula for a `CELL(<info>, …)` call whose `<info>` is a number-format-sensitive
+/// literal, or is not a string literal at all (info type unresolvable -> conservative). String
+/// literals and single-quoted sheet qualifiers are skipped so `="CELL(...)"` text and a sheet
+/// named `CELL` do not false-trip.
+fn formula_calls_sensitive_cell(f: &str) -> bool {
+    let b = f.as_bytes();
+    let n = b.len();
+    let mut i = 0;
+    while i < n {
+        match b[i] {
+            b'"' => {
+                i += 1;
+                while i < n {
+                    if b[i] == b'"' {
+                        if i + 1 < n && b[i + 1] == b'"' {
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            b'\'' => {
+                i += 1;
+                while i < n {
+                    if b[i] == b'\'' {
+                        if i + 1 < n && b[i + 1] == b'\'' {
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            c if c.is_ascii_alphabetic() || c == b'_' => {
+                let start = i;
+                while i < n && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'.') {
+                    i += 1;
+                }
+                // Function name is the identifier's tail after any `_xlfn.` prefix.
+                let name = f[start..i].rsplit('.').next().unwrap_or("");
+                if name.eq_ignore_ascii_case("CELL") {
+                    let mut j = i;
+                    while j < n && b[j].is_ascii_whitespace() {
+                        j += 1;
+                    }
+                    if j < n && b[j] == b'(' {
+                        j += 1;
+                        while j < n && b[j].is_ascii_whitespace() {
+                            j += 1;
+                        }
+                        if j < n && b[j] == b'"' {
+                            let s = j + 1;
+                            let mut k = s;
+                            while k < n && b[k] != b'"' {
+                                k += 1;
+                            }
+                            if CELL_FORMAT_SENSITIVE
+                                .iter()
+                                .any(|t| f[s..k].eq_ignore_ascii_case(t))
+                            {
+                                return true;
+                            }
+                            // A format-INSENSITIVE literal: this call is safe, keep scanning.
+                        } else {
+                            // Non-literal info type -> cannot resolve -> conservative.
+                            return true;
+                        }
+                    }
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    false
+}
+
 /// The first start-tag in `text` whose element LOCAL name is `local`, namespace-prefix
 /// agnostic — both `<calcPr …>` and `<x:calcPr …>` match — returned from its `<` up to (not
 /// including) the closing `>`. A raw `text.find("<calcPr")` missed a prefixed `<x:calcPr>`,
@@ -1458,8 +1571,35 @@ fn caches_equal(a: &str, b: &str) -> bool {
         && (va == vb
             || matches!(
                 (va.parse::<f64>(), vb.parse::<f64>()),
-                (Ok(x), Ok(y)) if x == y
+                (Ok(x), Ok(y)) if nums_equal_at_excel_precision(x, y)
             ))
+}
+
+/// True when two numbers denote the SAME value at Excel's storage precision (15 significant
+/// figures). The engine (ironcalc) returns a raw f64 — `100*1.1` is `110.00000000000001` — while
+/// Excel/LibreOffice store the correctly-rounded 15-sig-fig value `110`. Comparing the oracle
+/// against a preserved cache with EXACT f64 equality therefore spuriously refused a faithful
+/// edit of essentially any workbook doing fractional arithmetic (the caches carry IEEE-754
+/// rounding noise the engine reproduces but the editor rounded away). Rounding BOTH sides to 15
+/// significant figures is exactly Excel's own equality, so a value that genuinely differs (beyond
+/// float noise) still differs — a fabricated cache is not vouched.
+fn nums_equal_at_excel_precision(x: f64, y: f64) -> bool {
+    if x == y {
+        return true;
+    }
+    if !x.is_finite() || !y.is_finite() {
+        return false;
+    }
+    // Canonical 15-significant-figure form (14 fractional digits in scientific notation);
+    // 0.0 and -0.0 collapse to one key.
+    let round15 = |v: f64| {
+        if v == 0.0 {
+            "0e0".to_string()
+        } else {
+            format!("{v:.14e}")
+        }
+    };
+    round15(x) == round15(y)
 }
 
 /// Parse a quoted attribute value beginning at `name_end` — the byte index just past an
@@ -1801,6 +1941,31 @@ mod tests {
         assert!(!caches_equal("n:55", "str:55"));
         // a string value containing a colon splits only on the FIRST colon.
         assert!(caches_equal("str:9:30", "str:9:30"));
+        // REGRESSION (round-41): the engine's raw f64 (100*1.1 = 110.00000000000001) must be
+        // vouched against the editor-rounded stored cache (110) — same value at Excel's 15-sig-fig
+        // precision. Exact f64 equality spuriously refused every fractional-arithmetic workbook.
+        assert!(caches_equal("n:110.00000000000001", "n:110"));
+        assert!(caches_equal("n:0.30000000000000004", "n:0.3")); // 0.1+0.2
+                                                                 // A genuinely different value (beyond float noise) still differs — no false-certify.
+        assert!(!caches_equal("n:110.01", "n:110"));
+        assert!(!caches_equal("n:110.0001", "n:110"));
+        // Signed zero collapses; sign of a real value is kept.
+        assert!(caches_equal("n:-0", "n:0"));
+        assert!(!caches_equal("n:-5", "n:5"));
+    }
+
+    #[test]
+    fn excel_precision_equality_is_sound() {
+        // Equal at/below 15 sig figs -> vouched.
+        assert!(nums_equal_at_excel_precision(110.00000000000001, 110.0));
+        assert!(nums_equal_at_excel_precision(1.0 / 3.0, 0.333333333333333));
+        assert!(nums_equal_at_excel_precision(0.0, -0.0));
+        // A difference in the 15th significant figure or above -> NOT vouched.
+        assert!(!nums_equal_at_excel_precision(1.0, 1.0000000000001));
+        assert!(!nums_equal_at_excel_precision(1e300, 1.0001e300));
+        // Non-finite never silently equal.
+        assert!(!nums_equal_at_excel_precision(f64::NAN, f64::NAN));
+        assert!(!nums_equal_at_excel_precision(f64::INFINITY, 1e308));
     }
 
     #[test]
@@ -2235,6 +2400,34 @@ mod tests {
     }
 
     #[test]
+    fn cell_info_function_sensitivity_scan() {
+        // Number-format-sensitive info types -> a format change is value-affecting.
+        assert!(formula_calls_sensitive_cell(r#"CELL("format",A1)"#));
+        assert!(formula_calls_sensitive_cell(r#"CELL("color",A1)"#));
+        assert!(formula_calls_sensitive_cell(
+            r#"IF(CELL("parentheses",B2)=1,"y","n")"#
+        ));
+        // Case- and _xlfn.-insensitive.
+        assert!(formula_calls_sensitive_cell(r#"cell("FORMAT",A1)"#));
+        assert!(formula_calls_sensitive_cell(r#"_xlfn.CELL("format",A1)"#));
+        // A NON-literal info type is unresolvable -> conservative true.
+        assert!(formula_calls_sensitive_cell("CELL(D1,A1)"));
+        // Format-INSENSITIVE info types -> not sensitive.
+        assert!(!formula_calls_sensitive_cell(r#"CELL("contents",A1)"#));
+        assert!(!formula_calls_sensitive_cell(
+            r#"CELL("row",A1)+CELL("col",A1)"#
+        ));
+        // A STRING LITERAL that merely contains "CELL(" is not a call.
+        assert!(!formula_calls_sensitive_cell(
+            r#"CONCAT("CELL(""format"",A1)","x")"#
+        ));
+        // A sheet named CELL is not the function.
+        assert!(!formula_calls_sensitive_cell("'CELL'!A1+1"));
+        // No CELL at all.
+        assert!(!formula_calls_sensitive_cell("SUM(A1:A10)*1.1"));
+    }
+
+    #[test]
     fn custom_xml_part_is_certify_safe() {
         // An inert custom-XML data island carries no worksheet coordinate; certify must not
         // refuse xlq's own transform of a workbook containing one.
@@ -2260,7 +2453,20 @@ mod tests {
             assert!(part_is_certify_safe(p, &empty), "{p} must be allowlisted");
         }
         // But a genuinely unknown reference-bearing part still fails closed.
-        assert!(!part_is_certify_safe("xl/volatileDependencies.xml", &empty));
+        assert!(!part_is_certify_safe(
+            "xl/externalLinks/externalLink1.xml",
+            &empty
+        ));
+    }
+
+    #[test]
+    fn volatile_dependencies_part_is_certify_safe() {
+        // REGRESSION (round-41): xl/volatileDependencies.xml is the volatile/RTD analog of
+        // calcChain — a rebuildable cache restructure now DROPS. certify must not refuse its own
+        // faithful transform of a workbook whose foreign editor kept the part.
+        let empty = BTreeSet::new();
+        assert!(part_is_certify_safe("xl/volatileDependencies.xml", &empty));
+        assert!(part_is_certify_safe("xl/calcChain.xml", &empty));
     }
 
     #[test]

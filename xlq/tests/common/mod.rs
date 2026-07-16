@@ -506,13 +506,15 @@ pub mod mangle {
         bytes.to_vec()
     }
 
-    /// Add an UNKNOWN reference-bearing part (a `volatileDependencies` part — outside certify's
-    /// verified/known-safe allowlist) — certify must fail closed on any such part.
+    /// Add an UNKNOWN reference-bearing part (an `externalLinks` part — it carries live cell
+    /// coordinates and is outside certify's verified/known-safe allowlist) — certify must fail
+    /// closed on any such part. (volatileDependencies is no longer usable here: it is a
+    /// rebuildable cache restructure now drops and certify allowlists.)
     pub fn inject_unknown_part(bytes: &[u8]) -> Vec<u8> {
         add_part(
             bytes,
-            "xl/volatileDependencies.xml",
-            br#"<volatileDependencies xmlns="urn:x"><volType type="volatile"><main first="0"><tp t="err"><spb i="0" c="1"><tr r="A1" s="0"/></spb></tp></main></volType></volatileDependencies>"#,
+            "xl/externalLinks/externalLink1.xml",
+            br#"<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><externalBook><sheetDataSet><sheetData sheetId="0"><row r="1"><cell r="A1"><v>1</v></cell></row></sheetData></sheetDataSet></externalBook></externalLink>"#,
         )
     }
 

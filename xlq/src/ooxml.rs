@@ -96,9 +96,10 @@ pub fn surgical_write(input: &[u8], edits: &[CellEdit]) -> Result<Vec<u8>> {
             .map_err(|e| anyhow!("read zip entry: {e}"))?;
         let name = file.name().to_string();
 
-        // Drop the calc chain: keeping a stale one is the only cross-part
-        // hazard; Excel rebuilds it on open.
-        if name == "xl/calcChain.xml" {
+        // Drop rebuildable dependency caches: keeping a stale one is the only
+        // cross-part hazard; Excel rebuilds both on open. volatileDependencies is
+        // the volatile/RTD analog of calcChain (value-inert, cell coords would go stale).
+        if name == "xl/calcChain.xml" || name == "xl/volatileDependencies.xml" {
             continue;
         }
 

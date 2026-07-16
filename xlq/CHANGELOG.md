@@ -688,6 +688,26 @@ is refused, not committed.
   **move-rows** edit, which refuses on any nonzero error count as a straddle, that spuriously blocked
   the operation on a whole class of real files. These sites now subtract the pre-shift `#REF!` count
   (matching the edited-sheet path), so only a reference *this* edit breaks is counted.
+- **`certify` vouches a preserved formula cache at Excel's 15-significant-figure precision, not exact
+  f64 (over-refusal fix).** The evaluation oracle rendered ironcalc's raw `f64` (`100*1.1` →
+  `110.00000000000001`) and compared it against a preserved cache with EXACT float equality, so a real
+  editor's correctly-rounded stored value (`110`) was not vouched — refusing a faithful edit of
+  essentially any workbook doing fractional arithmetic and saved without `fullCalcOnLoad` (the normal
+  state of an Excel/LibreOffice file). Numeric cache comparison now rounds both sides to 15 significant
+  figures, which is exactly Excel's own equality: a value that genuinely differs beyond float noise
+  still differs, so a fabricated cache is not vouched.
+- **`certify` treats a number-format change as value-affecting when a `CELL()` info-function reads it
+  (false-certify fix).** `=CELL("format"/"color"/"parentheses", A1)` returns a value derived from
+  `A1`'s number format, so a foreign edit restyling `A1` (numFmtId `0`→`2`) changes the formula's Excel
+  result — but certify classified that as a benign `format`-only diff and CERTIFIED. When any worksheet
+  formula calls a number-format-sensitive `CELL()` (or `CELL()` with a non-literal, unresolvable info
+  type), format diffs are now disqualifying (the same treatment as precision-as-displayed); a workbook
+  with no such formula still tolerates a cosmetic format change.
+- **`xl/volatileDependencies.xml` is handled like `xl/calcChain.xml` (over-refusal fix).** This
+  rebuildable volatile/RTD dependency cache carries `<tr r>` cell coordinates that would go stale after
+  a shift; `restructure` now DROPS it (as it already drops calcChain — Excel rebuilds both on open),
+  and `certify` allowlists it (a foreign edit may keep it; it is value-inert with no verifiable
+  coordinate). Previously certify refused its own faithful transform of any workbook carrying the part.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
