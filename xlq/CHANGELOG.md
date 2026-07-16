@@ -611,12 +611,36 @@ is refused, not committed.
   (`A1` reformatted `0.00`→`0` rounds `1.44`→`1`, and `=A1*10` recomputes `10` instead of
   `14.4`). Under that mode, format diffs are now disqualifying; with full precision they remain
   benign (no over-refusal).
+- **`certify` ignores the display-only `hiddenButton`/`showButton` on an AutoFilter
+  `<filterColumn>` (over-refusal fix).** Those attributes govern only the filter dropdown BUTTON's
+  visibility — pure display, no effect on which rows the filter hides — but openpyxl writes them
+  explicitly at their defaults, so comparing them refused a value-identical edit. They are dropped
+  from the criteria comparison; the value-affecting `colId` and predicate elements remain compared.
+- **`certify` allowlists slicer / timeline parts (over-refusal fix).** `xl/slicerCaches/*`,
+  `xl/slicers/*`, `xl/timelineCaches/*`, and `xl/timelines/*` bind to a pivot/table by name/ID and
+  carry no shiftable A1 coordinate (like the already-allowlisted pivot parts), so restructure
+  copies them verbatim — but they were outside certify's fail-closed allowlist, so certify refused
+  its own faithful transform of any slicer/timeline dashboard. They are now allowlisted; their
+  filter effect surfaces in the pivot's cached output cells, which the cell diff already compares.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
 completeness over non-cell references is asserted, not proven — the honesty caveat the
 accompanying paper states in its scope section. The whole-part boundary, however, is now
 fail-closed.
+
+**Known conservative over-refusal (deliberately not "fixed").** When a workbook contains an
+UNSUPPORTED, policy-limited (`RTD`/`WEBSERVICE`/`CUBEVALUE`), or user-defined function *anywhere*,
+certify's cache-evaluation oracle is disabled workbook-wide, so a faithful edit that preserves an
+otherwise-verifiable cache (e.g. a pure `SUM`) can be spuriously REFUSED. This is fail-closed (it
+never corrupts or false-certifies). A naive fix — vouch a cache whenever the engine's clean value
+matches it — is UNSOUND: an error-masking wrapper (`IFERROR(RTD(),5)`, `ISERROR`, `COUNT`, …)
+makes the engine compute a clean-but-WRONG value (the fallback, not Excel's live value), which a
+fabricated cache could match to launder a value divergence. A sound fix requires transitive taint
+analysis (refuse any cell whose formula, or a cell it transitively references, uses such a
+function). That is deferred rather than risk adding regression-prone complexity to the security-
+critical certify path for a fail-closed edge; live-data workbooks that force full recalc
+(`fullCalcOnLoad`) or drop their caches are unaffected.
 
 ### Robustness
 - A panic in any command becomes a machine-readable JSON error (exit 70) with a

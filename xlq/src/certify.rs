@@ -497,6 +497,11 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
         || low.starts_with("xl/threadedcomments/")   // no value-affecting reference (an anchor on
         || low.starts_with("xl/persons/")            // the EDITED sheet is caught upstream as a
                                                      // bad attachment before certify runs)
+        || low.starts_with("xl/slicercaches/")       // slicer / timeline filter widgets: bind to a
+        || low.starts_with("xl/slicers/")            // pivot/table by NAME/ID and hold selection
+        || low.starts_with("xl/timelinecaches/")     // state — no shiftable A1 coordinate (like
+        || low.starts_with("xl/timelines/")          // the pivot parts). Their filter effect
+                                                     // surfaces in the pivot's cached output cells.
         || low.starts_with("xl/vbaproject") // macro binary — byte-compared for a swap
 }
 
@@ -850,6 +855,23 @@ fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
                     b"iconFilter",
                 ],
             ) {
+                // On a `<filterColumn>`, `hiddenButton` (default false) and `showButton` (default
+                // true) govern ONLY whether the column's filter DROPDOWN BUTTON is shown — pure
+                // display, with no effect on which rows the filter hides. A faithful foreign editor
+                // (openpyxl) writes them explicitly at their defaults, so comparing them spuriously
+                // refused a value-identical edit. Drop them; the value-affecting `colId` and the
+                // predicate child elements remain compared.
+                let attrs = if elem == "filterColumn" {
+                    attrs
+                        .split(' ')
+                        .filter(|t| {
+                            !t.starts_with("hiddenButton=") && !t.starts_with("showButton=")
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                } else {
+                    attrs
+                };
                 out.push((sheet_name.clone(), elem, attrs));
             }
         }
@@ -2037,6 +2059,51 @@ mod tests {
             &[("customXml/item1.xml", "<root><tag>hello</tag></root>")],
         );
         assert!(verify_noncell_refs(&bytes, &bytes).is_none());
+    }
+
+    #[test]
+    fn slicer_timeline_parts_are_certify_safe() {
+        // REGRESSION (round-36): slicer/timeline widgets bind to a pivot/table by name/ID and carry
+        // no shiftable A1 coordinate (like the pivot parts), so certify must not refuse its own
+        // transform of a slicer/timeline dashboard.
+        let empty = BTreeSet::new();
+        for p in [
+            "xl/slicerCaches/slicerCache1.xml",
+            "xl/slicers/slicer1.xml",
+            "xl/timelineCaches/timelineCache1.xml",
+            "xl/timelines/timeline1.xml",
+        ] {
+            assert!(part_is_certify_safe(p, &empty), "{p} must be allowlisted");
+        }
+        // But a genuinely unknown reference-bearing part still fails closed.
+        assert!(!part_is_certify_safe("xl/volatileDependencies.xml", &empty));
+    }
+
+    #[test]
+    fn autofilter_ignores_filtercolumn_display_button_attrs() {
+        // REGRESSION (round-36): hiddenButton/showButton on <filterColumn> govern only the filter
+        // DROPDOWN BUTTON's visibility (pure display), so a foreign editor writing them at their
+        // defaults must NOT change the criteria key. The value-affecting predicate is still compared.
+        let af = |fc: &str| {
+            wb(
+                &format!(r#"<autoFilter ref="A1:C10">{fc}</autoFilter>"#),
+                &[],
+            )
+        };
+        let plain =
+            af(r#"<filterColumn colId="1"><filters><filter val="5"/></filters></filterColumn>"#);
+        let with_display = af(
+            r#"<filterColumn colId="1" hiddenButton="0" showButton="1"><filters><filter val="5"/></filters></filterColumn>"#,
+        );
+        assert_eq!(
+            autofilter_criteria(&plain),
+            autofilter_criteria(&with_display),
+            "filterColumn display-button attrs must not change the criteria"
+        );
+        // A real predicate change (the filter value) still differs.
+        let changed =
+            af(r#"<filterColumn colId="1"><filters><filter val="9"/></filters></filterColumn>"#);
+        assert_ne!(autofilter_criteria(&plain), autofilter_criteria(&changed));
     }
 
     #[test]
