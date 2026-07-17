@@ -165,7 +165,11 @@ pub fn run(
             if precision_as_displayed(&expected_bytes) || precision_as_displayed(&edited_bytes) {
                 None
             } else {
-                build_cache_oracle(&mut expected_model)
+                // date1904 read from EITHER file (they must agree — a flip is caught separately by
+                // sheet_order_and_settings; reading both is belt-and-suspenders).
+                let date1904 =
+                    workbook_is_date1904(&expected_bytes) || workbook_is_date1904(&edited_bytes);
+                build_cache_oracle(&mut expected_model, date1904)
             };
         // A volatile cell's cache is self-healing ONLY when Excel recomputes it on load — i.e.
         // AUTO calc mode (we are already in the branch where fullCalcOnLoad is NOT set on the
@@ -628,7 +632,15 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
         let low = n.to_ascii_lowercase();
         if low.starts_with("xl/charts/") && low.ends_with(".xml") {
             if let Ok(x) = crate::ooxml::read_part(bytes, n) {
-                charts.extend(structural::element_text_semantics(&x, &[b"f"]));
+                // Canonicalize redundant sheet-name quoting: openpyxl/xlq write a chart series ref
+                // QUOTED (`'Data'!$D$3`) while Excel/LibreOffice write it unquoted (`Data!$D$3`) —
+                // semantically identical, so the raw compare spuriously refused a faithful chart
+                // edit. (Same normalization already applied on the defined-name/CF/DV surfaces.)
+                charts.extend(
+                    structural::element_text_semantics(&x, &[b"f"])
+                        .iter()
+                        .map(|s| structural::canonicalize_sheet_quotes(s)),
+                );
             }
         } else if low.starts_with("xl/drawings/") && low.ends_with(".xml") {
             if let Ok(x) = crate::ooxml::read_part(bytes, n) {
@@ -638,7 +650,11 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                 // LIVE cell references the shape mirrors. The transform refuses an edit that
                 // moves one and copies the drawing verbatim otherwise, so a foreign RE-POINT
                 // (mirroring a different cell) must differ. The cell diff never sees them.
-                drawings.extend(structural::element_text_semantics(&x, &[b"f"]));
+                drawings.extend(
+                    structural::element_text_semantics(&x, &[b"f"])
+                        .iter()
+                        .map(|s| structural::canonicalize_sheet_quotes(s)),
+                );
                 for (_, attrs) in structural::element_attr_semantics(
                     &x,
                     &[b"sp", b"cxnSp", b"pic", b"graphicFrame"],
@@ -1458,19 +1474,69 @@ fn cell_value_sig(model: &ironcalc::base::Model, sheet: u32, row: i32, col: i32)
 /// effectively unconstructable, and such a cell's value is a genuine constant anyway. A cell that
 /// survives is provably independent of every unsupported result, so the engine's value for it
 /// equals Excel's and vouching a matching cache is sound.
+/// True when the workbook uses the 1904 date system (`<workbookPr date1904="1">`).
+fn workbook_is_date1904(bytes: &[u8]) -> bool {
+    let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&wb);
+    local_element_tag(&text, "workbookPr")
+        .and_then(|t| attr(&t, "date1904"))
+        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+}
+
+/// Functions whose result depends on the workbook DATE SYSTEM (1900 vs 1904): each maps between a
+/// serial number and a calendar field, so the engine — which hardcodes the 1900 epoch — computes
+/// them off by the 1462-day shift under date1904. In a 1904 workbook a cell using (or depending
+/// on) one of these cannot be vouched by the oracle, so it is treated like an unsupported
+/// function and excluded (fail-closed). `TEXT` is included because a date format string turns it
+/// into a calendar renderer; the difference/decomposition functions (DATEDIF/NETWORKDAYS/…) walk
+/// the calendar of their serial inputs. Uppercase to match `extract_function_names`.
+const DATE_EPOCH_FUNCTIONS: &[&str] = &[
+    "DATE",
+    "DATEVALUE",
+    "YEAR",
+    "MONTH",
+    "DAY",
+    "WEEKDAY",
+    "WEEKNUM",
+    "ISOWEEKNUM",
+    "EDATE",
+    "EOMONTH",
+    "WORKDAY",
+    "WORKDAY.INTL",
+    "NETWORKDAYS",
+    "NETWORKDAYS.INTL",
+    "DAYS",
+    "DAYS360",
+    "YEARFRAC",
+    "DATEDIF",
+    "TEXT",
+    "NOW",
+    "TODAY",
+];
+
 fn build_cache_oracle(
     model: &mut ironcalc::base::Model,
+    date1904: bool,
 ) -> Option<std::collections::HashMap<(String, String), String>> {
     let census = crate::census::function_census(model);
     // Functions whose value the engine cannot faithfully reproduce (external data / not implemented
     // / user code). A cell transitively depending on one of these is not vouchable.
-    let bad: std::collections::HashSet<String> = census
+    let mut bad: std::collections::HashSet<String> = census
         .unsupported
         .iter()
         .cloned()
         .chain(census.policy_limited.keys().cloned())
         .chain(census.user_defined.keys().cloned())
         .collect();
+    // Under the 1904 date system the engine's 1900-epoch date arithmetic is wrong, so any
+    // date-system-dependent function is unvouchable — add it to the bad set (poison-and-diff then
+    // excludes those cells and their dependents; their preserved caches stay unverified -> refused
+    // rather than vouched against a wrong value).
+    if date1904 {
+        bad.extend(DATE_EPOCH_FUNCTIONS.iter().map(|s| s.to_string()));
+    }
     let names: Vec<String> = model
         .get_worksheets_properties()
         .into_iter()
@@ -1822,6 +1888,64 @@ mod tests {
             put(n, b);
         }
         z.finish().unwrap().into_inner()
+    }
+
+    /// A zip holding only `xl/workbook.xml` — enough to exercise workbook-level readers.
+    fn wb_only(workbook_xml: &str) -> Vec<u8> {
+        let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        z.start_file("xl/workbook.xml", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        z.write_all(workbook_xml.as_bytes()).unwrap();
+        z.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn date1904_detection_is_namespace_aware() {
+        // The oracle keys date-function exclusion off this; a prefixed <x:workbookPr> must match.
+        assert!(workbook_is_date1904(&wb_only(
+            r#"<workbook><workbookPr date1904="1"/></workbook>"#
+        )));
+        assert!(workbook_is_date1904(&wb_only(
+            r#"<x:workbook xmlns:x="u"><x:workbookPr date1904="true"/></x:workbook>"#
+        )));
+        assert!(!workbook_is_date1904(&wb_only(
+            r#"<workbook><workbookPr/></workbook>"#
+        )));
+        assert!(!workbook_is_date1904(&wb_only(r#"<workbook/>"#)));
+        // The date-epoch exclusion set covers the calendar decomposition/construction functions.
+        for f in ["YEAR", "DATE", "EOMONTH", "WEEKDAY", "TEXT"] {
+            assert!(
+                DATE_EPOCH_FUNCTIONS.contains(&f),
+                "{f} must be excluded under 1904"
+            );
+        }
+    }
+
+    #[test]
+    fn chart_ref_redundant_quotes_canonicalized() {
+        // REGRESSION (round-42): a chart series ref 'Data'!$D$3 (openpyxl/xlq) vs Data!$D$3
+        // (Excel/LibreOffice) is semantically identical; the chart compare now canonicalizes
+        // redundant quoting so a faithful re-serialization is not refused.
+        let chart = |body: &str| {
+            format!(
+                r#"<c:chartSpace xmlns:c="urn:c"><c:ser><c:val><c:numRef><c:f>{body}</c:f></c:numRef></c:val></c:ser></c:chartSpace>"#
+            )
+        };
+        let (q, u, z) = (
+            chart("'Data'!$D$3:$D$8"),
+            chart("Data!$D$3:$D$8"),
+            chart("Data!$Z$1:$Z$9"),
+        );
+        let quoted = wb("", &[("xl/charts/chart1.xml", &q)]);
+        let unquoted = wb("", &[("xl/charts/chart1.xml", &u)]);
+        assert_eq!(
+            chart_drawing_refs(&quoted),
+            chart_drawing_refs(&unquoted),
+            "redundant quote must not change the chart key"
+        );
+        // A genuinely different range still differs (canonicalization must not over-merge).
+        let diff = wb("", &[("xl/charts/chart1.xml", &z)]);
+        assert_ne!(chart_drawing_refs(&quoted), chart_drawing_refs(&diff));
     }
 
     #[test]
@@ -2187,7 +2311,7 @@ mod tests {
             ),
         )
         .expect("load rtd workbook");
-        let oracle = build_cache_oracle(&mut model).expect("oracle is always Some");
+        let oracle = build_cache_oracle(&mut model, false).expect("oracle is always Some");
         let key = |c: &str| ("Sheet1".to_string(), c.to_string());
         // The PURE SUM cell is provably independent of RTD -> vouchable (the over-refusal fix).
         assert!(

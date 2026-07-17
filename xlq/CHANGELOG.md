@@ -708,6 +708,29 @@ is refused, not committed.
   a shift; `restructure` now DROPS it (as it already drops calcChain — Excel rebuilds both on open),
   and `certify` allowlists it (a foreign edit may keep it; it is value-inert with no verifiable
   coordinate). Previously certify refused its own faithful transform of any workbook carrying the part.
+- **`certify` excludes date-function caches from the evaluation oracle in a 1904-date-system workbook
+  (SILENT-VALUE false-certify + over-refusal fix).** The engine (ironcalc) hardcodes the 1900 epoch,
+  so under `<workbookPr date1904="1">` its `YEAR`/`DATE`/`EOMONTH`/… results are off by the 1462-day
+  shift. The oracle trusted those values, so it both CERTIFIED a forged cache holding the engine's
+  wrong 1900-system value *and* REFUSED the correct 1904 value — a silent ~4-year value corruption
+  blessed by certify. Date-system-dependent functions are now added to the oracle's unvouchable set
+  under date1904 (the same poison-and-diff exclusion used for `RTD`/UDF), so such a cache stays
+  unverified and certify refuses rather than vouch a wrong value.
+- **`certify` signs a range-intersection formula whose second operand is PARENTHESIZED (false-certify
+  fix).** ironcalc collapses a top-level intersection (`A2:A9 (A5:A5)`, the space operator) to its
+  first operand, dropping the second, so the loaded-model diff is blind to a change of that operand.
+  certify already signed the raw body when it detected an intersection, but the detector excluded `(`
+  as an operand start, so a parenthesized second operand slipped through and a value-changing mangle
+  (`(A5:A5)`→`(A6:A6)`) certified. `(` now starts an operand.
+- **`certify` extracts a CDATA-wrapped form-control binding body (false-certify fix).** Excel emits a
+  legacy VML control's `FmlaMacro`/`FmlaLink` binding as `<![CDATA[…]]>`; the text extractor had no
+  CDATA branch, so the body read as empty and two distinct bindings collapsed to one key — a foreign
+  RE-POINT of the macro/link (`SafeMacro`→`EvilMacro`) certified. The extractor now captures CDATA.
+- **`certify` canonicalizes redundant sheet-name quoting on the chart data-reference surface
+  (over-refusal fix).** A chart series ref written `'Data'!$D$3` (openpyxl/xlq) versus `Data!$D$3`
+  (Excel/LibreOffice) is semantically identical, but the chart compare used a raw string match and
+  refused the faithful re-serialization. The same `canonicalize_sheet_quotes` already applied to the
+  defined-name and CF/DV surfaces is now applied to chart/drawing formula references.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

@@ -1308,6 +1308,11 @@ pub(crate) fn element_text_semantics(xml: &[u8], locals: &[&[u8]]) -> Vec<String
             }
             Ok(Event::Text(t)) if cap => push_text_raw(&mut raw, &t),
             Ok(Event::GeneralRef(r)) if cap => push_ref_raw(&mut raw, &r),
+            // A CDATA-wrapped body (`<x:FmlaMacro><![CDATA[Macro]]></x:FmlaMacro>`, which Excel
+            // emits for legacy VML form-control bindings) carries its content LITERALLY. Without
+            // this arm the body extracted as empty, so two DISTINCT bindings collapsed to the same
+            // key and a re-pointed macro/link certified. CDATA is never entity-encoded — append raw.
+            Ok(Event::CData(c)) if cap => raw.push_str(&String::from_utf8_lossy(c.as_ref())),
             Ok(Event::Eof) => break,
             Err(_) => {
                 out.push("parse_error".into());
@@ -1606,7 +1611,14 @@ fn has_top_level_intersection(body: &str) -> bool {
     let mut in_sq = false;
     let is_operand_end =
         |c: char| c.is_alphanumeric() || matches!(c, ')' | '$' | '!' | '}' | '_' | '.' | '#');
-    let is_operand_start = |c: char| c.is_alphanumeric() || matches!(c, '$' | '\'' | '[' | '_');
+    // A right operand may be PARENTHESIZED (`A1:A10 (A4:A4)` — grouping is a valid reference
+    // operand), so `(` starts an operand. ironcalc collapses the whole intersection to its first
+    // operand regardless of the parens, dropping the second, so the raw body must be signed or a
+    // change to the parenthesized operand's VALUE certifies. (A false positive on a space-before-
+    // paren `name (args)` only adds the raw-body signature — at worst a rare over-refusal on a
+    // space renormalization, never a false-certify.)
+    let is_operand_start =
+        |c: char| c.is_alphanumeric() || matches!(c, '$' | '\'' | '[' | '_' | '(');
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
@@ -5077,6 +5089,25 @@ mod tests {
     }
 
     #[test]
+    fn element_text_semantics_captures_cdata_body() {
+        // REGRESSION (round-42): a CDATA-wrapped binding body (Excel emits this for legacy VML
+        // form-control FmlaMacro/FmlaLink) must be extracted, not dropped to "" — else two
+        // DISTINCT macro bindings collapse to the same key and a re-point certifies.
+        let xml = br#"<xml xmlns:x="urn:x"><x:ClientData><x:FmlaMacro><![CDATA[EvilMacro]]></x:FmlaMacro></x:ClientData></xml>"#;
+        assert_eq!(
+            element_text_semantics(xml, &[b"FmlaMacro"]),
+            vec!["EvilMacro".to_string()]
+        );
+        // Distinct macros must yield distinct keys.
+        let safe =
+            br#"<xml xmlns:x="urn:x"><x:FmlaMacro><![CDATA[SafeMacro]]></x:FmlaMacro></xml>"#;
+        assert_ne!(
+            element_text_semantics(xml, &[b"FmlaMacro"]),
+            element_text_semantics(safe, &[b"FmlaMacro"])
+        );
+    }
+
+    #[test]
     fn formula_hidden_tokens_are_per_cell() {
         let m = formula_hidden_tokens(
             br#"<worksheet><sheetData><row r="1"><c r="C1"><f>@A1:A10</f></c><c r="D1"><f>_xlfn.CONCAT(A1,A2)+_xlfn._xlws.FILTER(B1:B5,C1)</f></c><c r="E1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#,
@@ -5105,6 +5136,24 @@ mod tests {
             isa.get("C1"),
             isb.get("C1"),
             "intersection operand change must differ"
+        );
+        // REGRESSION (round-42): a PARENTHESIZED right operand `A1:A10 (A4:A4)` is still a
+        // top-level intersection ironcalc collapses to `@A1:A10`; it must be signed or a mangle of
+        // the parenthesized operand's VALUE certifies (the '(' was excluded from is_operand_start).
+        let pa = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="C1"><f>A1:A10 (A4:A4)</f></c></row></sheetData></worksheet>"#,
+        );
+        let pb = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="C1"><f>A1:A10 (A7:A7)</f></c></row></sheetData></worksheet>"#,
+        );
+        assert!(
+            pa.contains_key("C1"),
+            "parenthesized intersection must be signed: {pa:?}"
+        );
+        assert_ne!(
+            pa.get("C1"),
+            pb.get("C1"),
+            "parenthesized-operand change must differ"
         );
         // But a plain arithmetic formula with spaces around an operator is NOT an intersection.
         let arith = formula_hidden_tokens(
