@@ -174,14 +174,20 @@ pub fn run(
         // A volatile cell's cache is self-healing ONLY when Excel recomputes it on load — i.e.
         // AUTO calc mode (we are already in the branch where fullCalcOnLoad is NOT set on the
         // edited file). Under MANUAL mode Excel shows the stored cache verbatim, so a volatile
-        // cache must be verified like any other; the skip is disabled there (fail-closed).
-        let volatile_recomputed_on_load = !manual_calc_mode(&edited_bytes);
+        // cache must be verified like any other; the skip set is empty there (fail-closed). The
+        // set is TRANSITIVE (a non-volatile dependent of a volatile cell is included), computed
+        // from xlq's proven transform via the engine's dependency graph.
+        let volatile_tainted = if manual_calc_mode(&edited_bytes) {
+            std::collections::HashSet::new()
+        } else {
+            volatile_tainted_cells(&expected_bytes, original)
+        };
         unverified_formula_caches(
             &expected_bytes,
             &edited_bytes,
             recalc_on_load_forced(&expected_bytes),
             oracle.as_ref(),
-            volatile_recomputed_on_load,
+            &volatile_tainted,
         )
     };
     // A `format` (number-format) difference is normally benign — display only. But it becomes a
@@ -644,7 +650,10 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
             }
         } else if low.starts_with("xl/drawings/") && low.ends_with(".xml") {
             if let Ok(x) = crate::ooxml::read_part(bytes, n) {
-                drawings.extend(structural::element_text_semantics(&x, &[b"col", b"row"]));
+                // Only the `<from>` anchor corner — tolerates the value-neutral oneCellAnchor <->
+                // twoCellAnchor re-encoding every desktop editor performs (which changed the
+                // col/row token count and spuriously refused a faithful chart re-save).
+                drawings.extend(structural::drawing_from_anchors(&x));
                 // A graphic-frame formula (`<xdr:f>`) — a linked OLE/picture object's source
                 // cell — and a linked shape/textbox's `textlink="Sheet1!$A$8"` attribute are
                 // LIVE cell references the shape mirrors. The transform refuses an edit that
@@ -1385,7 +1394,7 @@ fn unverified_formula_caches(
     edited: &[u8],
     expected_forced: bool,
     oracle: Option<&std::collections::HashMap<(String, String), String>>,
-    volatile_recomputed_on_load: bool,
+    volatile_tainted: &std::collections::HashSet<(String, String)>,
 ) -> usize {
     let exp_by_name: std::collections::HashMap<String, String> = crate::ooxml::all_sheets(expected)
         .unwrap_or_default()
@@ -1403,16 +1412,6 @@ fn unverified_formula_caches(
         if edt_map.is_empty() {
             continue;
         }
-        // A VOLATILE formula cell (NOW/RAND/OFFSET/INDIRECT/…) is recomputed by Excel on load in
-        // AUTO calc mode, so its stored cache never surfaces a stale value there — ignore it. But
-        // under MANUAL calc mode Excel shows the stored cache verbatim, so the skip is UNSOUND
-        // (it would launder a fabricated volatile cache); disable it. (Replaces the old workbook-
-        // global oracle disable, which refused a faithful preserved NON-volatile cache.)
-        let volatile = if volatile_recomputed_on_load {
-            structural::volatile_formula_cells(&edt_xml)
-        } else {
-            std::collections::BTreeSet::new()
-        };
         // xlq's OWN stored caches (a cell the transform did NOT blank — an unshifted formula).
         // When the transform force-recomputes it discards its own caches, so they vouch nothing.
         let exp_map = if expected_forced {
@@ -1425,7 +1424,12 @@ fn unverified_formula_caches(
                 .unwrap_or_default()
         };
         for (cell, ev) in &edt_map {
-            if volatile.contains(cell) {
+            // A cell Excel RECOMPUTES on load — a cell that transitively depends on a VOLATILE
+            // function (NOW/RAND/OFFSET/INDIRECT/…) in auto-calc mode — never surfaces a stale
+            // stored value, so its preserved cache is skipped. The set is TRANSITIVE (a
+            // non-volatile dependent `A2=A1` where `A1=NOW()` is included) and EMPTY under manual
+            // calc mode, where Excel shows the stored cache verbatim and it must be verified.
+            if volatile_tainted.contains(&(name.clone(), cell.clone())) {
                 continue;
             }
             // (a) the transform kept an identical stored cache for this cell, or
@@ -1456,24 +1460,6 @@ fn cell_value_sig(model: &ironcalc::base::Model, sheet: u32, row: i32, col: i32)
     }
 }
 
-/// An oracle mapping (sheet name, A1 cell) -> the `type:value` cache signature of the TRUE computed
-/// value of xlq's proven transform, used to vouch a foreign edit's PRESERVED formula caches (which
-/// xlq's own transform blanks). Always returns Some, but INCLUDES ONLY cells whose engine value can
-/// be trusted to equal Excel's.
-///
-/// When the workbook uses an UNSUPPORTED / policy-limited (`RTD`/`WEBSERVICE`/`CUBEVALUE`) /
-/// user-defined function, the engine computes those cells (and anything depending on them) WRONG —
-/// but a cell whose value does NOT depend on such a function is still computed correctly. Rather
-/// than disable the whole oracle (which spuriously refused a preserved pure-`SUM` cache in any
-/// live-data workbook) OR trust every clean value (UNSOUND — an `IFERROR(RTD(),5)` wrapper yields a
-/// clean-but-WRONG value a fabricated cache could match), it isolates the trustworthy cells by
-/// POISON-AND-DIFF: overwrite every "source" cell (whose formula calls such a function) with a
-/// constant and re-evaluate; a cell whose value CHANGES depends on a source cell and is EXCLUDED.
-/// Two distinct constants plus the normal (error-valued) evaluation are used, so a false
-/// "unchanged" requires a formula coincidentally constant on all three probes yet dependent —
-/// effectively unconstructable, and such a cell's value is a genuine constant anyway. A cell that
-/// survives is provably independent of every unsupported result, so the engine's value for it
-/// equals Excel's and vouching a matching cache is sound.
 /// True when the workbook uses the 1904 date system (`<workbookPr date1904="1">`).
 fn workbook_is_date1904(bytes: &[u8]) -> bool {
     let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") else {
@@ -1516,6 +1502,24 @@ const DATE_EPOCH_FUNCTIONS: &[&str] = &[
     "TODAY",
 ];
 
+/// An oracle mapping (sheet name, A1 cell) -> the `type:value` cache signature of the TRUE computed
+/// value of xlq's proven transform, used to vouch a foreign edit's PRESERVED formula caches (which
+/// xlq's own transform blanks). Always returns Some, but INCLUDES ONLY cells whose engine value can
+/// be trusted to equal Excel's.
+///
+/// When the workbook uses an UNSUPPORTED / policy-limited (`RTD`/`WEBSERVICE`/`CUBEVALUE`) /
+/// user-defined function, the engine computes those cells (and anything depending on them) WRONG —
+/// but a cell whose value does NOT depend on such a function is still computed correctly. Rather
+/// than disable the whole oracle (which spuriously refused a preserved pure-`SUM` cache in any
+/// live-data workbook) OR trust every clean value (UNSOUND — an `IFERROR(RTD(),5)` wrapper yields a
+/// clean-but-WRONG value a fabricated cache could match), it isolates the trustworthy cells by
+/// POISON-AND-DIFF: overwrite every "source" cell (whose formula calls such a function) with a
+/// constant and re-evaluate; a cell whose value CHANGES depends on a source cell and is EXCLUDED.
+/// Two distinct constants plus the normal (error-valued) evaluation are used, so a false
+/// "unchanged" requires a formula coincidentally constant on all three probes yet dependent —
+/// effectively unconstructable, and such a cell's value is a genuine constant anyway. A cell that
+/// survives is provably independent of every unsupported result, so the engine's value for it
+/// equals Excel's and vouching a matching cache is sound.
 fn build_cache_oracle(
     model: &mut ironcalc::base::Model,
     date1904: bool,
@@ -1603,6 +1607,83 @@ fn build_cache_oracle(
     Some(out)
 }
 
+/// The set of (sheet-name, A1) cells whose value TRANSITIVELY depends on a VOLATILE function
+/// (NOW/TODAY/RAND/RANDBETWEEN/OFFSET/INDIRECT/CELL/INFO) — the cells Excel RECOMPUTES on load in
+/// auto-calc mode, so their preserved caches self-heal and must be SKIPPED rather than verified
+/// against the (freshly re-rolled, never-matching) engine value. The byte-level
+/// `volatile_formula_cells` flags only a cell whose OWN body calls a volatile function; a
+/// non-volatile dependent (`A2 = A1` where `A1 = NOW()`) needs the engine's dependency graph.
+/// Computed by overwriting every volatile SOURCE cell with a constant and diffing the
+/// re-evaluation: a cell whose value CHANGES depends on a volatile input. A cell whose value is
+/// constant regardless (`=A1*0`) does NOT change and remains vouchable. Returns empty — with NO
+/// model load — when the workbook carries no volatile formula at all.
+fn volatile_tainted_cells(bytes: &[u8], near: &str) -> std::collections::HashSet<(String, String)> {
+    let mut set: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    let has_volatile = crate::ooxml::all_sheets(bytes)
+        .map(|v| {
+            v.into_iter().any(|(_, p)| {
+                crate::ooxml::read_part(bytes, &p)
+                    .map(|x| !structural::volatile_formula_cells(&x).is_empty())
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+    if !has_volatile {
+        return set;
+    }
+    let Ok(mut model) = load_from_bytes(bytes, near) else {
+        return set;
+    };
+    let names: Vec<String> = model
+        .get_worksheets_properties()
+        .into_iter()
+        .map(|p| p.name)
+        .collect();
+    type FormulaCell = ((u32, i32, i32), (String, String));
+    let mut cells: Vec<FormulaCell> = Vec::new();
+    let mut sources: Vec<(u32, i32, i32)> = Vec::new();
+    for cell in model.get_all_cells() {
+        let Ok(Some(f)) = model.get_cell_formula(cell.index, cell.row, cell.column) else {
+            continue;
+        };
+        let (Some(name), Ok(a1)) = (
+            names.get(cell.index as usize),
+            diff::a1(cell.row, cell.column),
+        ) else {
+            continue;
+        };
+        cells.push(((cell.index, cell.row, cell.column), (name.clone(), a1)));
+        if crate::census::is_volatile_formula(&f) {
+            sources.push((cell.index, cell.row, cell.column));
+        }
+    }
+    if sources.is_empty() {
+        return set;
+    }
+    let snap =
+        |m: &ironcalc::base::Model| -> std::collections::HashMap<(String, String), Option<String>> {
+            cells
+                .iter()
+                .map(|(c, k)| (k.clone(), cell_value_sig(m, c.0, c.1, c.2)))
+                .collect()
+        };
+    model.evaluate();
+    let base = snap(&model);
+    // Overwrite every volatile source with a constant (unlikely to equal a NOW/RAND value), so a
+    // dependent's value provably shifts off the volatile input.
+    for &(s, r, c) in &sources {
+        let _ = model.set_user_input(s, r, c, "1234567".to_string());
+    }
+    model.evaluate();
+    let poisoned = snap(&model);
+    for (_, k) in &cells {
+        if base.get(k) != poisoned.get(k) {
+            set.insert(k.clone());
+        }
+    }
+    set
+}
+
 /// Whether `s` is exactly an Excel error literal (`#REF!`, `#DIV/0!`, …). An engine-evaluated
 /// error cell surfaces as this string; its STORED cache carries `t="e"`, so the oracle
 /// signature must use the `e:` type to match it (a plain `str:` would spuriously differ).
@@ -1633,22 +1714,37 @@ fn is_excel_error(s: &str) -> bool {
 fn caches_equal(a: &str, b: &str) -> bool {
     let (ta, va) = a.split_once(':').unwrap_or(("n", a));
     let (tb, vb) = b.split_once(':').unwrap_or(("n", b));
-    ta == tb
-        && (va == vb
-            || matches!(
-                (va.parse::<f64>(), vb.parse::<f64>()),
-                (Ok(x), Ok(y)) if nums_equal_at_excel_precision(x, y)
-            ))
+    if ta != tb {
+        return false;
+    }
+    if va == vb {
+        return true;
+    }
+    // The numeric tolerance applies ONLY to a numeric (`n:`) cache. A `str:` (text), `e:`
+    // (error) or `b:` (bool) cache is a NON-numeric value whose text must match exactly — a
+    // numeric-looking STRING (`"000123"` vs `"123"`, `"1.50"` vs `"1.5"`) is a DIFFERENT
+    // displayed value Excel shows verbatim, even though both parse to the same number. Applying
+    // the numeric fallback to `str:` vouched a corrupted zero-padded ID as faithful.
+    ta == "n"
+        && matches!(
+            (va.parse::<f64>(), vb.parse::<f64>()),
+            (Ok(x), Ok(y)) if nums_equal_at_excel_precision(x, y)
+        )
 }
 
-/// True when two numbers denote the SAME value at Excel's storage precision (15 significant
-/// figures). The engine (ironcalc) returns a raw f64 — `100*1.1` is `110.00000000000001` — while
-/// Excel/LibreOffice store the correctly-rounded 15-sig-fig value `110`. Comparing the oracle
-/// against a preserved cache with EXACT f64 equality therefore spuriously refused a faithful
-/// edit of essentially any workbook doing fractional arithmetic (the caches carry IEEE-754
-/// rounding noise the engine reproduces but the editor rounded away). Rounding BOTH sides to 15
-/// significant figures is exactly Excel's own equality, so a value that genuinely differs (beyond
-/// float noise) still differs — a fabricated cache is not vouched.
+/// True when two numbers denote the SAME value at Excel's storage precision. The engine
+/// (ironcalc) returns a raw f64 — `100*1.1` is `110.00000000000001` — while Excel/LibreOffice
+/// store the correctly-rounded value `110`; comparing a preserved cache against the oracle with
+/// EXACT f64 equality spuriously refused a faithful edit of any fractional-arithmetic workbook.
+///
+/// Comparison is at 14 significant figures. Excel's stated precision is 15 significant figures,
+/// but two INDEPENDENT IEEE-754 implementations of a transcendental/irrational function
+/// (`LOG`/`EXP`/trig/`POWER`/financial) legitimately disagree by ~1 unit in the last place, which
+/// surfaces at the 15th figure — so a 15-figure compare refused a faithful `LOG` cache a real
+/// editor recomputed. Dropping to 14 figures absorbs that last-place disagreement. A genuinely
+/// different value (a stale or fabricated cache) differs far above the 14th figure and is still
+/// refused; the only residual is a corruption confined to the 15th significant figure, which is
+/// at Excel's own precision floor.
 fn nums_equal_at_excel_precision(x: f64, y: f64) -> bool {
     if x == y {
         return true;
@@ -1656,16 +1752,16 @@ fn nums_equal_at_excel_precision(x: f64, y: f64) -> bool {
     if !x.is_finite() || !y.is_finite() {
         return false;
     }
-    // Canonical 15-significant-figure form (14 fractional digits in scientific notation);
+    // Canonical 14-significant-figure form (13 fractional digits in scientific notation);
     // 0.0 and -0.0 collapse to one key.
-    let round15 = |v: f64| {
+    let round14 = |v: f64| {
         if v == 0.0 {
             "0e0".to_string()
         } else {
-            format!("{v:.14e}")
+            format!("{v:.13e}")
         }
     };
-    round15(x) == round15(y)
+    round14(x) == round14(y)
 }
 
 /// Parse a quoted attribute value beginning at `name_end` — the byte index just past an
@@ -2065,6 +2161,12 @@ mod tests {
         assert!(!caches_equal("n:55", "str:55"));
         // a string value containing a colon splits only on the FIRST colon.
         assert!(caches_equal("str:9:30", "str:9:30"));
+        // REGRESSION (round-43): the numeric tolerance must NOT leak into str: caches — a
+        // numeric-looking STRING is a distinct displayed value Excel shows verbatim. A stale
+        // zero-padded ID cache ("123" for a true "000123") must be REFUSED, not vouched.
+        assert!(!caches_equal("str:000123", "str:123"));
+        assert!(!caches_equal("str:1.50", "str:1.5"));
+        assert!(!caches_equal("str:1e3", "str:1000"));
         // REGRESSION (round-41): the engine's raw f64 (100*1.1 = 110.00000000000001) must be
         // vouched against the editor-rounded stored cache (110) — same value at Excel's 15-sig-fig
         // precision. Exact f64 equality spuriously refused every fractional-arithmetic workbook.
@@ -2080,13 +2182,21 @@ mod tests {
 
     #[test]
     fn excel_precision_equality_is_sound() {
-        // Equal at/below 15 sig figs -> vouched.
+        // IEEE-754 noise below the 14th figure -> vouched.
         assert!(nums_equal_at_excel_precision(110.00000000000001, 110.0));
         assert!(nums_equal_at_excel_precision(1.0 / 3.0, 0.333333333333333));
         assert!(nums_equal_at_excel_precision(0.0, -0.0));
-        // A difference in the 15th significant figure or above -> NOT vouched.
+        // REGRESSION (round-43): two engines' transcendental results disagree by ~1 ULP at the
+        // 15th figure (ironcalc LOG(10,3) vs LibreOffice's) — must still be vouched at 14 figs.
+        assert!(nums_equal_at_excel_precision(
+            2.095903274289385,
+            2.09590327428939
+        ));
+        // A difference at the 14th significant figure or above -> NOT vouched.
         assert!(!nums_equal_at_excel_precision(1.0, 1.0000000000001));
         assert!(!nums_equal_at_excel_precision(1e300, 1.0001e300));
+        // A meaningful value difference (a stale/fabricated cache) is far above the floor.
+        assert!(!nums_equal_at_excel_precision(5.0, 6.0));
         // Non-finite never silently equal.
         assert!(!nums_equal_at_excel_precision(f64::NAN, f64::NAN));
         assert!(!nums_equal_at_excel_precision(f64::INFINITY, 1e308));
@@ -2206,6 +2316,8 @@ mod tests {
 
     #[test]
     fn unverified_formula_caches_flags_present_not_dropped() {
+        // No volatile cells here, so the transitive-volatile skip set is empty.
+        let empty: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
         // A formula cell (in Sheet2's body) with various stored caches.
         let cell = |v: &str| format!(r#"<row r="1"><c r="Z1"><f>SUM(A1:A2)</f>{v}</c></row>"#);
         let blank = wb(&cell("<v />"), &[]); // xlq blanks a shifted cache
@@ -2215,33 +2327,33 @@ mod tests {
         let honest_renum = wb(&cell("<v>3.0</v>"), &[]);
         // present cache the transform did not vouch (no eval oracle) -> counted.
         assert_eq!(
-            unverified_formula_caches(&blank, &fabricated, false, None, true),
+            unverified_formula_caches(&blank, &fabricated, false, None, &empty),
             1
         );
         // a dropped cache (no <v>) -> Excel recomputes -> not counted.
         assert_eq!(
-            unverified_formula_caches(&blank, &dropped, false, None, true),
+            unverified_formula_caches(&blank, &dropped, false, None, &empty),
             0
         );
         // identical present caches, and a benign 3 vs 3.0 renumber -> not counted.
         assert_eq!(
-            unverified_formula_caches(&honest, &honest, false, None, true),
+            unverified_formula_caches(&honest, &honest, false, None, &empty),
             0
         );
         assert_eq!(
-            unverified_formula_caches(&honest, &honest_renum, false, None, true),
+            unverified_formula_caches(&honest, &honest_renum, false, None, &empty),
             0
         );
         // a present cache that DIFFERS from the transform's present cache -> counted.
         assert_eq!(
-            unverified_formula_caches(&honest, &fabricated, false, None, true),
+            unverified_formula_caches(&honest, &fabricated, false, None, &empty),
             1
         );
         // when xlq's transform FORCES recalc, its own caches are moot: an identical present
         // edited cache (which would otherwise verify) is unverifiable because the transform
         // discards it and recomputes -> every present edited cache is counted.
         assert_eq!(
-            unverified_formula_caches(&honest, &honest, true, None, true),
+            unverified_formula_caches(&honest, &honest, true, None, &empty),
             1
         );
         // BUT an evaluation oracle (built when the engine covers the workbook) vouches the
@@ -2252,16 +2364,16 @@ mod tests {
                 .into_iter()
                 .collect();
         assert_eq!(
-            unverified_formula_caches(&blank, &honest, false, Some(&oracle), true),
+            unverified_formula_caches(&blank, &honest, false, Some(&oracle), &empty),
             0
         );
         assert_eq!(
-            unverified_formula_caches(&honest, &honest, true, Some(&oracle), true),
+            unverified_formula_caches(&honest, &honest, true, Some(&oracle), &empty),
             0
         );
         // a fabricated cache is NOT vouched by the oracle (999 != the true 3).
         assert_eq!(
-            unverified_formula_caches(&blank, &fabricated, false, Some(&oracle), true),
+            unverified_formula_caches(&blank, &fabricated, false, Some(&oracle), &empty),
             1
         );
     }
@@ -2329,6 +2441,34 @@ mod tests {
         assert!(
             !oracle.contains_key(&key("E1")),
             "RTD+1 transitive dependent excluded"
+        );
+    }
+
+    #[test]
+    fn volatile_taint_is_transitive() {
+        // REGRESSION (round-43): the volatile-recompute skip must be TRANSITIVE. A1=NOW() is
+        // volatile; A2=A1 is a non-volatile DEPENDENT Excel also recomputes on load — both caches
+        // self-heal and must be skipped. A pure SUM cell must NOT be tainted (its cache is
+        // verifiable). The byte-level check flagged only A1, so A2 was spuriously refused.
+        let rows = r#"<row r="1"><c r="A1"><f>NOW()</f></c></row><row r="2"><c r="A2"><f>A1</f></c></row><row r="3"><c r="A3"><f>SUM(A5:A6)</f></c></row><row r="5"><c r="A5"><v>2</v></c></row><row r="6"><c r="A6"><v>3</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/structural/refs.xlsx"
+        );
+        let tainted = volatile_tainted_cells(&bytes, path);
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            tainted.contains(&key("A1")),
+            "NOW() cell is volatile-tainted"
+        );
+        assert!(
+            tainted.contains(&key("A2")),
+            "A2=A1 is a TRANSITIVE volatile dependent: {tainted:?}"
+        );
+        assert!(
+            !tainted.contains(&key("A3")),
+            "a pure SUM is not volatile-tainted (its cache stays verifiable)"
         );
     }
 

@@ -213,13 +213,20 @@ fn load(bytes: &[u8]) -> Result<ironcalc::base::Model<'static>> {
 fn caches_equal(a: &str, b: &str) -> bool {
     let (ta, va) = a.split_once(':').unwrap_or(("n", a));
     let (tb, vb) = b.split_once(':').unwrap_or(("n", b));
-    ta == tb
-        && (va == vb
-            || matches!((va.parse::<f64>(), vb.parse::<f64>()), (Ok(x), Ok(y)) if nums_equal_at_excel_precision(x, y)))
+    if ta != tb {
+        return false;
+    }
+    if va == vb {
+        return true;
+    }
+    // Numeric tolerance applies ONLY to `n:` caches (a numeric-looking str: value must match
+    // exactly). Mirrors certify::caches_equal.
+    ta == "n"
+        && matches!((va.parse::<f64>(), vb.parse::<f64>()), (Ok(x), Ok(y)) if nums_equal_at_excel_precision(x, y))
 }
 
-/// Mirrors certify's 15-significant-figure equality (Excel's storage precision) so a cache
-/// carrying IEEE-754 rounding noise is not treated as a difference.
+/// Mirrors certify's 14-significant-figure equality (absorbs the ~1-ULP transcendental disagreement
+/// between IEEE-754 implementations at Excel's 15-fig precision floor).
 fn nums_equal_at_excel_precision(x: f64, y: f64) -> bool {
     if x == y {
         return true;
@@ -227,14 +234,14 @@ fn nums_equal_at_excel_precision(x: f64, y: f64) -> bool {
     if !x.is_finite() || !y.is_finite() {
         return false;
     }
-    let round15 = |v: f64| {
+    let round14 = |v: f64| {
         if v == 0.0 {
             "0e0".to_string()
         } else {
-            format!("{v:.14e}")
+            format!("{v:.13e}")
         }
     };
-    round15(x) == round15(y)
+    round14(x) == round14(y)
 }
 
 fn is_excel_error(s: &str) -> bool {

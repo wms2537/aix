@@ -1326,6 +1326,61 @@ pub(crate) fn element_text_semantics(xml: &[u8], locals: &[&[u8]]) -> Vec<String
     out
 }
 
+/// The `col`/`row` cell coordinates of every drawing anchor's `<from>` corner (a shape's
+/// TOP-LEFT placement cell), sorted. ONLY `<from>` is captured — never `<to>` or the `<ext>`
+/// size — so the value-neutral re-encoding of a `<oneCellAnchor>` (`<from>` + an EMU `<ext>`
+/// size) into a `<twoCellAnchor>` (`<from>` + `<to>`), which every desktop editor performs on
+/// load/save, does not spuriously differ (the token counts otherwise never matched). A genuine
+/// RE-ANCHOR — a shape moved to a different from-cell — still differs. `colOff`/`rowOff` (EMU
+/// sub-cell offsets, pure display) are excluded by exact local-name match.
+pub(crate) fn drawing_from_anchors(xml: &[u8]) -> Vec<String> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut in_from = 0usize;
+    let mut cap: Option<&'static str> = None;
+    let mut raw = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let n = e.name();
+                let l = local_of(n.as_ref());
+                if l == b"from" {
+                    in_from += 1;
+                } else if in_from > 0 && l == b"col" {
+                    cap = Some("col");
+                    raw.clear();
+                } else if in_from > 0 && l == b"row" {
+                    cap = Some("row");
+                    raw.clear();
+                }
+            }
+            Ok(Event::End(e)) => {
+                let n = e.name();
+                let l = local_of(n.as_ref());
+                if l == b"from" {
+                    in_from = in_from.saturating_sub(1);
+                } else if let Some(kind) = cap.take() {
+                    if l == b"col" || l == b"row" {
+                        out.push(format!("{kind}={}", raw.trim()));
+                    }
+                }
+            }
+            Ok(Event::Text(t)) if cap.is_some() => push_text_raw(&mut raw, &t),
+            Ok(Event::Eof) => break,
+            Err(_) => {
+                out.push("parse_error".into());
+                break;
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+    out.sort();
+    out
+}
+
 /// Map every FORMULA cell (`<c>` with an `<f>`) that carries a PRESENT, non-empty stored
 /// cache (`<v>…</v>`) to its stored value text, keyed by the cell's `r` reference.
 ///
@@ -5105,6 +5160,27 @@ mod tests {
             element_text_semantics(xml, &[b"FmlaMacro"]),
             element_text_semantics(safe, &[b"FmlaMacro"])
         );
+    }
+
+    #[test]
+    fn drawing_from_anchors_tolerate_onecell_twocell_reencoding() {
+        // REGRESSION (round-43): a desktop editor re-encodes a oneCellAnchor (from + ext size) as a
+        // twoCellAnchor (from + to) on save — value-neutral placement. Comparing only the <from>
+        // corner keys them identically (the old all-col/row multiset never matched: 2 vs 4 tokens).
+        let one = br#"<xdr:wsDr xmlns:xdr="u"><xdr:oneCellAnchor><xdr:from><xdr:col>2</xdr:col><xdr:colOff>91</xdr:colOff><xdr:row>5</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="100" cy="100"/></xdr:oneCellAnchor></xdr:wsDr>"#;
+        let two = br#"<xdr:wsDr xmlns:xdr="u"><xdr:twoCellAnchor><xdr:from><xdr:col>2</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>5</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>6</xdr:col><xdr:row>12</xdr:row></xdr:to></xdr:twoCellAnchor></xdr:wsDr>"#;
+        assert_eq!(
+            drawing_from_anchors(one),
+            vec!["col=2".to_string(), "row=5".to_string()]
+        );
+        assert_eq!(
+            drawing_from_anchors(one),
+            drawing_from_anchors(two),
+            "re-encoding preserves the from-anchor"
+        );
+        // A genuine re-anchor (moved to a different from-cell) still differs.
+        let moved = br#"<xdr:wsDr xmlns:xdr="u"><xdr:oneCellAnchor><xdr:from><xdr:col>2</xdr:col><xdr:row>9</xdr:row></xdr:from></xdr:oneCellAnchor></xdr:wsDr>"#;
+        assert_ne!(drawing_from_anchors(one), drawing_from_anchors(moved));
     }
 
     #[test]

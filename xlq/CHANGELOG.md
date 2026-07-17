@@ -731,6 +731,30 @@ is refused, not committed.
   (Excel/LibreOffice) is semantically identical, but the chart compare used a raw string match and
   refused the faithful re-serialization. The same `canonicalize_sheet_quotes` already applied to the
   defined-name and CF/DV surfaces is now applied to chart/drawing formula references.
+- **`certify`'s numeric cache tolerance no longer leaks into text (`str:`) caches (false-certify
+  fix).** The 15-sig-fig numeric tolerance was applied to a cache of ANY type, so two textually
+  different string results that both parse to the same number (`"000123"` vs `"123"`, `"1.50"` vs
+  `"1.5"`) were vouched as equal — certifying a corrupted zero-padded ID / invoice / account string.
+  The tolerance is now gated to numeric (`n:`) caches; a `str:`/`e:`/`b:` cache must match exactly.
+- **`certify` vouches a preserved cache at 14 significant figures, absorbing a transcendental
+  last-place disagreement (over-refusal fix).** Two independent IEEE-754 implementations of `LOG`/
+  `EXP`/trig/`POWER`/financial functions legitimately disagree by ~1 unit in the last place, which
+  surfaces at the 15th significant figure — so the round-41 15-figure compare refused a faithful
+  transcendental cache a real editor had recomputed. Comparison drops to 14 significant figures; a
+  genuine value difference is far above that floor and still refuses.
+- **`certify` tolerates the value-neutral `oneCellAnchor`↔`twoCellAnchor` re-encoding of a chart/
+  shape placement (over-refusal fix).** The drawing-anchor compare used the full `<col>`/`<row>`
+  multiset, so a `oneCellAnchor` (2 tokens) never matched the `twoCellAnchor` (4 tokens) every
+  desktop editor re-encodes it to on save — refusing a faithful chart re-serialization. Only the
+  `<from>` corner is now compared, so a genuine re-anchor still differs while the encoding change and
+  the sub-cell `colOff`/`rowOff` offsets are ignored.
+- **`certify`'s volatile-cache skip is now TRANSITIVE (over-refusal fix).** A cell Excel recomputes on
+  load — one that transitively depends on a volatile function (`A2=A1` where `A1=NOW()`) — was
+  verified against the engine's freshly re-rolled value, which never matches the stored timestamp, so
+  a faithful timestamp-helper workbook was refused. The skip set is now computed through the engine's
+  dependency graph (poison the volatile source cells, diff the re-evaluation), so a non-volatile
+  dependent is skipped too; it stays empty under manual-calc mode (where the stored cache is shown
+  verbatim and must be verified).
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
