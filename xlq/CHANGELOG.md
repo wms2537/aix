@@ -770,10 +770,17 @@ is refused, not committed.
   Excel, 1.00 on a binary round), number-to-text rendering (`TEXT`/`FIXED`/`DOLLAR`), and iterative
   financial solvers (`IRR`/`XIRR`/`MIRR`/`RATE` converge to a different valid root). The oracle
   trusted these, so a forged cache matching the engine's wrong value certified while the correct one
-  was refused. They now join the unvouchable set (like the date-1904 date functions): a cell using —
-  or depending on — one is refused rather than vouched. This closes the false-certify; the correct
-  preserved cache of such a cell is now (fail-safely) refused too, which fully recovering would need
-  Excel-faithful engine fidelity for those functions.
+  was refused. They join the unvouchable set (like the date-1904 date functions): a cell using — or
+  depending on — one is refused rather than vouched.
+- **The vendored engine's decimal rounding was corrected to match Excel, so the `ROUND` family is
+  vouchable again (fully fixes both directions).** `ROUND`/`ROUNDUP`/`ROUNDDOWN`/`MROUND` scaled the
+  value and rounded the raw binary product (`1.005 * 100` = `100.4999…` → `1.00`); they now
+  decimal-correct the scaled value to 15 significant figures before rounding, matching Excel
+  (`ROUND(1.005,2)`=`1.01`). With the engine faithful, these functions are removed from the oracle
+  exclusion above — certify now both refuses a forged rounding cache *and* certifies the correct one
+  (no over-refusal). `TEXT`/`FIXED`/`DOLLAR` rendering and the `IRR`/`XIRR`/`MIRR`/`RATE` iterative
+  solvers remain excluded (genuinely hard to make bit-faithful); their correct caches are still
+  fail-safely refused.
 - **`restructure` flags a stale `fmlaGroup`/`fmlaTxbx` form-control link on the EDITED sheet
   (silent-wrong fix).** Round 37 covered these modern option-button-group / edit-box cell links on
   foreign sheets and in certify, but the edited-sheet residual whitelist omitted them, so a shift left

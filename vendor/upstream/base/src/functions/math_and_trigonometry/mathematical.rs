@@ -640,7 +640,10 @@ impl<'a> Model<'a> {
             Err(s) => return s,
         };
         let scale = 10.0_f64.powf(number_of_digits);
-        CalcResult::Number((value * scale).round() / scale)
+        // Decimal-correct the SCALED value before rounding: `1.005 * 100` is `100.4999…` in f64, so
+        // a naive `.round()` yields `1.00` where Excel yields `1.01`. Rounding the scaled product to
+        // 15 significant figures (Excel's precision) first restores `100.5`, then round-half-away.
+        CalcResult::Number(to_precision(value * scale, 15).round() / scale)
     }
 
     pub(crate) fn fn_roundup(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {
@@ -662,10 +665,13 @@ impl<'a> Model<'a> {
             Err(s) => return s,
         };
         let scale = 10.0_f64.powf(number_of_digits);
+        // Decimal-correct the scaled value (15 sig figs) before ceil/floor so a binary
+        // representation error does not push the magnitude across an integer boundary.
+        let scaled = to_precision(value * scale, 15);
         if value > 0.0 {
-            CalcResult::Number((value * scale).ceil() / scale)
+            CalcResult::Number(scaled.ceil() / scale)
         } else {
-            CalcResult::Number((value * scale).floor() / scale)
+            CalcResult::Number(scaled.floor() / scale)
         }
     }
 
@@ -688,10 +694,12 @@ impl<'a> Model<'a> {
             Err(s) => return s,
         };
         let scale = 10.0_f64.powf(number_of_digits);
+        // Decimal-correct the scaled value (15 sig figs) before floor/ceil (see fn_roundup).
+        let scaled = to_precision(value * scale, 15);
         if value > 0.0 {
-            CalcResult::Number((value * scale).floor() / scale)
+            CalcResult::Number(scaled.floor() / scale)
         } else {
-            CalcResult::Number((value * scale).ceil() / scale)
+            CalcResult::Number(scaled.ceil() / scale)
         }
     }
 
@@ -1007,8 +1015,12 @@ impl<'a> Model<'a> {
                 message: "number and multiple must have the same sign".to_string(),
             };
         }
-        let result = (value / multiple).round() * multiple;
-        CalcResult::Number(result)
+        // Decimal-correct the ratio (15 sig figs) before rounding to the nearest multiple, so a
+        // binary representation error does not tip a half-way value the wrong way
+        // (MROUND(1.005, 0.01) = 1.01, not 1.00). The product is likewise cleaned to Excel's
+        // precision so the stored result carries no residual float noise.
+        let result = to_precision(value / multiple, 15).round() * multiple;
+        CalcResult::Number(to_precision(result, 15))
     }
 
     pub(crate) fn fn_trunc(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {

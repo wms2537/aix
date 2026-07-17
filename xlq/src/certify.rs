@@ -1507,29 +1507,20 @@ fn workbook_is_date1904(bytes: &[u8]) -> bool {
 }
 
 /// Functions the engine (ironcalc) evaluates DIFFERENTLY from Excel even though it fully supports
-/// them, so its value cannot vouch a preserved cache. Three kinds: DECIMAL ROUNDING (Excel
-/// decimal-corrects, `ROUND(1.005,2)=1.01`; a naive binary round gives 1.00), number-to-TEXT
-/// RENDERING (locale/format-dependent — a fraction or rounding format diverges), and ITERATIVE
-/// financial SOLVERS (converge to a different valid root, disagreeing beyond the vouch tolerance).
-/// Always excluded from the oracle (fail-closed): a cell using one — or transitively depending on
-/// one — is refused rather than vouched against a value only the engine produces. This closes a
-/// false-certify (a forged cache matching the engine's wrong value) at the cost of an over-refusal
-/// of the CORRECT preserved cache; recovering that needs Excel-faithful engine fidelity.
+/// them, so its value cannot vouch a preserved cache: a cell using one — or transitively depending
+/// on one — is excluded from the oracle (fail-closed) and refused rather than vouched against a
+/// value only the engine produces.
+///
+/// Two kinds remain: number-to-TEXT RENDERING (locale/format-dependent — a fraction or rounding
+/// format diverges) and ITERATIVE financial SOLVERS (converge to a different valid root,
+/// disagreeing beyond the vouch tolerance). The DECIMAL-ROUNDING family (`ROUND`/`ROUNDUP`/
+/// `ROUNDDOWN`/`MROUND`) was ALSO here until the vendored engine's rounding was decimal-corrected
+/// to match Excel (`ROUND(1.005,2)=1.01`); it now agrees, so those are vouchable again — which
+/// fixes both the false-certify AND the over-refusal for the ubiquitous rounding functions.
 const ENGINE_DIVERGENT_FUNCTIONS: &[&str] = &[
-    // Decimal rounding.
-    "ROUND",
-    "ROUNDUP",
-    "ROUNDDOWN",
-    "MROUND",
     // Number-to-text rendering.
-    "TEXT",
-    "FIXED",
-    "DOLLAR",
-    // Iterative financial solvers.
-    "IRR",
-    "XIRR",
-    "MIRR",
-    "RATE",
+    "TEXT", "FIXED", "DOLLAR", // Iterative financial solvers.
+    "IRR", "XIRR", "MIRR", "RATE",
 ];
 
 /// Functions whose result depends on the workbook DATE SYSTEM (1900 vs 1904): each maps between a
@@ -2574,11 +2565,10 @@ mod tests {
 
     #[test]
     fn engine_divergent_functions_excluded_from_oracle() {
-        // REGRESSION (round-44): ironcalc diverges from Excel on ROUND (binary vs decimal rounding),
-        // TEXT rendering, and IRR-class solvers. Trusting its value would CERTIFY a forged cache
-        // matching the wrong result, so a cell using (or depending on) one is excluded from the
-        // oracle. A pure SUM stays vouchable.
-        let rows = r#"<row r="1"><c r="A1"><v>1.005</v></c><c r="B1"><f>ROUND(A1,2)</f><v>1.01</v></c><c r="C1"><f>B1*1000</f><v>1010</v></c><c r="D1"><f>SUM(A1:A1)</f><v>1.005</v></c></row>"#;
+        // ROUND was decimal-corrected in the vendored engine (round-44 follow-up), so it is
+        // vouchable AGAIN — B1/C1 must be in the oracle. TEXT (still divergent) and anything
+        // depending on it are excluded; a pure SUM is vouchable.
+        let rows = r#"<row r="1"><c r="A1"><v>1.005</v></c><c r="B1"><f>ROUND(A1,2)</f><v>1.01</v></c><c r="C1"><f>B1*1000</f><v>1010</v></c><c r="D1"><f>SUM(A1:A1)</f><v>1.005</v></c><c r="E1" t="str"><f>TEXT(A1,"0.00")</f><v>1.01</v></c><c r="F1" t="str"><f>E1&amp;"x"</f><v>1.01x</v></c></row>"#;
         let bytes = oracle_wb(rows);
         let mut model = load_from_bytes(
             &bytes,
@@ -2590,14 +2580,24 @@ mod tests {
         .expect("load round workbook");
         let oracle = build_cache_oracle(&mut model, false).expect("oracle is always Some");
         let key = |c: &str| ("Sheet1".to_string(), c.to_string());
-        assert!(!oracle.contains_key(&key("B1")), "ROUND source excluded");
+        // ROUND now agrees with Excel -> vouchable (both directions of the old bug fixed).
         assert!(
-            !oracle.contains_key(&key("C1")),
-            "a cell depending on ROUND is excluded (transitive)"
+            oracle.contains_key(&key("B1")),
+            "decimal-corrected ROUND is vouchable again: {oracle:?}"
+        );
+        assert!(
+            oracle.contains_key(&key("C1")),
+            "a ROUND dependent is vouchable"
         );
         assert!(
             oracle.contains_key(&key("D1")),
-            "a pure SUM stays vouchable: {oracle:?}"
+            "a pure SUM stays vouchable"
+        );
+        // TEXT rendering still diverges -> excluded (source + transitive dependent).
+        assert!(!oracle.contains_key(&key("E1")), "TEXT source excluded");
+        assert!(
+            !oracle.contains_key(&key("F1")),
+            "a cell depending on TEXT is excluded"
         );
     }
 
