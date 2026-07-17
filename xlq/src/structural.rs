@@ -1043,6 +1043,12 @@ fn edited_sheet_body_unshifted_ref(
                             | b"fmlaRange"
                             | b"sourceRef"
                             | b"link"
+                            // Modern CT_FormControlPr links the foreign-sheet scan + certify already
+                            // cover (round 37): an option-button-GROUP result cell and an edit-box
+                            // bound cell. On the EDITED sheet they are copied verbatim too, so a
+                            // shift leaves them stale — flag if this edit would move them.
+                            | b"fmlaGroup"
+                            | b"fmlaTxbx"
                     ) {
                         return would_shift(&val);
                     }
@@ -1549,7 +1555,25 @@ pub(crate) fn array_formula_cells(xml: &[u8]) -> std::collections::BTreeMap<Stri
                 if let Some(t) = attr_by_local(&e, b"t") {
                     if (t == "array" || t == "dataTable") && cell_ref.is_some() {
                         let rf = attr_by_local(&e, b"ref").unwrap_or_default();
-                        out.insert(cell_ref.clone().unwrap(), format!("{t}:{rf}"));
+                        // For a what-if data table the `r1`/`r2` INPUT cells (the cells each trial
+                        // value is substituted into) and the `dt2D`/`dtr` axis flags DETERMINE the
+                        // whole tabulated result column. xlq's transform shifts r1/r2, so comparing
+                        // them catches a foreign RE-POINT (r1=A2->A9) that recomputes the table
+                        // differently in Excel; ironcalc strips the dataTable on load, so the cell
+                        // diff is blind to it.
+                        let sig = if t == "dataTable" {
+                            let g = |k: &[u8]| attr_by_local(&e, k).unwrap_or_default();
+                            format!(
+                                "dataTable:{rf};dt2D={};dtr={};r1={};r2={}",
+                                g(b"dt2D"),
+                                g(b"dtr"),
+                                g(b"r1"),
+                                g(b"r2")
+                            )
+                        } else {
+                            format!("{t}:{rf}")
+                        };
+                        out.insert(cell_ref.clone().unwrap(), sig);
                     }
                 }
             }
@@ -2187,7 +2211,12 @@ fn table_display_names(input: &[u8], table_parts: &BTreeSet<String>) -> Vec<Stri
 /// can mangle a column name that looks like an A1 ref (e.g. `Table1[Q4]` -> `[Q5]`),
 /// so a workbook that uses structured references is refused. Namespace-aware over the
 /// formula elements; an unparseable formula part fails closed (-> refuse).
-fn part_uses_structured_ref(xml: &[u8], names: &[String]) -> bool {
+fn part_uses_structured_ref(
+    xml: &[u8],
+    names: &[String],
+    sheet: &str,
+    edit: &StructuralEdit,
+) -> bool {
     if names.is_empty() {
         return false;
     }
@@ -2218,7 +2247,16 @@ fn part_uses_structured_ref(xml: &[u8], names: &[String]) -> bool {
                     };
                     let hay = logical.to_lowercase();
                     if needles.iter().any(|p| hay.contains(p.as_str())) {
-                        return true;
+                        // AFFECT-based (not presence): the `[…]` specifier can only be mangled if
+                        // the shift actually REWRITES this formula. If σ leaves it byte-identical —
+                        // the edit moves nothing it references (e.g. an insert far below the table
+                        // and the formula) — the structured reference is copied verbatim and is
+                        // safe. Only refuse when σ would change it (a real shift that could also
+                        // touch the specifier). This unblocks the ubiquitous `=SUM(Table[Col])`
+                        // idiom for edits that move nothing.
+                        if refshift::shift_formula(&logical, sheet, edit).0 != logical {
+                            return true;
+                        }
                     }
                     raw.clear();
                 }
@@ -2486,7 +2524,7 @@ fn scan_extra_residuals(
             // table-driven workbooks for a safe edit on an unrelated sheet.
             let shifted_part =
                 n == edited_part || n.starts_with("xl/charts/") || n == "xl/workbook.xml";
-            if shifted_part && part_uses_structured_ref(&bytes, &table_names) {
+            if shifted_part && part_uses_structured_ref(&bytes, &table_names, &edit.sheet, edit) {
                 report.residuals.push(Residual {
                     part: n.clone(),
                     reason: "structured_reference_unsupported".into(),
@@ -5911,6 +5949,12 @@ mod tests {
             f(br#"<worksheet><controls><control><controlPr linkedCell="A8" fmlaLink="A9"/></control></controls></worksheet>"#).as_deref(),
             Some("controlPr")
         );
+        // REGRESSION (round-44): the modern CT_FormControlPr links fmlaGroup (option-button-group
+        // result cell) and fmlaTxbx (edit-box bound cell) are ALSO flagged — they were left stale.
+        assert_eq!(
+            f(br#"<worksheet><controls><control><formControlPr fmlaGroup="$A$8" fmlaTxbx="$A$5"/></control></controls></worksheet>"#).as_deref(),
+            Some("formControlPr")
+        );
         // A list/combo-box SOURCE range (fmlaRange, sibling of fmlaLink) is flagged too.
         assert_eq!(
             f(br#"<worksheet><controls><control><controlPr fmlaRange="A1:A8"/></control></controls></worksheet>"#).as_deref(),
@@ -6059,42 +6103,68 @@ mod tests {
 
     #[test]
     fn structured_reference_in_a_formula_is_detected() {
-        // REGRESSION (adversarial review, finding 4): SUM(Table1[Q4]) — the shift
-        // algebra mangles the specifier inside [] (Q4 looks like an A1 ref), so a
-        // workbook using a structured reference must be refused.
+        // AFFECT-based (round-44): the `[…]` specifier can only be mangled if σ REWRITES the
+        // formula. A structured-ref formula the edit does not move is copied verbatim and is safe.
         let names = vec!["Table1".to_string(), "Sales".to_string()];
+        let moves = edit("Sheet1", Axis::Row, Op::Insert, 1, 1); // shifts every row >= 1
+        let below = edit("Sheet1", Axis::Row, Op::Insert, 5000, 1); // moves nothing referenced
+                                                                    // SILENT-WRONG PROTECTION: a CELL-REF-SHAPED specifier (`Table1[Q4]`, Q4 looks like an A1
+                                                                    // ref) IS mangled by σ (verified: -> `Table1[Q5]`) when the edit shifts that area -> the
+                                                                    // change is detected -> refuse.
         assert!(part_uses_structured_ref(
             br#"<x><c><f>SUM(Table1[Q4])</f></c></x>"#,
-            &names
+            &names,
+            "Sheet1",
+            &moves
         ));
         // case-insensitive (Excel normalizes table-name case)
         assert!(part_uses_structured_ref(
-            br#"<x><f>SUM(table1[Amount])</f></x>"#,
-            &names
-        ));
-        // namespace-prefixed formula element must still be scanned
-        assert!(part_uses_structured_ref(
-            br#"<x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:f>Sales[Total]</x:f></x:worksheet>"#,
-            &names
+            br#"<x><f>SUM(table1[Q4])</f></x>"#,
+            &names,
+            "Sheet1",
+            &moves
         ));
         // char-ref evasion: `[` written as &#91; (a GeneralRef) must still be resolved
         assert!(part_uses_structured_ref(
             br#"<x><f>SUM(Table1&#91;Q4])</f></x>"#,
-            &names
+            &names,
+            "Sheet1",
+            &moves
+        ));
+        // A co-located REGULAR ref the edit shifts also forces a σ rewrite -> refuse (conservative).
+        assert!(part_uses_structured_ref(
+            br#"<x><f>SUM(Table1[Amount])+A1</f></x>"#,
+            &names,
+            "Sheet1",
+            &moves
+        ));
+        // OVER-REFUSAL FIX: the ubiquitous `=SUM(Table[Col])` idiom, with an edit far below that
+        // moves nothing, is NO LONGER refused (σ leaves it byte-identical).
+        assert!(!part_uses_structured_ref(
+            br#"<x><c><f>SUM(Table1[Amount])</f></c></x>"#,
+            &names,
+            "Sheet1",
+            &below
         ));
         // a formula with no structured ref, or referencing an unknown name, is fine
         assert!(!part_uses_structured_ref(
             br#"<x><f>SUM(A1:A9)</f></x>"#,
-            &names
+            &names,
+            "Sheet1",
+            &moves
         ));
         assert!(!part_uses_structured_ref(
             br#"<x><f>Other[Col]</f></x>"#,
-            &names
+            &names,
+            "Sheet1",
+            &moves
         ));
         // no tables in the workbook => nothing to scan
         assert!(!part_uses_structured_ref(
             br#"<x><f>Table1[Q4]</f></x>"#,
-            &[]
+            &[],
+            "Sheet1",
+            &moves
         ));
     }
 
@@ -6279,6 +6349,30 @@ mod tests {
         let mut m = ironcalc::import::load_from_xlsx(&p, "en", "UTC", "en").unwrap();
         m.evaluate();
         std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn datatable_signature_includes_input_cells() {
+        // REGRESSION (round-44): a what-if data table's r1/r2 INPUT cells determine the whole
+        // tabulated result column; certify must compare them so a re-point (r1=A2->A9) differs.
+        let dt = |r1: &str| {
+            format!(
+                r#"<worksheet><sheetData><row r="3"><c r="E3"><f t="dataTable" ref="E3:E5" dt2D="0" dtr="0" r1="{r1}" ca="1"/><v>10</v></c></row></sheetData></worksheet>"#
+            )
+        };
+        let a = array_formula_cells(dt("A2").as_bytes());
+        let b = array_formula_cells(dt("A9").as_bytes());
+        assert!(
+            a.get("E3").is_some_and(|s| s.contains("r1=A2")),
+            "r1 signed: {a:?}"
+        );
+        assert_ne!(
+            a.get("E3"),
+            b.get("E3"),
+            "a re-pointed input cell must differ"
+        );
+        // An identical table keys identically (no over-refusal).
+        assert_eq!(a, array_formula_cells(dt("A2").as_bytes()));
     }
 
     #[test]

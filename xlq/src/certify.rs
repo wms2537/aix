@@ -720,7 +720,14 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
             };
             for (tag, attrs) in structural::element_attr_semantics(
                 &x,
-                &[b"worksheetSource", b"rangeSet", b"location", b"cacheSource"],
+                &[
+                    b"worksheetSource",
+                    b"rangeSet",
+                    b"location",
+                    b"cacheSource",
+                    b"dataField",
+                    b"pivotCacheDefinition",
+                ],
             ) {
                 let pick = |key: &str| {
                     attrs
@@ -729,14 +736,42 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
                         .unwrap_or("")
                         .to_string()
                 };
-                out.push(format!(
-                    "{tag}|sheet={}|ref={}|name={}|conn={}|type={}",
-                    pick("sheet="),
-                    pick("ref="),
-                    pick("name="),
-                    pick("connectionId="),
-                    pick("type="),
-                ));
+                let sig = match tag.as_str() {
+                    // A `<dataField>`'s aggregation (`subtotal`, default "sum" when absent) is the
+                    // VALUE the pivot materializes — a SUM->COUNT flip changes the output column.
+                    "dataField" => {
+                        let st = pick("subtotal=");
+                        let st = if st.is_empty() { "sum".to_string() } else { st };
+                        format!(
+                            "dataField|name={}|fld={}|subtotal={st}|baseField={}|baseItem={}",
+                            pick("name="),
+                            pick("fld="),
+                            pick("baseField="),
+                            pick("baseItem="),
+                        )
+                    }
+                    // `refreshOnLoad="1"` makes Excel recompute the pivot cache on open with no user
+                    // action — so an injected refresh + an aggregation/source change materializes a
+                    // corrupted value on load. Normalize to a bool (absent/0/false all mean off).
+                    "pivotCacheDefinition" => {
+                        let rol = pick("refreshOnLoad=");
+                        let rol = if rol == "1" || rol.eq_ignore_ascii_case("true") {
+                            "1"
+                        } else {
+                            "0"
+                        };
+                        format!("pivotCacheDefinition|refreshOnLoad={rol}")
+                    }
+                    _ => format!(
+                        "{tag}|sheet={}|ref={}|name={}|conn={}|type={}",
+                        pick("sheet="),
+                        pick("ref="),
+                        pick("name="),
+                        pick("connectionId="),
+                        pick("type="),
+                    ),
+                };
+                out.push(sig);
             }
         }
     }
@@ -1471,6 +1506,32 @@ fn workbook_is_date1904(bytes: &[u8]) -> bool {
         .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
+/// Functions the engine (ironcalc) evaluates DIFFERENTLY from Excel even though it fully supports
+/// them, so its value cannot vouch a preserved cache. Three kinds: DECIMAL ROUNDING (Excel
+/// decimal-corrects, `ROUND(1.005,2)=1.01`; a naive binary round gives 1.00), number-to-TEXT
+/// RENDERING (locale/format-dependent — a fraction or rounding format diverges), and ITERATIVE
+/// financial SOLVERS (converge to a different valid root, disagreeing beyond the vouch tolerance).
+/// Always excluded from the oracle (fail-closed): a cell using one — or transitively depending on
+/// one — is refused rather than vouched against a value only the engine produces. This closes a
+/// false-certify (a forged cache matching the engine's wrong value) at the cost of an over-refusal
+/// of the CORRECT preserved cache; recovering that needs Excel-faithful engine fidelity.
+const ENGINE_DIVERGENT_FUNCTIONS: &[&str] = &[
+    // Decimal rounding.
+    "ROUND",
+    "ROUNDUP",
+    "ROUNDDOWN",
+    "MROUND",
+    // Number-to-text rendering.
+    "TEXT",
+    "FIXED",
+    "DOLLAR",
+    // Iterative financial solvers.
+    "IRR",
+    "XIRR",
+    "MIRR",
+    "RATE",
+];
+
 /// Functions whose result depends on the workbook DATE SYSTEM (1900 vs 1904): each maps between a
 /// serial number and a calendar field, so the engine — which hardcodes the 1900 epoch — computes
 /// them off by the 1462-day shift under date1904. In a 1904 workbook a cell using (or depending
@@ -1534,6 +1595,13 @@ fn build_cache_oracle(
         .chain(census.policy_limited.keys().cloned())
         .chain(census.user_defined.keys().cloned())
         .collect();
+    // The engine also diverges from Excel on some FULLY-SUPPORTED functions — decimal rounding
+    // (`ROUND(1.005,2)` = 1.01 in Excel, 1.00 on a naive binary round), number-to-text rendering,
+    // and iterative financial solvers that converge to a different valid root. Trusting the engine
+    // there would CERTIFY a forged cache matching its wrong value (and refuse the correct one), so
+    // these are unvouchable too: exclude them (fail-closed). The preserved cache then stays
+    // unverified and is refused rather than vouched against a value only the engine would produce.
+    bad.extend(ENGINE_DIVERGENT_FUNCTIONS.iter().map(|s| s.to_string()));
     // Under the 1904 date system the engine's 1900-epoch date arithmetic is wrong, so any
     // date-system-dependent function is unvouchable — add it to the bad set (poison-and-diff then
     // excludes those cells and their dependents; their preserved caches stay unverified -> refused
@@ -2045,6 +2113,66 @@ mod tests {
     }
 
     #[test]
+    fn pivot_datafield_and_refresh_are_compared() {
+        // REGRESSION (round-44): a pivot dataField aggregation (SUM->COUNT) and a refreshOnLoad
+        // injection materialize a corrupted value on open; pivot_refs must compare both.
+        let pt = |sub: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="urn:x"><dataFields><dataField name="X" fld="1"{sub}/></dataFields></pivotTableDefinition>"#
+            )
+        };
+        let cache = |rol: &str| {
+            format!(
+                r#"<pivotCacheDefinition xmlns="urn:x"{rol}><cacheSource type="worksheet"/></pivotCacheDefinition>"#
+            )
+        };
+        let sum = wb("", &[("xl/pivotTables/pivotTable1.xml", &pt(""))]);
+        let count = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &pt(r#" subtotal="count""#),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&sum),
+            pivot_refs(&count),
+            "SUM vs COUNT must differ"
+        );
+        // Absent subtotal keys the same as explicit "sum" (no over-refusal).
+        let sum_explicit = wb(
+            "",
+            &[("xl/pivotTables/pivotTable1.xml", &pt(r#" subtotal="sum""#))],
+        );
+        assert_eq!(pivot_refs(&sum), pivot_refs(&sum_explicit));
+        // refreshOnLoad injection is caught; absent == "0" (no over-refusal).
+        let off = wb(
+            "",
+            &[("xl/pivotCache/pivotCacheDefinition1.xml", &cache(""))],
+        );
+        let on = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &cache(r#" refreshOnLoad="1""#),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&off),
+            pivot_refs(&on),
+            "refreshOnLoad must be compared"
+        );
+        let off2 = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &cache(r#" refreshOnLoad="0""#),
+            )],
+        );
+        assert_eq!(pivot_refs(&off), pivot_refs(&off2));
+    }
+
+    #[test]
     fn x14_conditional_formatting_is_compared_not_presence_refused() {
         // x14 CF (and legacy CF/DV) are now COMPARED, not refused on presence — presence
         // refusal rejected xlq's own transform of any workbook with a CF rule.
@@ -2441,6 +2569,35 @@ mod tests {
         assert!(
             !oracle.contains_key(&key("E1")),
             "RTD+1 transitive dependent excluded"
+        );
+    }
+
+    #[test]
+    fn engine_divergent_functions_excluded_from_oracle() {
+        // REGRESSION (round-44): ironcalc diverges from Excel on ROUND (binary vs decimal rounding),
+        // TEXT rendering, and IRR-class solvers. Trusting its value would CERTIFY a forged cache
+        // matching the wrong result, so a cell using (or depending on) one is excluded from the
+        // oracle. A pure SUM stays vouchable.
+        let rows = r#"<row r="1"><c r="A1"><v>1.005</v></c><c r="B1"><f>ROUND(A1,2)</f><v>1.01</v></c><c r="C1"><f>B1*1000</f><v>1010</v></c><c r="D1"><f>SUM(A1:A1)</f><v>1.005</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load round workbook");
+        let oracle = build_cache_oracle(&mut model, false).expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(!oracle.contains_key(&key("B1")), "ROUND source excluded");
+        assert!(
+            !oracle.contains_key(&key("C1")),
+            "a cell depending on ROUND is excluded (transitive)"
+        );
+        assert!(
+            oracle.contains_key(&key("D1")),
+            "a pure SUM stays vouchable: {oracle:?}"
         );
     }
 

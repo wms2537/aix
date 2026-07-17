@@ -755,6 +755,38 @@ is refused, not committed.
   dependency graph (poison the volatile source cells, diff the re-evaluation), so a non-volatile
   dependent is skipped too; it stays empty under manual-calc mode (where the stored cache is shown
   verbatim and must be verified).
+- **`certify` compares a what-if data table's input cells `r1`/`r2` (false-certify fix).** A
+  `<f t="dataTable">`'s input-cell references determine the entire tabulated result column, but the
+  array/data-table compare keyed only the type flag and output `ref`; a foreign RE-POINT (`r1=A2`→`A9`)
+  recomputed the table differently yet certified (the engine strips the data table on load, so the
+  cell diff is blind too). The `r1`/`r2` input cells and `dt2D`/`dtr` axis flags are now signed.
+- **`certify` compares a PivotTable's aggregation and its cache `refreshOnLoad` flag (false-certify
+  fix).** A `<dataField>` aggregation change (`SUM`→`COUNT`) plus an injected
+  `<pivotCacheDefinition refreshOnLoad="1">` makes Excel recompute the pivot to a different value on
+  open, but the pivot compare captured only source/location/connection references. The `dataField`
+  `subtotal` (default "sum") and `refreshOnLoad` are now compared.
+- **`certify`'s evaluation oracle excludes functions the engine computes differently from Excel
+  (false-certify + over-refusal).** ironcalc diverges on decimal `ROUND` (`ROUND(1.005,2)`=1.01 in
+  Excel, 1.00 on a binary round), number-to-text rendering (`TEXT`/`FIXED`/`DOLLAR`), and iterative
+  financial solvers (`IRR`/`XIRR`/`MIRR`/`RATE` converge to a different valid root). The oracle
+  trusted these, so a forged cache matching the engine's wrong value certified while the correct one
+  was refused. They now join the unvouchable set (like the date-1904 date functions): a cell using —
+  or depending on — one is refused rather than vouched. This closes the false-certify; the correct
+  preserved cache of such a cell is now (fail-safely) refused too, which fully recovering would need
+  Excel-faithful engine fidelity for those functions.
+- **`restructure` flags a stale `fmlaGroup`/`fmlaTxbx` form-control link on the EDITED sheet
+  (silent-wrong fix).** Round 37 covered these modern option-button-group / edit-box cell links on
+  foreign sheets and in certify, but the edited-sheet residual whitelist omitted them, so a shift left
+  them pointing at the wrong cell. They are now flagged when the edit moves them.
+- **`restructure`/`certify` refuse a structured `Table[Column]` reference only when the edit actually
+  shifts it (over-refusal fix).** The `[…]` specifier can be mangled by the shift algebra (`Table1[Q4]`
+  → `Table1[Q5]`, since `Q4` looks like a cell), so any structured-ref formula was refused on presence
+  — blocking the ubiquitous `=SUM(Table[Col])` idiom even for an edit far below that moves nothing. The
+  check is now affect-based: refuse only when σ would actually change the formula; an untouched
+  structured reference is copied verbatim.
+- **`certify` normalizes the boolean literals `TRUE`/`FALSE` versus `TRUE()`/`FALSE()` (over-refusal
+  fix).** A real editor rewrites the bare boolean constants to their nullary-function form on save;
+  the two are value-identical, so the formula compare no longer reports it as a change.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

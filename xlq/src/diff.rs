@@ -169,6 +169,62 @@ fn snap_json(snap: &CellSnap) -> serde_json::Value {
     json!({"formula": snap.formula, "value": snap.value, "raw": snap.raw})
 }
 
+/// Canonicalize the nullary boolean-constant functions (`TRUE()` and `FALSE()`) to their bare
+/// literal forms (`TRUE` and `FALSE`). They are value-identical — a real editor normalizes one to
+/// the other on save — so a faithful re-serialization must not be misclassified as a formula
+/// change. Only a whole `TRUE` or `FALSE` token immediately followed by `()` is rewritten; string
+/// literals and quoted sheet names are copied verbatim, and a token that merely starts with those
+/// letters is left untouched.
+fn normalize_bool_literals(f: &str) -> String {
+    let b = f.as_bytes();
+    let n = b.len();
+    let mut out = String::with_capacity(n);
+    let mut i = 0;
+    while i < n {
+        let c = b[i];
+        if c == b'"' || c == b'\'' {
+            let (q, start) = (c, i);
+            i += 1;
+            while i < n {
+                if b[i] == q {
+                    if i + 1 < n && b[i + 1] == q {
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            out.push_str(&f[start..i]);
+        } else if c.is_ascii_alphabetic() || c == b'_' {
+            let start = i;
+            while i < n && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'.') {
+                i += 1;
+            }
+            let ident = &f[start..i];
+            if ident.eq_ignore_ascii_case("TRUE") || ident.eq_ignore_ascii_case("FALSE") {
+                let mut j = i;
+                while j < n && b[j] == b' ' {
+                    j += 1;
+                }
+                if j + 1 < n && b[j] == b'(' && b[j + 1] == b')' {
+                    out.push_str(ident); // drop the () -> bare literal
+                    i = j + 2;
+                    continue;
+                }
+            }
+            out.push_str(ident);
+        } else {
+            let ch = f[i..].chars().next().unwrap();
+            let l = ch.len_utf8();
+            out.push_str(&f[i..i + l]);
+            i += l;
+        }
+    }
+    out
+}
+
 /// Classify the difference between the same positional cell in two snapshots.
 /// Returns `None` when the cell is identical (nothing to report). This is the
 /// single, shared definition of the six diff kinds — reused by `certify`.
@@ -185,7 +241,9 @@ pub(crate) fn classify_kind(
 ) -> Option<&'static str> {
     match (old_snap, new_snap) {
         (Some(o), Some(n)) => {
-            if o.formula != n.formula {
+            if o.formula.as_deref().map(normalize_bool_literals)
+                != n.formula.as_deref().map(normalize_bool_literals)
+            {
                 Some("formula")
             } else if o.formula.is_some() && o.raw != n.raw {
                 Some("cached_value")
@@ -312,6 +370,43 @@ mod tests {
         }
         model.evaluate();
         model
+    }
+
+    #[test]
+    fn bool_literal_normalization() {
+        // REGRESSION (round-44): TRUE()/FALSE() and bare TRUE/FALSE are value-identical; a real
+        // editor normalizes one to the other, so classify_kind must not see a formula change.
+        assert_eq!(
+            normalize_bool_literals("IF(TRUE(),A1,A2)"),
+            "IF(TRUE,A1,A2)"
+        );
+        assert_eq!(
+            normalize_bool_literals("IF(false(),A1,A2)"),
+            "IF(false,A1,A2)"
+        );
+        // A genuinely different formula still differs, and a non-bool token is untouched.
+        assert_ne!(
+            normalize_bool_literals("IF(TRUE(),A1,A2)"),
+            normalize_bool_literals("IF(TRUE(),A1,A9)")
+        );
+        assert_eq!(normalize_bool_literals("TRUEISH(A1)"), "TRUEISH(A1)");
+        // A "TRUE" inside a string literal is NOT touched.
+        assert_eq!(
+            normalize_bool_literals(r#"IF(A1="TRUE()",1,0)"#),
+            r#"IF(A1="TRUE()",1,0)"#
+        );
+        // classify_kind treats the two forms as equal (not a formula diff).
+        let a = CellSnap {
+            formula: Some("=IF(TRUE,A1,A2)".into()),
+            raw: json!(5),
+            value: "5".into(),
+        };
+        let b = CellSnap {
+            formula: Some("=IF(TRUE(),A1,A2)".into()),
+            raw: json!(5),
+            value: "5".into(),
+        };
+        assert_eq!(classify_kind(Some(&a), Some(&b)), None);
     }
 
     #[test]

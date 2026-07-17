@@ -2103,4 +2103,142 @@ mod tests {
             r#"IF(A3>0,"A6",A4)"#
         );
     }
+
+    fn parse_res(sh: &Shift, lo: u32, hi: u32) -> Option<(u32, u32)> {
+        match sh {
+            Shift::Unchanged => Some((lo, hi)),
+            Shift::Ref => None,
+            Shift::Shifted(s) => {
+                if let Some((a, b)) = s.split_once(':') {
+                    let pa: u32 = a.trim_start_matches('A').parse().unwrap();
+                    let pb: u32 = b.trim_start_matches('A').parse().unwrap();
+                    Some((pa.min(pb), pa.max(pb)))
+                } else {
+                    let p: u32 = s.trim_start_matches('A').parse().unwrap();
+                    Some((p, p))
+                }
+            }
+        }
+    }
+    fn body_for(lo: u32, hi: u32) -> String {
+        if lo == hi {
+            format!("A{}", lo)
+        } else {
+            format!("A{}:A{}", lo, hi)
+        }
+    }
+
+    #[test]
+    fn fuzz_delete_against_set_oracle() {
+        let g = 14u32;
+        let mut fails = Vec::new();
+        for lo in 1..=g {
+            for hi in lo..=g {
+                for k in 1..=g {
+                    for n in 1..=g {
+                        let mut imgs = Vec::new();
+                        for r in lo..=hi {
+                            if r < k {
+                                imgs.push(r);
+                            } else if r >= k + n {
+                                imgs.push(r - n);
+                            }
+                        }
+                        let oracle = if imgs.is_empty() {
+                            None
+                        } else {
+                            Some((*imgs.iter().min().unwrap(), *imgs.iter().max().unwrap()))
+                        };
+                        let got = parse_res(
+                            &shift_body(&body_for(lo, hi), &row_edit(Op::Delete, k, n)),
+                            lo,
+                            hi,
+                        );
+                        if got != oracle {
+                            fails.push(format!(
+                                "DEL lo={} hi={} k={} n={} oracle={:?} got={:?}",
+                                lo, hi, k, n, oracle, got
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(fails.is_empty(), "DELETE mismatches:\n{}", fails.join("\n"));
+    }
+
+    #[test]
+    fn fuzz_move_against_set_oracle() {
+        let g = 12u32;
+        let mut fails = Vec::new();
+        for lo in 1..=g {
+            for hi in lo..=g {
+                for a in 1..=g {
+                    for n in 1..=g {
+                        if a + n - 1 > g {
+                            continue;
+                        }
+                        for b in 1..=(g + 1) {
+                            let imgs: Vec<u32> =
+                                (lo..=hi).map(|r| move_row_sigma(r, a, n, b)).collect();
+                            let mn = *imgs.iter().min().unwrap();
+                            let mx = *imgs.iter().max().unwrap();
+                            let oracle = if mx - mn == hi - lo {
+                                Some((mn, mx))
+                            } else {
+                                None
+                            };
+                            let got = parse_res(
+                                &shift_body(&body_for(lo, hi), &move_edit(a, n, b)),
+                                lo,
+                                hi,
+                            );
+                            if got != oracle {
+                                fails.push(format!(
+                                    "MOV lo={} hi={} a={} n={} b={} oracle={:?} got={:?}",
+                                    lo, hi, a, n, b, oracle, got
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(fails.is_empty(), "MOVE mismatches:\n{}", fails.join("\n"));
+    }
+
+    #[test]
+    fn fuzz_move_sigma_independent() {
+        let g = 12u32;
+        let mut fails = Vec::new();
+        for a in 1..=g {
+            for n in 1..=g {
+                if a + n - 1 > g {
+                    continue;
+                }
+                for b in 1..=(g + 1) {
+                    // Physically build the new order: remove block [a,a+n), reinsert
+                    // before the first surviving element whose ORIGINAL index >= b.
+                    let block: Vec<u32> = (a..a + n).collect();
+                    let rem: Vec<u32> = (1..=g).filter(|r| !(*r >= a && *r < a + n)).collect();
+                    let pos = rem.iter().position(|&r| r >= b).unwrap_or(rem.len());
+                    let mut newlist = rem[..pos].to_vec();
+                    newlist.extend(block.iter().copied());
+                    newlist.extend_from_slice(&rem[pos..]);
+                    // sigma_oracle(orig) = 1-based new index of element==orig
+                    for orig in 1..=g {
+                        let want = newlist.iter().position(|&r| r == orig).unwrap() as u32 + 1;
+                        let got = move_row_sigma(orig, a, n, b);
+                        if got != want {
+                            fails.push(format!(
+                                "a={} n={} b={} orig={} want={} got={}",
+                                a, n, b, orig, want, got
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(fails.is_empty(), "sigma mismatches:\n{}", fails.join("\n"));
+    }
 }
