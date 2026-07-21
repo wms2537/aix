@@ -349,6 +349,16 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        binding differs from xlq's transform — a reference the cell diff misses",
         }));
     }
+    if rich_data_values(expected) != rich_data_values(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "rich_data_mismatch",
+            "detail": "a rich value / linked-data-type field (a Stocks/Geography display string or \
+                       property, an =IMAGE store) in xl/richData differs from xlq's transform — the \
+                       cell's persisted OFFLINE value, which the sheet cell (a `vm`-indexed fallback) \
+                       does not carry, so the cell diff misses it",
+        }));
+    }
     // Tokens the engine NORMALIZES AWAY on load — the required `_xlfn.` prefix on post-2007
     // functions (dropping it makes Excel show `#NAME?`) and the implicit-intersection `@`
     // operator (`@A1:A10` scalar vs the bare `A1:A10` spilling array) — are invisible to the
@@ -707,6 +717,30 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
 /// differs and is refused. Comparing this lets certify allowlist pivots (which carry a cell
 /// coordinate the cell diff misses) instead of blanket-refusing every workbook that has one —
 /// including xlq's own correct transform.
+/// The persisted rich-value fields across `xl/richData/*.xml`, sorted (keyed by neither part name
+/// nor order, so a benign renumber does not false-refuse). A rich value — a linked data type
+/// (Stocks/Geography entity fields: `_DisplayString`, `Price`, …) or an `=IMAGE` store — holds the
+/// cell's real OFFLINE value in `<v>` elements, reached from the cell via its `vm` (value-metadata)
+/// index; the sheet cell carries only a `vm` pointer and a fallback `<v>` (e.g. `#VALUE!`). xlq's
+/// transform copies richData verbatim, so a foreign REWRITE of a field (`420.5`→`999999`,
+/// `MSFT`→`EVIL`) — a value/security change every cell diff misses because the cell text is
+/// unchanged — differs here and is refused. Rich values do NOT auto-refresh on open, so this is a
+/// static persisted value, not a volatile one; comparing it does not over-refuse a legitimate edit.
+fn rich_data_values(bytes: &[u8]) -> Vec<String> {
+    let names = structural::archive_names(bytes).unwrap_or_default();
+    let mut out = Vec::new();
+    for n in &names {
+        let low = n.to_ascii_lowercase();
+        if low.starts_with("xl/richdata/") && low.ends_with(".xml") {
+            if let Ok(x) = crate::ooxml::read_part(bytes, n) {
+                out.extend(structural::element_text_semantics(&x, &[b"v"]));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 fn pivot_refs(bytes: &[u8]) -> Vec<String> {
     let names = structural::archive_names(bytes).unwrap_or_default();
     let mut out = Vec::new();
@@ -1938,22 +1972,15 @@ fn compare(expected: &WorkbookSnap, edited: &WorkbookSnap) -> (DiffCounts, Vec<V
                 kind == "added" && n.is_some_and(|s| s.formula.is_none() && s.raw.is_null());
             let removed_empty =
                 kind == "removed" && e.is_some_and(|s| s.formula.is_none() && s.raw.is_null());
-            // A literal-cell "value" diff that is numerically equal at Excel's 14-sig-fig storage
-            // precision is benign float noise — a real editor rounding a frozen `0.1+0.2` =
-            // `0.30000000000000004` back to `0.3` on re-save. Formula caches already get this
-            // tolerance (caches_equal); a literal value must get it too, or the same faithful
-            // re-serialization is refused. A genuine value change differs far above the floor.
-            let value_float_noise = kind == "value"
-                && match (e, n) {
-                    (Some(a), Some(b)) => match (a.raw.as_f64(), b.raw.as_f64()) {
-                        (Some(x), Some(y)) => nums_equal_at_excel_precision(x, y),
-                        _ => false,
-                    },
-                    _ => false,
-                };
+            // NOTE (round-46): a literal-value float-noise tolerance was tried here and REVERTED —
+            // it was unsound. A literal (`A1`) feeds formulas, and a cache-stripped
+            // catastrophic-cancellation dependent (`=(A1-1e12)*1e6`) amplifies even a 1-ULP input
+            // residual into the leading result figure with NO counted value-diff (the formula's
+            // cache is blank -> recompute-on-load benign). So a value diff on a literal is always
+            // disqualifying; the (niche) over-refusal of a frozen `0.30000000000000004` re-rounded
+            // to `0.3` is the fail-safe cost.
             match kind {
                 "formula" => counts.formula += 1,
-                "value" if value_float_noise => {}
                 "value" => counts.value += 1,
                 "cached_value" => counts.cached_value += 1,
                 "format" => counts.format += 1,
@@ -1965,8 +1992,7 @@ fn compare(expected: &WorkbookSnap, edited: &WorkbookSnap) -> (DiffCounts, Vec<V
             }
             let disqualifying = matches!(kind, "formula" | "value" | "added" | "removed")
                 && !added_empty
-                && !removed_empty
-                && !value_float_noise;
+                && !removed_empty;
             if disqualifying && samples.len() < 8 {
                 samples.push(json!({
                     "sheet": name,
@@ -2348,6 +2374,30 @@ mod tests {
             )],
         );
         assert!(verify_noncell_refs(&bytes, &bytes).is_none());
+    }
+
+    #[test]
+    fn rich_data_value_rewrite_is_caught() {
+        // REGRESSION (round-46): a rich value (linked data type / =IMAGE) holds the cell's OFFLINE
+        // value in xl/richData; the cell carries only a `vm` pointer, so a REWRITE of a field
+        // (420.5 -> 999999, MSFT -> EVIL) is invisible to the cell diff — certify must compare it.
+        let rv = |name: &str, price: &str| {
+            format!(r#"<rvData xmlns="urn:x"><rv s="0"><v>{name}</v><v>{price}</v></rv></rvData>"#)
+        };
+        let good = wb("", &[("xl/richData/rdrichvalue.xml", &rv("MSFT", "420.5"))]);
+        assert!(
+            verify_noncell_refs(&good, &good).is_none(),
+            "identical richData certifies"
+        );
+        let evil = wb(
+            "",
+            &[("xl/richData/rdrichvalue.xml", &rv("EVIL", "999999"))],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &evil).expect("a rewritten rich value must refuse")
+                ["reason"],
+            "rich_data_mismatch"
+        );
     }
 
     #[test]

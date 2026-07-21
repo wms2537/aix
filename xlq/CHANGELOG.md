@@ -794,16 +794,28 @@ is refused, not committed.
 - **`certify` normalizes the boolean literals `TRUE`/`FALSE` versus `TRUE()`/`FALSE()` (over-refusal
   fix).** A real editor rewrites the bare boolean constants to their nullary-function form on save;
   the two are value-identical, so the formula compare no longer reports it as a change.
-- **`certify` tolerates float noise in a LITERAL value cell, matching the formula-cache tolerance
-  (over-refusal fix).** A non-formula numeric cell was compared with exact raw equality while formula
-  caches got the 14-significant-figure tolerance, so a real editor rounding a frozen `0.1+0.2` =
-  `0.30000000000000004` back to `0.3` on re-save was refused. A numeric `value` diff equal at Excel's
-  precision is now benign; a genuine value change still differs.
 - **`certify` canonicalizes a `#REF!` error reference (over-refusal fix).** When a delete consumes a
   cross-sheet reference's target, xlq spells the result `Data!#REF!` while a real editor writes the
   bare, case-folded `#REF!`/`data!#ref!` — the same error value. The qualifier is stripped and the
   literal upper-cased before comparison, so a value-faithful delete is no longer refused over the
   spelling.
+- **`certify` compares the rich-value store in `xl/richData` (false-certify fix).** A linked data
+  type (Stocks/Geography entity fields, an `=IMAGE` store) keeps the cell's real OFFLINE value in
+  `xl/richData/*`, reached from the cell only through a `vm` index; the sheet cell carries a fallback
+  like `#VALUE!`. The parts were allowlisted but their content was never compared, so a foreign
+  rewrite of a field (`420.5`→`999999`, a display string `MSFT`→`EVIL`) — a value/security change the
+  cell diff cannot see — certified. The rich-value fields are now compared; rich values do not
+  auto-refresh on open, so this is a static persisted value and comparing it does not over-refuse.
+- **`certify` treats an inert `<formula2>` on a SCALAR-operator data validation as benign
+  (over-refusal fix).** `formula2` is a value input only for the `between`/`notBetween` operators;
+  LibreOffice emits `<formula2>0</formula2>` on every non-between DV (`whole number > 0`, etc.), which
+  Excel ignores. The formula2-skip — previously gated on `type="list"` only — now also covers any
+  present scalar operator, so a faithful desktop round-trip of the most common validation certifies.
+
+Two literal-value-tolerance experiments were tried and REVERTED as unsound: a numeric literal cannot
+be compared with a relative float tolerance, because a cache-stripped catastrophic-cancellation
+formula (`=(A1-1e12)*1e6`) amplifies even a 1-ULP input residual into the leading result figure with
+no counted diff. A literal value difference is therefore always disqualifying.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

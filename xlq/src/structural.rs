@@ -1146,8 +1146,8 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
     reader.config_mut().expand_empty_elements = false;
     let mut buf = Vec::new();
     let mut out: Vec<(String, String)> = Vec::new();
-    // (kind, sqref, formula bodies, dataValidation `type`)
-    let mut cfdv: Option<(String, String, Vec<String>, String)> = None;
+    // (kind, sqref, formula bodies, dataValidation `type`, dataValidation `operator`)
+    let mut cfdv: Option<(String, String, Vec<String>, String, String)> = None;
     let mut ext_depth = 0u32;
     let mut ext_refs: Vec<String> = Vec::new();
     let mut cap = Cap::None;
@@ -1163,7 +1163,8 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
                     let kind = String::from_utf8_lossy(local_of(n.as_ref())).into_owned();
                     let sqref = canonical_sqref(&attr_by_local(&e, b"sqref").unwrap_or_default());
                     let dv_type = attr_by_local(&e, b"type").unwrap_or_default();
-                    cfdv = Some((kind, sqref, Vec::new(), dv_type));
+                    let operator = attr_by_local(&e, b"operator").unwrap_or_default();
+                    cfdv = Some((kind, sqref, Vec::new(), dv_type, operator));
                 } else if ext_depth == 0 && cfdv.is_some() && is_legacy_f(n.as_ref()) {
                     cap = Cap::Legacy;
                     cap_is_formula2 = tag_local_eq(n.as_ref(), b"formula2");
@@ -1196,12 +1197,18 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
                     let logical = canonicalize_sheet_quotes(&logical);
                     match cap {
                         Cap::Legacy => {
-                            if let Some((_, _, fs, dv_type)) = cfdv.as_mut() {
-                                // For a type="list" dropdown, `formula2` (and `operator`) are inert
-                                // — Excel uses formula2 only with between/notBetween, inapplicable
-                                // to a list — so a foreign editor writing `<formula2>0</formula2>`
-                                // (LibreOffice does) is a faithful, value-preserving edit. Skip it.
-                                if !(dv_type == "list" && cap_is_formula2) {
+                            if let Some((_, _, fs, dv_type, operator)) = cfdv.as_mut() {
+                                // `formula2` is a VALUE input ONLY for the between/notBetween
+                                // operators (the default when `operator` is absent). For a
+                                // type="list" dropdown OR any SCALAR operator (greaterThan,
+                                // lessThan, equal, …) it is inert — Excel ignores it — so a foreign
+                                // editor writing `<formula2>0</formula2>` there (LibreOffice does on
+                                // every non-between DV) is a faithful, value-preserving edit. Skip.
+                                let formula2_inert = dv_type == "list"
+                                    || (!operator.is_empty()
+                                        && operator != "between"
+                                        && operator != "notBetween");
+                                if !(cap_is_formula2 && formula2_inert) {
                                     fs.push(logical);
                                 }
                             }
@@ -1214,7 +1221,7 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
                     raw.clear();
                 }
                 if ext_depth == 0 && is_cfdv(n.as_ref()) {
-                    if let Some((kind, sqref, fs, _dv_type)) = cfdv.take() {
+                    if let Some((kind, sqref, fs, _dv_type, _operator)) = cfdv.take() {
                         out.push((kind, format!("sqref={sqref}|{}", fs.join("|"))));
                     }
                 }
@@ -5728,6 +5735,21 @@ mod tests {
         assert!(
             between[0].1.contains("10"),
             "non-list formula2 must be kept: {between:?}"
+        );
+        // REGRESSION (round-46): for a SCALAR operator (greaterThan/lessThan/…), formula2 is inert
+        // too (Excel uses it only for between/notBetween) — LibreOffice emits `<formula2>0</formula2>`
+        // on every non-between DV, so it must not change the key.
+        let gt_f2 = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="whole" operator="greaterThan" sqref="A2:A10"><formula1>0</formula1><formula2>0</formula2></dataValidation></worksheet>"#);
+        let gt = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="whole" operator="greaterThan" sqref="A2:A10"><formula1>0</formula1></dataValidation></worksheet>"#);
+        assert_eq!(
+            gt_f2, gt,
+            "scalar-operator inert formula2 must not affect the key"
+        );
+        // An ABSENT operator defaults to between, so formula2 there IS kept.
+        let dflt = sheet_ref_construct_semantics(br#"<worksheet><dataValidation type="whole" sqref="A2:A10"><formula1>1</formula1><formula2>9</formula2></dataValidation></worksheet>"#);
+        assert!(
+            dflt[0].1.contains('9'),
+            "default-operator formula2 must be kept: {dflt:?}"
         );
         // REGRESSION (round-35): a foreign editor coalescing ADJACENT sqref ranges over the SAME
         // cells (`B1:B11 C1:C11` -> `B1:C11`) is a lossless serialization normalization — the key
