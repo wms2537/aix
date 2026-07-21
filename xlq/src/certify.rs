@@ -1938,8 +1938,22 @@ fn compare(expected: &WorkbookSnap, edited: &WorkbookSnap) -> (DiffCounts, Vec<V
                 kind == "added" && n.is_some_and(|s| s.formula.is_none() && s.raw.is_null());
             let removed_empty =
                 kind == "removed" && e.is_some_and(|s| s.formula.is_none() && s.raw.is_null());
+            // A literal-cell "value" diff that is numerically equal at Excel's 14-sig-fig storage
+            // precision is benign float noise — a real editor rounding a frozen `0.1+0.2` =
+            // `0.30000000000000004` back to `0.3` on re-save. Formula caches already get this
+            // tolerance (caches_equal); a literal value must get it too, or the same faithful
+            // re-serialization is refused. A genuine value change differs far above the floor.
+            let value_float_noise = kind == "value"
+                && match (e, n) {
+                    (Some(a), Some(b)) => match (a.raw.as_f64(), b.raw.as_f64()) {
+                        (Some(x), Some(y)) => nums_equal_at_excel_precision(x, y),
+                        _ => false,
+                    },
+                    _ => false,
+                };
             match kind {
                 "formula" => counts.formula += 1,
+                "value" if value_float_noise => {}
                 "value" => counts.value += 1,
                 "cached_value" => counts.cached_value += 1,
                 "format" => counts.format += 1,
@@ -1951,7 +1965,8 @@ fn compare(expected: &WorkbookSnap, edited: &WorkbookSnap) -> (DiffCounts, Vec<V
             }
             let disqualifying = matches!(kind, "formula" | "value" | "added" | "removed")
                 && !added_empty
-                && !removed_empty;
+                && !removed_empty
+                && !value_float_noise;
             if disqualifying && samples.len() < 8 {
                 samples.push(json!({
                     "sheet": name,

@@ -794,6 +794,16 @@ is refused, not committed.
 - **`certify` normalizes the boolean literals `TRUE`/`FALSE` versus `TRUE()`/`FALSE()` (over-refusal
   fix).** A real editor rewrites the bare boolean constants to their nullary-function form on save;
   the two are value-identical, so the formula compare no longer reports it as a change.
+- **`certify` tolerates float noise in a LITERAL value cell, matching the formula-cache tolerance
+  (over-refusal fix).** A non-formula numeric cell was compared with exact raw equality while formula
+  caches got the 14-significant-figure tolerance, so a real editor rounding a frozen `0.1+0.2` =
+  `0.30000000000000004` back to `0.3` on re-save was refused. A numeric `value` diff equal at Excel's
+  precision is now benign; a genuine value change still differs.
+- **`certify` canonicalizes a `#REF!` error reference (over-refusal fix).** When a delete consumes a
+  cross-sheet reference's target, xlq spells the result `Data!#REF!` while a real editor writes the
+  bare, case-folded `#REF!`/`data!#ref!` — the same error value. The qualifier is stripped and the
+  literal upper-cased before comparison, so a value-faithful delete is no longer refused over the
+  spelling.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its
