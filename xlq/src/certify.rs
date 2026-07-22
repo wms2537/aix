@@ -1666,15 +1666,28 @@ fn has_format_sensitive_cell_fn(bytes: &[u8]) -> bool {
 /// True when any worksheet formula calls `CELL()` with one of the given info types (or a non-literal
 /// info type — conservatively treated as any).
 fn workbook_has_cell_info_fn(bytes: &[u8], info: &[&str]) -> bool {
-    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
-        return false;
-    };
-    sheets.into_iter().any(|(_name, part)| {
-        crate::ooxml::read_part(bytes, &part).is_ok_and(|xml| {
-            structural::element_text_semantics(&xml, &[b"f"])
-                .iter()
-                .any(|f| formula_calls_sensitive_cell(f, info))
+    // (1) Worksheet formula bodies.
+    let in_sheets = crate::ooxml::all_sheets(bytes)
+        .map(|sheets| {
+            sheets.into_iter().any(|(_name, part)| {
+                crate::ooxml::read_part(bytes, &part).is_ok_and(|xml| {
+                    structural::element_text_semantics(&xml, &[b"f"])
+                        .iter()
+                        .any(|f| formula_calls_sensitive_cell(f, info))
+                })
+            })
         })
+        .unwrap_or(false);
+    if in_sheets {
+        return true;
+    }
+    // (2) DEFINED-NAME refers-to bodies (workbook.xml `<definedName>`): a name `FA=CELL("format",A1)`
+    // reached through a cell `=FA` calls CELL indirectly, bypassing the worksheet-only scan — so a
+    // foreign restyle that changes what CELL reads would false-certify as a benign `format` diff.
+    crate::ooxml::read_part(bytes, "xl/workbook.xml").is_ok_and(|wb| {
+        structural::defined_names(&wb)
+            .iter()
+            .any(|(_n, _scope, refers)| formula_calls_sensitive_cell(refers, info))
     })
 }
 
@@ -2023,6 +2036,13 @@ fn build_cache_oracle(
         formula_cells.push(((cell.index, cell.row, cell.column), (name.clone(), a1)));
         let fns = crate::census::extract_function_names(&f);
         if !bad.is_empty() && fns.iter().any(|n| bad.contains(n)) {
+            sources.push((cell.index, cell.row, cell.column));
+        }
+        // A 3D (multi-sheet) span `Sheet1:Sheet3!A5` is UNEVALUABLE by IronCalc (it returns
+        // #VALUE!), so its engine value is a spurious error: vouching it would CERTIFY a forged
+        // #VALUE! cache (hiding the real number) and refuse the correct cache. Exclude the cell
+        // (and its dependents, via poison-and-diff) like any other engine-unvouchable construct.
+        if crate::refshift::formula_contains_3d_span(&f) {
             sources.push((cell.index, cell.row, cell.column));
         }
         if fns
@@ -3289,6 +3309,39 @@ mod tests {
         assert!(
             oracle.contains_key(&key("C1")),
             "a modern DATE serial (>= 61) stays vouchable — no over-refusal: {oracle:?}"
+        );
+    }
+
+    #[test]
+    fn three_d_span_cell_excluded_from_oracle() {
+        // REGRESSION (round-50 defect 4): a 3D (multi-sheet) span `SUM(Sheet1:Sheet2!A5)` is
+        // UNEVALUABLE by IronCalc (it returns #VALUE!). Vouching that spurious engine error would
+        // CERTIFY a forged #VALUE! cache (hiding the real number) and refuse the correct one — so
+        // the cell (and its dependents) must be EXCLUDED from the oracle. A plain SUM stays
+        // vouchable.
+        let rows = r#"<row r="1"><c r="D1"><f>SUM(Sheet1:Sheet2!A5)</f><v>0</v></c><c r="E1"><f>D1+1</f><v>1</v></c><c r="B1"><f>SUM(C1:C2)</f><v>7</v></c></row><row r="2"><c r="C1"><v>3</v></c><c r="C2"><v>4</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load 3d-span workbook");
+        let oracle = build_cache_oracle(&mut model, false).expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("D1")),
+            "a 3D-span cell must be excluded from the oracle: {oracle:?}"
+        );
+        assert!(
+            !oracle.contains_key(&key("E1")),
+            "a cell depending on a 3D-span cell is excluded transitively"
+        );
+        assert!(
+            oracle.contains_key(&key("B1")),
+            "a plain SUM stays vouchable: {oracle:?}"
         );
     }
 

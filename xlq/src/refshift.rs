@@ -1261,6 +1261,44 @@ pub fn has_unverifiable_3d_span(
     false
 }
 
+/// True if the formula contains ANY 3D (multi-sheet) span reference `SheetA:SheetB!…` with
+/// DISTINCT endpoints. IronCalc does not evaluate 3D spans — it returns `#VALUE!` — so the cache
+/// oracle cannot vouch a cell using one: the engine's spurious error would both VOUCH a forged
+/// `#VALUE!` cache (false-certify) and refuse the correct numeric cache. Unlike
+/// `has_unverifiable_3d_span` (which additionally requires the span to COVER the edited sheet — the
+/// restructure REFUSE condition), any span at all is engine-unevaluable, so this takes no edit.
+pub fn formula_contains_3d_span(formula: &str) -> bool {
+    let b = formula.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'"' {
+            i += 1;
+            while i < b.len() {
+                if b[i] == b'"' {
+                    i += 1;
+                    if i < b.len() && b[i] == b'"' {
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        if b[i] == b'!' {
+            let qstart = walk_full_qualifier_back(b, i);
+            if let Some((s1, s2)) = split_span_qualifier(&formula[qstart..i]) {
+                if !s1.eq_ignore_ascii_case(&s2) {
+                    return true;
+                }
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 /// Residual detection: does this formula body use a construct the minimal-patch
 /// invariant cannot preserve by token surgery? Returns the reason, or None.
 // The integrator detects residuals via structural::detect_residual on the parsed

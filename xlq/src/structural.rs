@@ -789,21 +789,14 @@ fn edited_sheet_bad_attachment(
                     if SAFE.iter().any(|s| ty.ends_with(s)) {
                         continue;
                     }
-                    // A DRAWING (image / chart / shape) is copied verbatim EXCEPT for the live cell
-                    // references inside it (`textlink` / `<xdr:f>`), which the drawing dispatch
-                    // shifts. So the remaining hazard is only the ANCHOR: if THIS edit would MOVE
-                    // one of the drawing's `<xdr:from>/<xdr:to>` cell anchors the image/chart is
-                    // displaced (a logo/chart pinned above or left of the edited range is
-                    // unaffected). Refuse on an affected anchor, like the other guards.
+                    // A DRAWING (image / chart / shape) is now fully handled by the drawing
+                    // dispatch: its live cell references (`textlink` / `<xdr:f>`) are SHIFTED, and its
+                    // display ANCHORS (`<xdr:from>/<xdr:to>`) are shifted for the edited sheet so the
+                    // chart/image relocates with the rows/cols the edit moves. The anchor is display
+                    // position only (rounds 47/48; certify does not compare it), so it is never a
+                    // value/validity hazard — refusing on it spuriously rejected the canonical
+                    // data-table-plus-adjacent-chart dashboard layout. Safe to commit.
                     if ty.ends_with("/drawing") {
-                        let affected = attr_by_local(&e, b"Target")
-                            .map(|t| crate::ooxml::resolve_target(dir, &t))
-                            .and_then(|p| crate::ooxml::read_part(input, &p).ok())
-                            .map(|x| drawing_anchor_affected(&x, edit))
-                            .unwrap_or(true); // unresolved/unreadable -> fail closed
-                        if affected {
-                            return Some("drawing".into());
-                        }
                         continue;
                     }
                     // A legacy note / threaded comment is copied verbatim, so — like a drawing —
@@ -857,53 +850,86 @@ fn edited_sheet_bad_attachment(
     None
 }
 
-/// True if this edit would MOVE any of a drawing's cell anchors — the `<xdr:from>`/`<xdr:to>`
-/// `<row>` (row edit) or `<col>` (column edit), which are 0-based. We copy a drawing part
-/// verbatim, so an affected anchor leaves the image/chart displaced. An absoluteAnchor
-/// (EMU-positioned, no cell anchor) is never affected; an unparseable part fails closed.
-fn drawing_anchor_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
-    let row_axis = edit.axis == Axis::Row;
-    let want: &[u8] = if row_axis { b"row" } else { b"col" };
-    let mut reader = Reader::from_reader(xml);
+/// Shift a drawing's cell ANCHORS — the `<xdr:from>`/`<xdr:to>` `<row>` (row edit) or `<col>`
+/// (column edit), which are 0-based — so a chart/image on the EDITED sheet RELOCATES with the
+/// rows/cols the edit moves, exactly as Excel does. The anchor is DISPLAY position only (a chart's
+/// data/category references live in the chart part and shift separately; certify deliberately does
+/// not compare the anchor — rounds 47/48), so this is a fidelity shift, never a value change. A
+/// deleted anchor row/col clamps to the edit point; an `absoluteAnchor` (EMU-positioned) has no
+/// `<from>`/`<to>` and is untouched. Only meaningful for the edited sheet's own drawing (a foreign
+/// sheet's anchors do not move under an edit elsewhere), so the caller gates on host == edit.sheet.
+/// A parse/write error fails closed by propagating.
+fn shift_drawing_anchor(src: &[u8], edit: &StructuralEdit) -> Result<Vec<u8>> {
+    let want: &[u8] = if edit.axis == Axis::Row {
+        b"row"
+    } else {
+        b"col"
+    };
+    let mut reader = Reader::from_reader(src);
     reader.config_mut().expand_empty_elements = false;
+    let mut writer = Writer::new(Cursor::new(Vec::new()));
     let mut buf = Vec::new();
     let mut in_pt = false; // inside <from> / <to>
-    let mut cap = false;
+    let mut cap = false; // capturing the <row>/<col> text
     let mut txt = String::new();
     loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e))
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| anyhow!("xml: {e}"))?;
+        match ev {
+            Event::Eof => break,
+            Event::Start(e)
                 if tag_local_eq(e.name().as_ref(), b"from")
                     || tag_local_eq(e.name().as_ref(), b"to") =>
             {
                 in_pt = true;
+                writer
+                    .write_event(Event::Start(e.into_owned()))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
             }
-            Ok(Event::End(e))
+            Event::End(e)
                 if tag_local_eq(e.name().as_ref(), b"from")
                     || tag_local_eq(e.name().as_ref(), b"to") =>
             {
                 in_pt = false;
+                writer
+                    .write_event(Event::End(e.into_owned()))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
             }
-            Ok(Event::Start(e)) if in_pt && tag_local_eq(e.name().as_ref(), want) => {
+            Event::Start(e) if in_pt && tag_local_eq(e.name().as_ref(), want) => {
                 cap = true;
                 txt.clear();
+                writer
+                    .write_event(Event::Start(e.into_owned()))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
             }
-            Ok(Event::Text(t)) if cap => txt.push_str(&String::from_utf8_lossy(t.as_ref())),
-            Ok(Event::End(e)) if cap && tag_local_eq(e.name().as_ref(), want) => {
-                if let Ok(idx0) = txt.trim().parse::<u32>() {
-                    let one_based = idx0 + 1; // xdr anchors are 0-based
-                    if shift_line(one_based, edit) != Some(one_based) {
-                        return true;
+            Event::Text(t) if cap => txt.push_str(&String::from_utf8_lossy(t.as_ref())),
+            Event::End(e) if cap && tag_local_eq(e.name().as_ref(), want) => {
+                let out_val = match txt.trim().parse::<u32>() {
+                    Ok(idx0) => {
+                        let one_based = idx0 + 1; // xdr anchors are 0-based
+                        let new_one = shift_line(one_based, edit).unwrap_or(edit.at); // deleted -> clamp
+                        new_one.saturating_sub(1).to_string()
                     }
-                }
+                    Err(_) => std::mem::take(&mut txt), // non-numeric -> leave verbatim
+                };
+                writer
+                    .write_event(Event::Text(BytesText::new(&out_val)))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
+                writer
+                    .write_event(Event::End(e.into_owned()))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
                 cap = false;
             }
-            Ok(Event::Eof) => return false,
-            Err(_) => return true, // fail closed
-            _ => {}
+            other => {
+                writer
+                    .write_event(other.into_owned())
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
+            }
         }
         buf.clear();
     }
+    Ok(writer.into_inner().into_inner())
 }
 
 /// Map each drawing part -> the worksheet that OWNS it, by inverting every worksheet's `/drawing`
@@ -967,7 +993,14 @@ fn shift_drawing_refs(
     let (b1, n1, e1, q1) = shift_text_in_element(src, b"f", edit, host)?;
     // Linked-shape `textlink="…"` attributes.
     let (b2, n2, e2, q2) = shift_textlink_attrs(&b1, host, edit)?;
-    Ok((b2, n1 + n2, e1 + e2, q1 || q2))
+    // Display anchors move only for the drawing on the EDITED sheet (a foreign sheet's drawing does
+    // not move under an edit elsewhere). Shift them for fidelity so the chart/image relocates.
+    let b3 = if host.eq_ignore_ascii_case(&edit.sheet) {
+        shift_drawing_anchor(&b2, edit)?
+    } else {
+        b2
+    };
+    Ok((b3, n1 + n2, e1 + e2, q1 || q2))
 }
 
 /// Rewrite the shifted `textlink` on a single drawing element, if present. Excel writes
@@ -1868,6 +1901,83 @@ fn has_top_level_intersection(body: &str) -> bool {
     false
 }
 
+/// True if the formula body contains a unary `+`/`-` operator run that IronCalc DROPS while Excel
+/// treats as a numeric COERCION. Excel's unary `+`/`-` coerces its operand to a number
+/// (`--A1`/`+A1` turn TRUE->1, numeric-looking text "5"->5 — the canonical `--` coercion idiom);
+/// IronCalc's parser folds a run of leading signs into ONE `sign` and ignores `+` entirely
+/// (parser/mod.rs:585), so a run whose net sign is POSITIVE (an even number of `-`, or a `+` with an
+/// even number of `-`) is parsed AND evaluated as the un-coerced operand — `--A1` == `A1` == TRUE,
+/// not 1. certify's loaded-model diff is therefore blind to a foreign edit that adds/removes such a
+/// coercion; sign the raw body so the byte-level comparison catches it. A single unary `-` (`-A1`,
+/// net NEGATIVE) survives as an `UnaryKind::Minus`, so it is caught by the ordinary formula diff and
+/// is NOT flagged (avoids gratuitous over-refusal). String literals are skipped.
+fn has_unary_coercion(body: &str) -> bool {
+    let chars: Vec<char> = body.chars().collect();
+    let mut in_dq = false;
+    let mut in_sq = false;
+    // A `+`/`-` following an operand END is a BINARY operator; otherwise it is unary (coercion).
+    let is_operand_end =
+        |c: char| c.is_alphanumeric() || matches!(c, ')' | '$' | '!' | '}' | '_' | '.' | '#' | '%');
+    let mut prev_operand_end = false;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if in_dq {
+            if c == '"' {
+                in_dq = false;
+                prev_operand_end = true; // a string literal is an operand
+            }
+            i += 1;
+            continue;
+        }
+        if in_sq {
+            if c == '\'' {
+                in_sq = false;
+                prev_operand_end = true; // a quoted sheet name is (part of) an operand
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            '"' => {
+                in_dq = true;
+                i += 1;
+            }
+            '\'' => {
+                in_sq = true;
+                i += 1;
+            }
+            _ if c.is_whitespace() => i += 1, // whitespace does not change operand state
+            '+' | '-' if !prev_operand_end => {
+                // Start of a UNARY operator run — consume the whole run and count the minuses.
+                let mut minuses = 0;
+                while i < chars.len() {
+                    match chars[i] {
+                        '-' => {
+                            minuses += 1;
+                            i += 1;
+                        }
+                        '+' => i += 1,
+                        c if c.is_whitespace() => i += 1,
+                        _ => break,
+                    }
+                }
+                // Even minus count (incl. a bare `+` run) => net POSITIVE => IronCalc drops the whole
+                // run (coercion lost). Odd => a single surviving `-` (preserved, diff-visible).
+                if minuses % 2 == 0 {
+                    return true;
+                }
+                prev_operand_end = false; // the run is followed by its operand
+            }
+            _ => {
+                prev_operand_end = is_operand_end(c);
+                i += 1;
+            }
+        }
+    }
+    false
+}
+
 /// Per formula cell (a `<c r>` carrying an `<f>`), the tokens IronCalc NORMALIZES AWAY on
 /// load — which the loaded-model cell diff therefore cannot see — keyed by the cell's `r`
 /// reference. The signature is the implicit-intersection `@` positions, the sorted `_xlfn.`
@@ -1908,9 +2018,20 @@ pub(crate) fn formula_hidden_tokens(xml: &[u8]) -> std::collections::BTreeMap<St
                 } else {
                     String::new()
                 };
+                // A unary `+`/`-` coercion (`--A1`/`+A1`) IronCalc folds away is invisible to the
+                // loaded diff — sign the canonical body so an add/remove of the coercion is caught.
+                let coerce = if has_unary_coercion(&body) {
+                    collapse_ws(&body)
+                } else {
+                    String::new()
+                };
                 if let Some(r) = cell_ref.clone() {
-                    if !at.is_empty() || !xlfn.is_empty() || !isect.is_empty() {
-                        out.insert(r, format!("@{at:?};{};isect={isect}", xlfn.join(",")));
+                    if !at.is_empty() || !xlfn.is_empty() || !isect.is_empty() || !coerce.is_empty()
+                    {
+                        out.insert(
+                            r,
+                            format!("@{at:?};{};isect={isect};coerce={coerce}", xlfn.join(",")),
+                        );
                     }
                 }
                 raw.clear();
@@ -5234,8 +5355,20 @@ mod tests {
                 "safe attachment {ty} must not be flagged"
             );
         }
-        // A coordinate-bearing attachment (drawing/comments/control) is flagged by its label.
+        // A DRAWING is now SHIFTED by the drawing dispatch (refs + display anchor), not refused
+        // (round-50 defect 2) — it is no longer a bad attachment.
         let z = with_rels(&rel(&format!("{base}/drawing")));
+        assert!(
+            edited_sheet_bad_attachment(
+                &z,
+                "xl/worksheets/sheet1.xml",
+                &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)
+            )
+            .is_none(),
+            "a drawing is shifted, not flagged"
+        );
+        // A comment WHOSE ANCHOR THE EDIT MOVES is still flagged by its label (affect-based).
+        let z = with_rels(&rel(&format!("{base}/comments")));
         assert_eq!(
             edited_sheet_bad_attachment(
                 &z,
@@ -5243,7 +5376,7 @@ mod tests {
                 &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)
             )
             .as_deref(),
-            Some("drawing")
+            Some("comment")
         );
         // An UNKNOWN (future) attachment type refuses by default — the fail-closed whitelist.
         let z = with_rels(&rel("http://example.com/some/future/thing"));
@@ -5267,35 +5400,71 @@ mod tests {
     }
 
     #[test]
-    fn drawing_anchor_affect_check() {
-        // A oneCellAnchor image pinned at row 0 (A1). xdr anchors are 0-based.
-        let d = br#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="1" cy="1"/></xdr:oneCellAnchor></xdr:wsDr>"#;
-        // insert far below the anchor -> NOT affected (the round-28 over-refusal fix).
-        assert!(!drawing_anchor_affected(
-            d,
-            &edit("S", Axis::Row, Op::Insert, 25, 1)
-        ));
-        // insert at/above the anchor -> affected.
-        assert!(drawing_anchor_affected(
-            d,
-            &edit("S", Axis::Row, Op::Insert, 1, 1)
-        ));
-        // a COLUMN edit at column A moves the col-0 anchor.
-        assert!(drawing_anchor_affected(
-            d,
-            &edit("S", Axis::Col, Op::Insert, 1, 1)
-        ));
-        // a column edit far right does not.
-        assert!(!drawing_anchor_affected(
-            d,
-            &edit("S", Axis::Col, Op::Insert, 20, 1)
-        ));
-        // a twoCellAnchor whose <to> is in the edited band is affected even if <from> is not.
-        let two = br#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:twoCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:row>0</xdr:row></xdr:from><xdr:to><xdr:col>3</xdr:col><xdr:row>30</xdr:row></xdr:to></xdr:twoCellAnchor></xdr:wsDr>"#;
-        assert!(drawing_anchor_affected(
-            two,
-            &edit("S", Axis::Row, Op::Insert, 25, 1)
-        ));
+    fn drawing_anchor_is_shifted_not_refused() {
+        // REGRESSION (round-50 defect 2): a drawing anchored AFTER the edited range is a DISPLAY
+        // position only (certify does not compare it), so the edit must not be REFUSED — the anchor
+        // is SHIFTED so the chart/image relocates with the rows/cols the edit moves. xdr anchors
+        // are 0-based.
+        let ins = |x: &[u8], e: &StructuralEdit| -> String {
+            String::from_utf8(shift_drawing_anchor(x, e).unwrap()).unwrap()
+        };
+        // a twoCellAnchor at rows 5..30; insert 2 rows at 3 -> both anchor rows shift +2 (7, 32).
+        let two = br#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:twoCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:row>5</xdr:row></xdr:from><xdr:to><xdr:col>3</xdr:col><xdr:row>30</xdr:row></xdr:to></xdr:twoCellAnchor></xdr:wsDr>"#;
+        let out = ins(two, &edit("S", Axis::Row, Op::Insert, 3, 2));
+        assert!(out.contains("<xdr:row>7</xdr:row>"), "from row 5->7: {out}");
+        assert!(
+            out.contains("<xdr:row>32</xdr:row>"),
+            "to row 30->32: {out}"
+        );
+        // an anchor ABOVE the edit is untouched (no false shift): row 0 anchor, insert at 25.
+        let above = br#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:row>0</xdr:row></xdr:from><xdr:ext cx="1" cy="1"/></xdr:oneCellAnchor></xdr:wsDr>"#;
+        assert!(
+            ins(above, &edit("S", Axis::Row, Op::Insert, 25, 1)).contains("<xdr:row>0</xdr:row>")
+        );
+        // a COLUMN edit shifts the <col>, not the <row>.
+        let out_c = ins(two, &edit("S", Axis::Col, Op::Insert, 1, 1));
+        assert!(
+            out_c.contains("<xdr:col>1</xdr:col>"),
+            "from col 0->1: {out_c}"
+        );
+        assert!(
+            out_c.contains("<xdr:col>4</xdr:col>"),
+            "to col 3->4: {out_c}"
+        );
+        assert!(
+            out_c.contains("<xdr:row>5</xdr:row>"),
+            "row untouched on a col edit: {out_c}"
+        );
+        // the edited-sheet dashboard layout no longer refuses.
+        let with_rels = |draw: &[u8]| -> Vec<u8> {
+            let base = std::fs::read(format!("{FIX}refs.xlsx")).unwrap();
+            let mut parts = zip_parts(&base);
+            let s1 = String::from_utf8(parts["xl/worksheets/sheet1.xml"].clone())
+                .unwrap()
+                .replace(
+                    "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">",
+                    "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">",
+                )
+                .replace("</worksheet>", "<drawing r:id=\"rId1\"/></worksheet>");
+            parts.insert("xl/worksheets/sheet1.xml".into(), s1.into_bytes());
+            parts.insert(
+                "xl/worksheets/_rels/sheet1.xml.rels".into(),
+                br#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>"#.to_vec(),
+            );
+            parts.insert("xl/drawings/drawing1.xml".into(), draw.to_vec());
+            rezip(&parts)
+        };
+        let wb = with_rels(two);
+        let (_o, report) =
+            structural_edit(&wb, &edit("Sheet1", Axis::Row, Op::Insert, 8, 1)).unwrap();
+        assert!(
+            !report
+                .residuals
+                .iter()
+                .any(|r| r.reason == "unshiftable_sheet_attachment"),
+            "a chart anchored after the edit must NOT refuse: {:?}",
+            report.residuals
+        );
     }
 
     #[test]
@@ -5439,10 +5608,13 @@ mod tests {
             br#"<worksheet><sheetData><row r="1"><c r="C1"><f>@A1:A10</f></c><c r="D1"><f>_xlfn.CONCAT(A1,A2)+_xlfn._xlws.FILTER(B1:B5,C1)</f></c><c r="E1"><f>SUM(A1:A9)</f></c></row></sheetData></worksheet>"#,
         );
         // `@` cell keyed by ref (signature is the `@` POSITION list); a plain formula excluded.
-        assert_eq!(m.get("C1").map(String::as_str), Some("@[0];;isect="));
+        assert_eq!(
+            m.get("C1").map(String::as_str),
+            Some("@[0];;isect=;coerce=")
+        );
         assert_eq!(
             m.get("D1").map(String::as_str),
-            Some("@[];_xlfn.CONCAT,_xlfn._xlws.FILTER;isect=")
+            Some("@[];_xlfn.CONCAT,_xlfn._xlws.FILTER;isect=;coerce=")
         );
         assert_eq!(m.get("E1"), None);
         assert_eq!(m.len(), 2);
@@ -5456,7 +5628,7 @@ mod tests {
         );
         assert_eq!(
             isa.get("C1").map(String::as_str),
-            Some("@[];;isect=A1:A10 A4:A4")
+            Some("@[];;isect=A1:A10 A4:A4;coerce=")
         );
         assert_ne!(
             isa.get("C1"),
