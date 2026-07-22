@@ -816,6 +816,30 @@ Two literal-value-tolerance experiments were tried and REVERTED as unsound: a nu
 be compared with a relative float tolerance, because a cache-stripped catastrophic-cancellation
 formula (`=(A1-1e12)*1e6`) amplifies even a 1-ULP input residual into the leading result figure with
 no counted diff. A literal value difference is therefore always disqualifying.
+- **`certify` compares the PivotTable filter/layout surface, not just its aggregation (false-certify
+  fix).** `pivot_refs` compared `dataField`/`refreshOnLoad` but not a field's axis placement, a hidden
+  item (`<item h="1">`, a manual filter that drops a row and changes the grand total), a page/report
+  filter, or a label/value filter. Under `refreshOnLoad` any of these re-aggregates the pivot on open
+  while the stale materialized cells the diff sees are unchanged. The filter surface is now compared.
+- **The vendored engine coerces a number to text at Excel's General precision (false-certify +
+  over-refusal fix).** `&`/`CONCATENATE`/`EXACT` rendered a coerced number with the raw f64 repr
+  (`="" & (0.1+0.2)` = `"0.30000000000000004"`) instead of Excel's 15-significant-figure General
+  format (`"0.3"`). The oracle vouches a `str:` cache byte-exactly, so the divergent render
+  false-certified a wrong displayed value and over-refused the faithful one; the `&` operator (not a
+  function) could never be caught by the function-exclusion set. Fixed at the source — number→text
+  coercion now uses `to_excel_precision_str` — so certify both refuses a forged coercion cache and
+  certifies the correct one.
+- **`certify` compares a cell's `vm`/`cm` metadata binding (false-certify fix).** A rich-value cell
+  points to its offline value in `xl/richData` through a `vm` index; the round-46 fix compared the
+  richData *content* but not the *binding*, so swapping `vm` (repointing `A1` from the MSFT rich value
+  to AAPL) silently changed the cell's value with the store and cell text byte-identical. The `vm`/`cm`
+  bindings are now compared.
+- **`certify` no longer compares a drawing's cell ANCHOR position (over-refusal fix).** A desktop
+  editor's `oneCellAnchor`↔`twoCellAnchor` re-encode can move the `<from>` anchor to the previous cell
+  with a compensating EMU offset for the identical on-screen position (`row=2,rowOff=0` ==
+  `row=1,rowOff=190500`), so any col/row comparison refused a positionally-faithful chart re-save.
+  Chart position changes no value and is outside certify's value/security charter; the value-bearing
+  drawing references (`<f>`, textlink, hyperlink) are still compared.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

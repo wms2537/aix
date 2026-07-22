@@ -308,10 +308,13 @@ impl<'a> Model<'a> {
         result: CalcResult,
         cell: CellReferenceIndex,
     ) -> Result<String, CalcResult> {
-        // FIXME: I think when casting a number we should convert it to_precision(x, 15)
-        // See function Exact
+        // Coercing a number to text (the `&` operator, CONCATENATE, EXACT, …) uses Excel's General
+        // format, which renders at 15 significant figures: `="" & (0.1+0.2)` is "0.3", not the raw
+        // f64 repr "0.30000000000000004". Rendering the raw f64 made certify's cache oracle vouch a
+        // divergent string against a `str:` cache (byte-exact), false-certifying a wrong displayed
+        // value and over-refusing the faithful one.
         match result {
-            CalcResult::Number(f) => Ok(format!("{f}")),
+            CalcResult::Number(f) => Ok(crate::number_format::to_excel_precision_str(f)),
             CalcResult::String(s) => Ok(s),
             CalcResult::Boolean(f) => {
                 if f {

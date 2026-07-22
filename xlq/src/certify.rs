@@ -359,6 +359,15 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        does not carry, so the cell diff misses it",
         }));
     }
+    if cell_metadata_bindings(expected) != cell_metadata_bindings(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "cell_metadata_mismatch",
+            "detail": "a cell's value-metadata/cell-metadata binding (the `vm`/`cm` pointer to its \
+                       rich value or dynamic-array metadata) differs from xlq's transform — a repoint \
+                       silently swaps the cell's real offline value while its text stays identical",
+        }));
+    }
     // Tokens the engine NORMALIZES AWAY on load — the required `_xlfn.` prefix on post-2007
     // functions (dropping it makes Excel show `#NAME?`) and the implicit-intersection `@`
     // operator (`@A1:A10` scalar vs the bare `A1:A10` spilling array) — are invisible to the
@@ -660,10 +669,13 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
             }
         } else if low.starts_with("xl/drawings/") && low.ends_with(".xml") {
             if let Ok(x) = crate::ooxml::read_part(bytes, n) {
-                // Only the `<from>` anchor corner — tolerates the value-neutral oneCellAnchor <->
-                // twoCellAnchor re-encoding every desktop editor performs (which changed the
-                // col/row token count and spuriously refused a faithful chart re-save).
-                drawings.extend(structural::drawing_from_anchors(&x));
+                // A drawing's cell ANCHOR (`<from>` col/row/colOff/rowOff) is pure DISPLAY position
+                // and is NOT compared: a desktop editor's oneCellAnchor<->twoCellAnchor re-encode
+                // can move the anchor to the previous cell with a compensating EMU offset for the
+                // IDENTICAL on-screen position (row=2,rowOff=0 == row=1,rowOff=190500), so any
+                // col/row comparison spuriously refuses a positionally-faithful re-save. Chart
+                // position changes no value and is outside certify's value/security charter; the
+                // value-bearing drawing references (`<f>`, textlink, hlink) below ARE compared.
                 // A graphic-frame formula (`<xdr:f>`) — a linked OLE/picture object's source
                 // cell — and a linked shape/textbox's `textlink="Sheet1!$A$8"` attribute are
                 // LIVE cell references the shape mirrors. The transform refuses an edit that
@@ -726,6 +738,53 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
 /// `MSFT`→`EVIL`) — a value/security change every cell diff misses because the cell text is
 /// unchanged — differs here and is refused. Rich values do NOT auto-refresh on open, so this is a
 /// static persisted value, not a volatile one; comparing it does not over-refuse a legitimate edit.
+/// Every worksheet cell's value-metadata / cell-metadata binding (`vm`/`cm` attributes), keyed by
+/// sheet and (shifted) cell ref, sorted. A rich-value cell points to its persisted value in
+/// `xl/richData` through `vm` -> `xl/metadata.xml` valueMetadata -> rich value; the cell text is
+/// only a `#VALUE!` fallback. A foreign edit that SWAPS `vm` (repointing `A1` from the MSFT rich
+/// value to the AAPL one) changes the cell's real offline value with the richData store and cell
+/// text both byte-identical, so neither `rich_data_values` nor the cell diff catches it — the
+/// binding itself must be compared. xlq's transform shifts the cell (carrying `vm`/`cm` with it),
+/// so a faithful edit keys identically and only a genuine repoint differs.
+fn cell_metadata_bindings(bytes: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (name, part) in sheets {
+        let Ok(xml) = crate::ooxml::read_part(bytes, &part) else {
+            continue;
+        };
+        let mut reader = quick_xml::Reader::from_reader(xml.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                    if structural::local_of(e.name().as_ref()) == b"c" =>
+                {
+                    let vm = attr_local(&e, b"vm");
+                    let cm = attr_local(&e, b"cm");
+                    if vm.is_some() || cm.is_some() {
+                        out.push(format!(
+                            "{name}|{}|vm={}|cm={}",
+                            attr_local(&e, b"r").unwrap_or_default(),
+                            vm.unwrap_or_default(),
+                            cm.unwrap_or_default(),
+                        ));
+                    }
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+    }
+    out.sort();
+    out
+}
+
 fn rich_data_values(bytes: &[u8]) -> Vec<String> {
     let names = structural::archive_names(bytes).unwrap_or_default();
     let mut out = Vec::new();
@@ -761,6 +820,15 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
                     b"cacheSource",
                     b"dataField",
                     b"pivotCacheDefinition",
+                    // Filter/layout surface: which field sits on which axis, which items are
+                    // HIDDEN (a manual report filter), the page (report) filter selection, and
+                    // label/value filters. A change to any re-aggregates the pivot on refresh
+                    // (automatic under refreshOnLoad) — a value the materialized output cells the
+                    // cell diff sees do not yet reflect.
+                    b"pivotField",
+                    b"item",
+                    b"pageField",
+                    b"filter",
                 ],
             ) {
                 let pick = |key: &str| {
@@ -769,6 +837,19 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
                         .find_map(|kv| kv.strip_prefix(key))
                         .unwrap_or("")
                         .to_string()
+                };
+                let boolish = |v: String, default_true: bool| {
+                    if v.is_empty() {
+                        if default_true {
+                            "1"
+                        } else {
+                            "0"
+                        }
+                    } else if v == "1" || v.eq_ignore_ascii_case("true") {
+                        "1"
+                    } else {
+                        "0"
+                    }
                 };
                 let sig = match tag.as_str() {
                     // A `<dataField>`'s aggregation (`subtotal`, default "sum" when absent) is the
@@ -788,14 +869,49 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
                     // action — so an injected refresh + an aggregation/source change materializes a
                     // corrupted value on load. Normalize to a bool (absent/0/false all mean off).
                     "pivotCacheDefinition" => {
-                        let rol = pick("refreshOnLoad=");
-                        let rol = if rol == "1" || rol.eq_ignore_ascii_case("true") {
-                            "1"
-                        } else {
-                            "0"
-                        };
-                        format!("pivotCacheDefinition|refreshOnLoad={rol}")
+                        format!(
+                            "pivotCacheDefinition|refreshOnLoad={}",
+                            boolish(pick("refreshOnLoad="), false)
+                        )
                     }
+                    // Which field is placed on which axis (row/col/page/data) — a re-placement
+                    // re-pivots the output.
+                    "pivotField" => format!(
+                        "pivotField|axis={}|dataField={}",
+                        pick("axis="),
+                        boolish(pick("dataField="), false),
+                    ),
+                    // A pivot field item: `h="1"` HIDES it (a manual filter that drops its row and
+                    // changes the grand total); `x` is its cache index, `t` its type (default
+                    // "data"). Defaults normalized so a foreign editor writing them explicitly is
+                    // not a spurious divergence.
+                    "item" => {
+                        let t = pick("t=");
+                        let t = if t.is_empty() { "data".to_string() } else { t };
+                        format!(
+                            "item|x={}|h={}|t={t}|sd={}",
+                            pick("x="),
+                            boolish(pick("h="), false),
+                            boolish(pick("sd="), true),
+                        )
+                    }
+                    // The report (page) filter selection.
+                    "pageField" => format!(
+                        "pageField|fld={}|item={}|hier={}|name={}",
+                        pick("fld="),
+                        pick("item="),
+                        pick("hier="),
+                        pick("name="),
+                    ),
+                    // A label/value/date auto-filter on a pivot field.
+                    "filter" => format!(
+                        "filter|fld={}|type={}|id={}|iMeasureFld={}|evalOrder={}",
+                        pick("fld="),
+                        pick("type="),
+                        pick("id="),
+                        pick("iMeasureFld="),
+                        pick("evalOrder="),
+                    ),
                     _ => format!(
                         "{tag}|sheet={}|ref={}|name={}|conn={}|type={}",
                         pick("sheet="),
@@ -2205,6 +2321,70 @@ mod tests {
     }
 
     #[test]
+    fn pivot_filter_surface_is_compared() {
+        // REGRESSION (round-47): a manual item filter (`<item h="1">`), a page filter, and a field's
+        // axis placement re-aggregate the pivot on refresh — pivot_refs must compare them, not just
+        // dataField/refreshOnLoad.
+        let pt = |body: &str| {
+            format!(r#"<pivotTableDefinition xmlns="urn:x">{body}</pivotTableDefinition>"#)
+        };
+        let shown = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &pt(
+                    r#"<pivotFields><pivotField axis="axisRow"><items><item x="0"/><item x="1"/></items></pivotField></pivotFields>"#,
+                ),
+            )],
+        );
+        let hidden = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &pt(
+                    r#"<pivotFields><pivotField axis="axisRow"><items><item x="0"/><item x="1" h="1"/></items></pivotField></pivotFields>"#,
+                ),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&shown),
+            pivot_refs(&hidden),
+            "a hidden-item filter must differ"
+        );
+        // Absent `h` == h="0" (no spurious refusal on a benign default).
+        let shown0 = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &pt(
+                    r#"<pivotFields><pivotField axis="axisRow"><items><item x="0" h="0"/><item x="1"/></items></pivotField></pivotFields>"#,
+                ),
+            )],
+        );
+        assert_eq!(pivot_refs(&shown), pivot_refs(&shown0));
+        // A page (report) filter selection change is caught.
+        let p1 = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &pt(r#"<pageFields><pageField fld="0" item="1"/></pageFields>"#),
+            )],
+        );
+        let p2 = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &pt(r#"<pageFields><pageField fld="0" item="2"/></pageFields>"#),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&p1),
+            pivot_refs(&p2),
+            "a page-filter change must differ"
+        );
+    }
+
+    #[test]
     fn x14_conditional_formatting_is_compared_not_presence_refused() {
         // x14 CF (and legacy CF/DV) are now COMPARED, not refused on presence — presence
         // refusal rejected xlq's own transform of any workbook with a CF rule.
@@ -2239,26 +2419,40 @@ mod tests {
     }
 
     #[test]
-    fn drawing_anchor_is_compared_not_presence_refused() {
-        // A drawing's cell anchor is COMPARED (not refused on presence) — refusing it
-        // rejected xlq's own transform of any workbook with a chart or image.
-        let draw = |row: &str| {
+    fn drawing_value_refs_compared_but_anchor_position_ignored() {
+        // A drawing's VALUE-bearing reference (a graphic-frame `<f>` source cell) is compared: a
+        // re-point is caught. But the cell ANCHOR position is DISPLAY-only and NOT compared
+        // (round-47): a desktop editor's oneCell<->twoCell re-encode can move the from-anchor to
+        // the previous cell with a compensating EMU offset for the identical on-screen position, so
+        // comparing col/row spuriously refused a positionally-faithful re-save.
+        let draw = |body: &str| {
             (
                 "xl/drawings/drawing1.xml",
-                format!(
-                    r#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:row>{row}</xdr:row></xdr:from></xdr:oneCellAnchor></xdr:wsDr>"#
-                ),
+                format!(r#"<xdr:wsDr xmlns:xdr="urn:xdr">{body}</xdr:wsDr>"#),
             )
         };
-        let (n, g) = draw("1");
-        let good = wb("", &[(n, g.as_str())]);
-        // identical drawing -> NOT refused
-        assert!(verify_noncell_refs(&good, &good).is_none());
-        // a mangled anchor row -> caught
-        let (n2, m) = draw("99");
-        let refusal = verify_noncell_refs(&good, &wb("", &[(n2, m.as_str())]))
-            .expect("mangled drawing anchor must be caught");
-        assert_eq!(refusal["reason"], "chart_drawing_mismatch");
+        // Same value ref, DIFFERENT anchor decomposition (row 2/off 0 vs row 1/off 190500 = same
+        // screen position) -> NOT refused (anchor position ignored).
+        let (n, a) = draw(
+            r#"<xdr:oneCellAnchor><xdr:from><xdr:col>7</xdr:col><xdr:row>2</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:graphicFrame><xdr:f>Data!$D$3</xdr:f></xdr:graphicFrame></xdr:oneCellAnchor>"#,
+        );
+        let (n2, b) = draw(
+            r#"<xdr:twoCellAnchor><xdr:from><xdr:col>7</xdr:col><xdr:row>1</xdr:row><xdr:rowOff>190500</xdr:rowOff></xdr:from><xdr:to><xdr:col>12</xdr:col><xdr:row>10</xdr:row></xdr:to><xdr:graphicFrame><xdr:f>Data!$D$3</xdr:f></xdr:graphicFrame></xdr:twoCellAnchor>"#,
+        );
+        let base = wb("", &[(n, a.as_str())]);
+        assert!(
+            verify_noncell_refs(&base, &wb("", &[(n2, b.as_str())])).is_none(),
+            "a value-neutral anchor re-encode must NOT refuse"
+        );
+        // A re-pointed graphic-frame source cell IS caught.
+        let (n3, evil) = draw(
+            r#"<xdr:oneCellAnchor><xdr:from><xdr:col>7</xdr:col><xdr:row>2</xdr:row></xdr:from><xdr:graphicFrame><xdr:f>Data!$Z$99</xdr:f></xdr:graphicFrame></xdr:oneCellAnchor>"#,
+        );
+        assert_eq!(
+            verify_noncell_refs(&base, &wb("", &[(n3, evil.as_str())]))
+                .expect("a re-pointed drawing ref must be caught")["reason"],
+            "chart_drawing_mismatch"
+        );
     }
 
     #[test]
@@ -2397,6 +2591,63 @@ mod tests {
             verify_noncell_refs(&good, &evil).expect("a rewritten rich value must refuse")
                 ["reason"],
             "rich_data_mismatch"
+        );
+    }
+
+    #[test]
+    fn cell_metadata_binding_repoint_is_caught() {
+        // REGRESSION (round-47): swapping a cell's `vm` repoints it to a DIFFERENT rich value with
+        // the richData store and cell text both byte-identical — the binding itself must be compared.
+        let ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        let pkg = "http://schemas.openxmlformats.org/package/2006/relationships";
+        let mk = |c1: &str, c2: &str| -> Vec<u8> {
+            let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let o = zip::write::SimpleFileOptions::default();
+            let mut put = |n: &str, b: String| {
+                z.start_file(n, o).unwrap();
+                z.write_all(b.as_bytes()).unwrap();
+            };
+            put("[Content_Types].xml", r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>"#.to_string());
+            put(
+                "_rels/.rels",
+                format!(
+                    r#"<Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/officeDocument" Target="xl/workbook.xml"/></Relationships>"#
+                ),
+            );
+            put(
+                "xl/workbook.xml",
+                format!(
+                    r#"<workbook xmlns="{ns}" xmlns:r="{r}"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>"#
+                ),
+            );
+            put(
+                "xl/_rels/workbook.xml.rels",
+                format!(
+                    r#"<Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#
+                ),
+            );
+            put(
+                "xl/worksheets/sheet1.xml",
+                format!(
+                    r#"<worksheet xmlns="{ns}"><sheetData><row r="1"><c r="C1" vm="{c1}" t="e"><v>#VALUE!</v></c><c r="C2" vm="{c2}" t="e"><v>#VALUE!</v></c></row></sheetData></worksheet>"#
+                ),
+            );
+            z.finish().unwrap().into_inner()
+        };
+        let orig = mk("3", "4");
+        assert_eq!(
+            cell_metadata_bindings(&orig),
+            cell_metadata_bindings(&mk("3", "4"))
+        );
+        assert_ne!(
+            cell_metadata_bindings(&orig),
+            cell_metadata_bindings(&mk("4", "3")),
+            "a vm repoint must differ"
+        );
+        assert_eq!(
+            verify_noncell_refs(&orig, &mk("4", "3")).expect("a vm repoint must refuse")["reason"],
+            "cell_metadata_mismatch"
         );
     }
 
