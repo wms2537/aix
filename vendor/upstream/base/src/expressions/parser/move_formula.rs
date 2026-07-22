@@ -286,6 +286,66 @@ fn to_string_moved(
             );
             format!("{s1}:{s2}")
         }
+        RangeKind3D(r) => {
+            // xlq shifts 3D spans via its own reference algebra; the engine move path is not on
+            // that path. Render the span to A1 (context-relative), sans move-area displacement.
+            let context = crate::expressions::types::CellReferenceRC {
+                sheet: move_context.source_sheet_name.to_string(),
+                column: move_context.column,
+                row: move_context.row,
+            };
+            let full_row =
+                r.absolute_row1 && r.absolute_row2 && (r.row1 == 1) && (r.row2 == LAST_ROW);
+            let full_column = r.absolute_column1
+                && r.absolute_column2
+                && (r.column1 == 1)
+                && (r.column2 == LAST_COLUMN);
+            let s1 = stringify_reference(
+                Some(&context),
+                &DisplaceData::None,
+                &Reference {
+                    sheet_name: &None,
+                    sheet_index: 0,
+                    row: r.row1,
+                    column: r.column1,
+                    absolute_row: r.absolute_row1,
+                    absolute_column: r.absolute_column1,
+                },
+                full_row,
+                full_column,
+            );
+            let range_str = if r.row1 == r.row2 && r.column1 == r.column2 {
+                s1
+            } else {
+                let s2 = stringify_reference(
+                    Some(&context),
+                    &DisplaceData::None,
+                    &Reference {
+                        sheet_name: &None,
+                        sheet_index: 0,
+                        row: r.row2,
+                        column: r.column2,
+                        absolute_row: r.absolute_row2,
+                        absolute_column: r.absolute_column2,
+                    },
+                    full_row,
+                    full_column,
+                );
+                format!("{s1}:{s2}")
+            };
+            let n1 =
+                crate::expressions::utils::quote_name(r.sheet_name1.as_deref().unwrap_or_default());
+            let n2 =
+                crate::expressions::utils::quote_name(r.sheet_name2.as_deref().unwrap_or_default());
+            format!("{n1}:{n2}!{range_str}")
+        }
+        WrongRangeKind3D(r) => {
+            let n1 =
+                crate::expressions::utils::quote_name(r.sheet_name1.as_deref().unwrap_or_default());
+            let n2 =
+                crate::expressions::utils::quote_name(r.sheet_name2.as_deref().unwrap_or_default());
+            format!("{n1}:{n2}!#REF!")
+        }
         WrongReferenceKind {
             sheet_name,
             absolute_row,

@@ -2023,6 +2023,9 @@ fn build_cache_oracle(
     // Cells whose formula PRODUCES a date serial — value-gated into `sources` below once the model
     // is evaluated (a pre-1900 serial the engine computes off-by-one from Excel is unvouchable).
     let mut date_producers: Vec<(u32, i32, i32)> = Vec::new();
+    // Cells whose formula uses a 3D span — value-gated into `sources` below (excluded only if the
+    // engine still cannot evaluate the span, i.e. its value is an error).
+    let mut three_d_span_cells: Vec<(u32, i32, i32)> = Vec::new();
     for cell in model.get_all_cells() {
         let Ok(Some(f)) = model.get_cell_formula(cell.index, cell.row, cell.column) else {
             continue;
@@ -2038,12 +2041,14 @@ fn build_cache_oracle(
         if !bad.is_empty() && fns.iter().any(|n| bad.contains(n)) {
             sources.push((cell.index, cell.row, cell.column));
         }
-        // A 3D (multi-sheet) span `Sheet1:Sheet3!A5` is UNEVALUABLE by IronCalc (it returns
-        // #VALUE!), so its engine value is a spurious error: vouching it would CERTIFY a forged
-        // #VALUE! cache (hiding the real number) and refuse the correct cache. Exclude the cell
-        // (and its dependents, via poison-and-diff) like any other engine-unvouchable construct.
+        // A 3D (multi-sheet) span `Sheet1:Sheet3!A5`: the vendored engine now EVALUATES these in the
+        // common consolidation aggregates (SUM/AVERAGE/COUNT/COUNTA/MIN/MAX/PRODUCT/…), so a
+        // correctly-computed span cache is vouchable. But a span used in a function the engine still
+        // cannot evaluate returns an ERROR — value-gated below (after evaluate) so only the still-
+        // unevaluable ones are excluded, closing the forged-#VALUE! false-certify without refusing
+        // the correct value.
         if crate::refshift::formula_contains_3d_span(&f) {
-            sources.push((cell.index, cell.row, cell.column));
+            three_d_span_cells.push((cell.index, cell.row, cell.column));
         }
         if fns
             .iter()
@@ -2073,6 +2078,14 @@ fn build_cache_oracle(
         let serial = cell_value_sig(model, s, r, c)
             .and_then(|sig| sig.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok()));
         if matches!(serial, Some(v) if v < 61.0) {
+            sources.push((s, r, c));
+        }
+    }
+    // Exclude a 3D-span cell ONLY if the engine still returns an ERROR for it (a span used in a
+    // function the engine cannot yet aggregate across sheets). A correctly-evaluated span (a number
+    // from SUM/AVERAGE/…) stays vouchable — the over-refusal fix. A no-value cell fails closed.
+    for &(s, r, c) in &three_d_span_cells {
+        if cell_value_sig(model, s, r, c).is_none_or(|sig| sig.starts_with("e:")) {
             sources.push((s, r, c));
         }
     }
@@ -3313,13 +3326,12 @@ mod tests {
     }
 
     #[test]
-    fn three_d_span_cell_excluded_from_oracle() {
-        // REGRESSION (round-50 defect 4): a 3D (multi-sheet) span `SUM(Sheet1:Sheet2!A5)` is
-        // UNEVALUABLE by IronCalc (it returns #VALUE!). Vouching that spurious engine error would
-        // CERTIFY a forged #VALUE! cache (hiding the real number) and refuse the correct one — so
-        // the cell (and its dependents) must be EXCLUDED from the oracle. A plain SUM stays
-        // vouchable.
-        let rows = r#"<row r="1"><c r="D1"><f>SUM(Sheet1:Sheet2!A5)</f><v>0</v></c><c r="E1"><f>D1+1</f><v>1</v></c><c r="B1"><f>SUM(C1:C2)</f><v>7</v></c></row><row r="2"><c r="C1"><v>3</v></c><c r="C2"><v>4</v></c></row>"#;
+    fn three_d_span_cell_vouched_when_the_engine_evaluates_it() {
+        // The vendored engine now EVALUATES 3D (multi-sheet) spans in aggregates (round-51), so a
+        // correctly-computed span cache is VOUCHABLE — the round-50 over-refusal is closed. The
+        // exclusion is now value-gated: only a span the engine still cannot evaluate (an ERROR
+        // value) is excluded, which keeps the forged-#VALUE! false-certify closed.
+        let rows = r#"<row r="1"><c r="D1"><f>SUM(Sheet1:Sheet2!A5)</f><v>10</v></c><c r="E1"><f>D1+1</f><v>11</v></c><c r="B1"><f>SUM(C1:C2)</f><v>7</v></c></row><row r="2"><c r="C1"><v>3</v></c><c r="C2"><v>4</v></c></row><row r="5"><c r="A5"><v>10</v></c></row>"#;
         let bytes = oracle_wb(rows);
         let mut model = load_from_bytes(
             &bytes,
@@ -3331,13 +3343,15 @@ mod tests {
         .expect("load 3d-span workbook");
         let oracle = build_cache_oracle(&mut model, false).expect("oracle is always Some");
         let key = |c: &str| ("Sheet1".to_string(), c.to_string());
-        assert!(
-            !oracle.contains_key(&key("D1")),
-            "a 3D-span cell must be excluded from the oracle: {oracle:?}"
+        // SUM(Sheet1:Sheet2!A5) = 10 (Sheet1!A5=10 + Sheet2!A5=empty) — vouched at the true value.
+        assert_eq!(
+            oracle.get(&key("D1")).map(String::as_str),
+            Some("n:10"),
+            "an evaluable 3D span must be vouched at its true value: {oracle:?}"
         );
         assert!(
-            !oracle.contains_key(&key("E1")),
-            "a cell depending on a 3D-span cell is excluded transitively"
+            oracle.contains_key(&key("E1")),
+            "a dependent of an evaluable 3D span is vouchable too"
         );
         assert!(
             oracle.contains_key(&key("B1")),

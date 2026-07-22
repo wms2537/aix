@@ -118,6 +118,10 @@ pub fn add_implicit_intersection(node: &mut Node, add: bool) {
                 };
             }
         }
+        Node::RangeKind3D { .. } | Node::WrongRangeKind3D { .. } => {
+            // A 3D span is consumed by an aggregate as a range; do not wrap it in an implicit
+            // intersection (in a scalar context it evaluates to a range and errors, as in Excel).
+        }
         Node::OpRangeKind { left, right } => {
             if add {
                 *node = Node::ImplicitIntersection {
@@ -233,6 +237,8 @@ pub fn remove_redundant_implicit_intersection(node: &mut Node, add: bool) {
         | Node::ArrayKind(_)
         | Node::ReferenceKind { .. }
         | Node::RangeKind { .. }
+        | Node::RangeKind3D { .. }
+        | Node::WrongRangeKind3D { .. }
         | Node::OpRangeKind { .. }
         | Node::DefinedNameKind(_)
         | Node::NamedVariableKind { .. }
@@ -362,6 +368,10 @@ pub(crate) fn run_static_analysis_on_node(node: &Node) -> StaticResult {
             column2,
             ..
         } => StaticResult::Range(row2 - row1, column2 - column1),
+        Node::RangeKind3D { .. } | Node::WrongRangeKind3D { .. } => {
+            // A 3D span aggregates across sheets; its flat shape is not a simple 2D block.
+            StaticResult::Unknown
+        }
         Node::OpRangeKind { .. } => {
             // TODO: We could do a bit better here
             StaticResult::Unknown

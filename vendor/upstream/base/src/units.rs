@@ -156,6 +156,10 @@ impl<'a> Model<'a> {
                     column: column1,
                 })
             }
+            Node::RangeKind3D { .. } | Node::WrongRangeKind3D { .. } => {
+                // A 3D span aggregates across sheets; it has no single well-defined unit.
+                None
+            }
             Node::OpSumKind {
                 kind: _,
                 left,

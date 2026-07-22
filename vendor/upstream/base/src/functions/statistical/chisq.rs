@@ -263,21 +263,26 @@ impl<'a> Model<'a> {
         right: CellReferenceIndex,
     ) -> Result<Vec<Option<f64>>, CalcResult> {
         let mut values = Vec::new();
-        for row_offset in 0..=(right.row - left.row) {
-            for col_offset in 0..=(right.column - left.column) {
-                let cell_ref = CellReferenceIndex {
-                    sheet: left.sheet,
-                    row: left.row + row_offset,
-                    column: left.column + col_offset,
-                };
-                let cell_value = self.evaluate_cell(cell_ref);
-                match cell_value {
-                    CalcResult::Number(v) => {
-                        values.push(Some(v));
-                    }
-                    error @ CalcResult::Error { .. } => return Err(error),
-                    _ => {
-                        values.push(None);
+        // A 3D span (Sheet1:Sheet3!…) has left.sheet != right.sheet — iterate the inclusive tab
+        // range so cells across all spanned sheets are collected (previously only left.sheet was
+        // read, SILENTLY dropping the other sheets). A single-sheet range runs the outer loop once.
+        for sheet in left.sheet.min(right.sheet)..=left.sheet.max(right.sheet) {
+            for row_offset in 0..=(right.row - left.row) {
+                for col_offset in 0..=(right.column - left.column) {
+                    let cell_ref = CellReferenceIndex {
+                        sheet,
+                        row: left.row + row_offset,
+                        column: left.column + col_offset,
+                    };
+                    let cell_value = self.evaluate_cell(cell_ref);
+                    match cell_value {
+                        CalcResult::Number(v) => {
+                            values.push(Some(v));
+                        }
+                        error @ CalcResult::Error { .. } => return Err(error),
+                        _ => {
+                            values.push(None);
+                        }
                     }
                 }
             }

@@ -648,6 +648,60 @@ impl<'a> Model<'a> {
                     },
                 }
             }
+            RangeKind3D(r) => {
+                let r1 = if r.absolute_row1 {
+                    r.row1
+                } else {
+                    r.row1 + cell.row
+                };
+                let r2 = if r.absolute_row2 {
+                    r.row2
+                } else {
+                    r.row2 + cell.row
+                };
+                let c1 = if r.absolute_column1 {
+                    r.column1
+                } else {
+                    r.column1 + cell.column
+                };
+                let c2 = if r.absolute_column2 {
+                    r.column2
+                } else {
+                    r.column2 + cell.column
+                };
+                // Normalize the tab range so left.sheet <= right.sheet (a reversed `Sheet3:Sheet1`
+                // span is the same set). Record a range dependency on EACH sheet so recalc dirties
+                // this cell when any source cell across the span changes.
+                let s1 = r.sheet_index1.min(r.sheet_index2);
+                let s2 = r.sheet_index1.max(r.sheet_index2);
+                for sheet in s1..=s2 {
+                    self.support
+                        .entry(cell)
+                        .or_default()
+                        .push(CellOrRange::Range((
+                            sheet,
+                            r1.min(r2),
+                            c1.min(c2),
+                            r1.max(r2),
+                            c1.max(c2),
+                        )));
+                }
+                CalcResult::Range {
+                    left: CellReferenceIndex {
+                        sheet: s1,
+                        row: r1.min(r2),
+                        column: c1.min(c2),
+                    },
+                    right: CellReferenceIndex {
+                        sheet: s2,
+                        row: r1.max(r2),
+                        column: c1.max(c2),
+                    },
+                }
+            }
+            WrongRangeKind3D { .. } => {
+                CalcResult::new_error(Error::REF, cell, "Wrong 3D range".to_string())
+            }
             OpConcatenateKind { left, right } => self.handle_concatenate(left, right, cell),
             OpProductKind { kind, left, right } => match kind {
                 OpProduct::Times => {

@@ -1,6 +1,7 @@
 mod test_add_implicit_intersection;
 mod test_arrays;
 mod test_complex_precedence;
+mod test_depth_guard;
 mod test_general;
 mod test_implicit_intersection;
 mod test_implicit_intersection_export;
@@ -14,6 +15,5 @@ mod test_move_formula;
 mod test_partial_parsing;
 mod test_ranges;
 mod test_stringify;
-mod test_depth_guard;
 mod test_tables;
 mod utils;

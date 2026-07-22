@@ -355,6 +355,24 @@ impl<'a> Lexer<'a> {
                             } else if name_upper == self.language.booleans.r#false {
                                 return TokenType::Boolean(false);
                             }
+                            // 3D (multi-sheet) span `SheetA:SheetB!ref`: a NON-reference identifier
+                            // followed by ':' <second sheet name> '!'. The name-not-a-reference guard
+                            // keeps the ordinary range operator untouched — `A5:Sheet3!A5` has a cell
+                            // (A5) on the left and is handled by the existing operator path. Look
+                            // ahead WITHOUT committing; restore and fall through if the pattern fails.
+                            if next_char_is_colon
+                                && utils::parse_reference_a1(&name_upper).is_none()
+                                && !utils::is_valid_column(name_upper.trim_start_matches('$'))
+                            {
+                                let save = self.position;
+                                self.position += 1; // ':'
+                                let name2 = self.consume_identifier();
+                                if !name2.is_empty() && self.peek_char() == Some('!') {
+                                    self.position += 1; // '!'
+                                    return self.consume_range_3d(name, name2);
+                                }
+                                self.position = save; // not a 3D span — fall through
+                            }
                             if self.peek_char() == Some('(') {
                                 return TokenType::Ident(name);
                             }
@@ -816,6 +834,26 @@ impl<'a> Lexer<'a> {
                     }
                 }
             }
+            Err(error) => TokenType::Illegal(error),
+        }
+    }
+
+    /// Consume the trailing reference of a 3D span (`SheetA:SheetB!` already consumed) and produce a
+    /// `Range3D` token carrying both sheet names. A single-cell trailing ref (`A5`) becomes
+    /// left == right; a range trailing ref (`A5:B7`) keeps its two corners.
+    fn consume_range_3d(&mut self, sheet1: String, sheet2: String) -> TokenType {
+        let m = if self.mode == LexerMode::A1 {
+            self.consume_range_a1()
+        } else {
+            self.consume_range_r1c1()
+        };
+        match m {
+            Ok(ParsedRange { left, right }) => TokenType::Range3D {
+                sheet1,
+                sheet2,
+                right: right.unwrap_or_else(|| left.clone()),
+                left,
+            },
             Err(error) => TokenType::Illegal(error),
         }
     }
