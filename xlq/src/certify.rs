@@ -398,6 +398,19 @@ fn verify_noncell_refs_named(
             "detail": "a chart data reference or drawing anchor differs from xlq's transform",
         }));
     }
+    // EXTERNAL relationship targets (linked image `<a:blip r:link>`, hover hyperlink, linked OLE /
+    // media, external-workbook link) live inside allowlisted `.rels` parts and are resolved by no
+    // other comparator — a repoint to an attacker URL/UNC would otherwise CERTIFY. xlq copies them
+    // verbatim, so a faithful edit matches; a repoint / insertion / removal differs. (Hyperlinks are
+    // excluded — compared with their own internal-jump / self-file folds above.)
+    if external_rels_targets(expected) != external_rels_targets(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "external_relationship_mismatch",
+            "detail": "an external relationship target (linked image / OLE / media / workbook link) \
+                       differs from xlq's transform — a repointed external target",
+        }));
+    }
     // PIVOT tables/caches carry a source range (`<worksheetSource ref>`), a render location, and
     // a connection binding the cell diff never sees. The transform shifts the edited-sheet
     // source and preserves the rest, so a faithful edit matches and a mangle (a repointed
@@ -1355,9 +1368,62 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
                 };
                 out.push(sig);
             }
+            // A pivot CALCULATED FIELD (`<cacheField formula="Revenue-Cost" databaseField="0"/>`)
+            // and calculated item/member (`<calculatedItem>`/`<calculatedMember formula=…>`) are
+            // re-aggregation INPUTS: on refresh the pivot recomputes every data cell from these
+            // formulas, so tampering one silently corrupts the output. `element_attr_semantics`
+            // space-joins its attribute string, which truncates a formula containing spaces, so read
+            // these formula attributes DIRECTLY (full value) instead.
+            out.extend(pivot_calc_formula_sigs(&x));
         }
     }
     out.sort();
+    out
+}
+
+/// Full-value signatures for a pivot part's calculated-field / calculated-item / calculated-member
+/// FORMULAS (read directly, so a formula containing spaces is not truncated). A cache field is
+/// emitted only when it carries a `formula` (a calculated field); a plain source `cacheField` has
+/// none and is skipped (its identity is compared elsewhere via the dataField `fld` index).
+fn pivot_calc_formula_sigs(xml: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let name = e.name();
+                let kind = match structural::local_of(name.as_ref()) {
+                    b"cacheField" => "cacheField",
+                    b"calculatedItem" => "calculatedItem",
+                    b"calculatedMember" => "calculatedMember",
+                    _ => {
+                        buf.clear();
+                        continue;
+                    }
+                };
+                let formula = attr_local(&e, b"formula");
+                // Only a cacheField WITH a formula is a calculated field; a plain source column has
+                // none. calculatedItem/Member always carry one.
+                if kind == "cacheField" && formula.is_none() {
+                    buf.clear();
+                    continue;
+                }
+                out.push(format!(
+                    "{kind}|name={}|field={}|formula={}|databaseField={}",
+                    attr_local(&e, b"name").unwrap_or_default(),
+                    attr_local(&e, b"field").unwrap_or_default(),
+                    formula.unwrap_or_default(),
+                    attr_local(&e, b"databaseField").unwrap_or_default(),
+                ));
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
     out
 }
 
@@ -1753,6 +1819,56 @@ fn rels_targets(bytes: &[u8], sheet_part: &str) -> std::collections::BTreeMap<St
         rest = &rest[gt..];
     }
     map
+}
+
+/// Every EXTERNAL relationship target across ALL `*.rels` parts, EXCEPT `hyperlink` (which has its
+/// own normalized comparators — worksheet `structural_ref_attrs` with the internal-jump / self-file
+/// folds, and drawing `hlinkClick` in `chart_drawing_refs`). This closes the hole that the blanket
+/// `.rels` allowlist left open: certify resolved external targets for only hyperlink + hlinkClick,
+/// so a LINKED image (`<a:blip r:link>`), a hover hyperlink, a linked OLE server, linked media, or
+/// an external-workbook link — all `TargetMode="External"` in an allowlisted `.rels` with a
+/// byte-identical owning part — could be repointed to an attacker URL/UNC and CERTIFY. xlq's
+/// transform copies these verbatim, so a faithful edit keys identically; only a genuine repoint
+/// (or an inserted/removed external link) changes the sorted multiset. Keyed by relationship TYPE +
+/// TARGET, not by part name, so a benign part renumber does not false-refuse.
+fn external_rels_targets(bytes: &[u8]) -> Vec<String> {
+    let names = structural::archive_names(bytes).unwrap_or_default();
+    let mut out = Vec::new();
+    for n in &names {
+        let low = n.to_ascii_lowercase();
+        if !low.ends_with(".rels") {
+            continue;
+        }
+        let Ok(part) = crate::ooxml::read_part(bytes, n) else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&part);
+        let mut rest: &str = &text;
+        while let Some(p) = rest.find("<Relationship ") {
+            rest = &rest[p..];
+            let Some(gt) = rest.find('>') else { break };
+            let tag = &rest[..gt];
+            rest = &rest[gt..];
+            // Only externally-resolved targets are a repoint surface; internal (package) targets are
+            // parts compared by the part allowlist / their own bytes.
+            if !attr(tag, "TargetMode").is_some_and(|m| m.eq_ignore_ascii_case("External")) {
+                continue;
+            }
+            let (Some(ty), Some(target)) = (attr(tag, "Type"), attr(tag, "Target")) else {
+                continue;
+            };
+            // The relationship TYPE's local segment (`.../relationships/image` -> `image`).
+            let ty_local = ty.rsplit(['/', ':']).next().unwrap_or(&ty).to_string();
+            // Hyperlinks are compared (with internal-jump / self-file folds) by the dedicated
+            // hyperlink comparators; re-emitting them here would double-refuse the folded forms.
+            if ty_local.eq_ignore_ascii_case("hyperlink") {
+                continue;
+            }
+            out.push(format!("ext|{ty_local}|{target}"));
+        }
+    }
+    out.sort();
+    out
 }
 
 /// The workbook's sheet names IN ORDER plus the VALUE-affecting workbook settings, sorted.
@@ -2221,6 +2337,81 @@ fn intersection_cells(bytes: &[u8]) -> std::collections::HashSet<(String, String
     set
 }
 
+/// True if `name_lower` (a lower-cased defined-name identifier) occurs in `formula` as a WHOLE
+/// token — bounded by non-identifier characters — matched case-insensitively. Over-approximates a
+/// reference (a name that appears inside a quoted string literal also matches), which is the SOUND
+/// direction here: it can only over-exclude a cell from the oracle (a preserved cache stays
+/// unverified -> refused), never miss a genuine dependence.
+fn formula_references_name(formula: &str, name_lower: &str) -> bool {
+    if name_lower.is_empty() {
+        return false;
+    }
+    // Excel names are case-insensitive and may contain letters/digits/`_`/`.`/`\`/non-ASCII.
+    let is_ident =
+        |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || b == b'\\' || b >= 0x80;
+    let hay = formula.to_lowercase();
+    let hb = hay.as_bytes();
+    let nlen = name_lower.len();
+    let mut from = 0usize;
+    while let Some(rel) = hay[from..].find(name_lower) {
+        let s = from + rel;
+        let e = s + nlen;
+        let before_ok = s == 0 || !is_ident(hb[s - 1]);
+        let after_ok = e >= hb.len() || !is_ident(hb[e]);
+        if before_ok && after_ok {
+            return true;
+        }
+        from = s + 1;
+    }
+    false
+}
+
+/// The transitive-closure set (lower-cased) of DEFINED-NAME identifiers whose refers-to body
+/// reaches a function in `targets` — directly (a call to a target function) or indirectly (a
+/// reference to another defined name already in the set). Used to find cells whose value launders a
+/// bad/date function through a defined name, which cell-level poison-and-diff cannot isolate.
+fn defined_names_reaching(
+    model: &ironcalc::base::Model,
+    targets: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    let mut reaching = std::collections::HashSet::new();
+    if targets.is_empty() {
+        return reaching;
+    }
+    let defined: Vec<(String, String)> = model
+        .workbook
+        .defined_names
+        .iter()
+        .map(|d| (d.name.to_lowercase(), d.formula.clone()))
+        .collect();
+    // Seed: a body that directly calls a target function.
+    for (n, f) in &defined {
+        if crate::census::extract_function_names(f)
+            .iter()
+            .any(|x| targets.contains(x))
+        {
+            reaching.insert(n.clone());
+        }
+    }
+    // Fixpoint: a body that references a name already known to reach a target.
+    loop {
+        let mut grew = false;
+        for (n, f) in &defined {
+            if reaching.contains(n) {
+                continue;
+            }
+            if reaching.iter().any(|bn| formula_references_name(f, bn)) {
+                reaching.insert(n.clone());
+                grew = true;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    reaching
+}
+
 fn build_cache_oracle(
     model: &mut ironcalc::base::Model,
     date1904: bool,
@@ -2250,6 +2441,23 @@ fn build_cache_oracle(
     if date1904 {
         bad.extend(DATE_EPOCH_FUNCTIONS.iter().map(|s| s.to_string()));
     }
+    // DEFINED-NAME laundering: `bad` (from the census) includes a bad function that appears inside a
+    // DEFINED NAME's refers-to body, not only in a cell formula. Poison-and-diff isolates a cell's
+    // dependence on a bad *cell* (it poisons the source cell and diffs) and on a bad function reached
+    // *through* a defined name that resolves to a bad cell (the alias re-resolves during evaluation) —
+    // but it CANNOT isolate a bad FUNCTION living in a defined-name body, because a defined name is
+    // not a cell it can poison. So a cell `=IFERROR(MyUDF_name, 999)` would survive with the engine's
+    // WRONG value (999) and vouch a forged cache. Close the gap: compute the transitive-closure set of
+    // defined names whose body (directly or via another such name) reaches a bad function, then mark
+    // any cell that references one as a `source` so poison-and-diff drops it and its dependents.
+    let bad_names = defined_names_reaching(model, &bad);
+    let name_produces_date: std::collections::HashSet<String> = defined_names_reaching(
+        model,
+        &DATE_SERIAL_PRODUCERS
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    );
     let names: Vec<String> = model
         .get_worksheets_properties()
         .into_iter()
@@ -2287,6 +2495,12 @@ fn build_cache_oracle(
         if !bad.is_empty() && fns.iter().any(|n| bad.contains(n)) {
             sources.push((cell.index, cell.row, cell.column));
         }
+        // ...or the cell references a defined name whose body reaches a bad function (laundering the
+        // engine's wrong value through the name). Over-approximates via whole-word match, so at worst
+        // it over-excludes (a preserved cache stays unverified -> refused) — never under-excludes.
+        if !bad_names.is_empty() && bad_names.iter().any(|n| formula_references_name(&f, n)) {
+            sources.push((cell.index, cell.row, cell.column));
+        }
         // A 3D (multi-sheet) span `Sheet1:Sheet3!A5`: the vendored engine now EVALUATES these in the
         // common consolidation aggregates (SUM/AVERAGE/COUNT/COUNTA/MIN/MAX/PRODUCT/…), so a
         // correctly-computed span cache is vouchable. But a span used in a function the engine still
@@ -2299,7 +2513,13 @@ fn build_cache_oracle(
         if fns
             .iter()
             .any(|n| DATE_SERIAL_PRODUCERS.contains(&n.as_str()))
+            || (!name_produces_date.is_empty()
+                && name_produces_date
+                    .iter()
+                    .any(|n| formula_references_name(&f, n)))
         {
+            // Value-gated below (only a produced serial < 61 is off-by-one from Excel), so this also
+            // covers a date serial produced through a defined name, not just an inline call.
             date_producers.push((cell.index, cell.row, cell.column));
         }
     }
@@ -2950,6 +3170,62 @@ mod tests {
     }
 
     #[test]
+    fn pivot_calculated_field_formula_is_compared() {
+        // REGRESSION (round-53 defect 2): a pivot CALCULATED FIELD's formula (<cacheField
+        // formula=…>) re-aggregates every data cell on refresh, so tampering it corrupts the pivot
+        // output — pivot_refs must compare it. And it must read the FULL formula (a formula with
+        // spaces was truncated by the space-joined attr `pick`, so `Revenue - Cost` and
+        // `Revenue - Evil` collided).
+        let cache = |formula: &str| {
+            format!(
+                r#"<pivotCacheDefinition xmlns="urn:x"><cacheFields><cacheField name="Revenue"/><cacheField name="Cost"/><cacheField name="Margin" databaseField="0" formula="{formula}"/></cacheFields></pivotCacheDefinition>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &cache("Revenue-Cost"),
+            )],
+        );
+        let evil = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &cache("Revenue*100"),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&good),
+            pivot_refs(&evil),
+            "a calculated-field formula change must be caught"
+        );
+        // A formula containing SPACES that differs only after the first token must still differ
+        // (the full value is read, not the split-whitespace first token).
+        let spaced_good = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &cache("Revenue - Cost"),
+            )],
+        );
+        let spaced_evil = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &cache("Revenue - Evil"),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&spaced_good),
+            pivot_refs(&spaced_evil),
+            "a space-containing calculated-field formula must not be truncated to its first token"
+        );
+        // A plain source cacheField (no formula) does not spuriously refuse a re-serialization.
+        assert_eq!(pivot_refs(&good), pivot_refs(&good));
+    }
+
+    #[test]
     fn pivot_filter_surface_is_compared() {
         // REGRESSION (round-47): a manual item filter (`<item h="1">`), a page filter, and a field's
         // axis placement re-aggregate the pivot on refresh — pivot_refs must compare them, not just
@@ -3517,6 +3793,32 @@ mod tests {
         out.finish().unwrap().into_inner()
     }
 
+    /// Like `oracle_wb`, but also injects `defined_names_xml` (a `<definedNames>…</definedNames>`
+    /// block) into workbook.xml after `</sheets>`. Used to place a function inside a DEFINED NAME —
+    /// which the engine's defined-name API validator rejects, so it must come from the loaded XML.
+    fn oracle_wb_named(rows: &str, defined_names_xml: &str) -> Vec<u8> {
+        use std::io::Read;
+        let base = oracle_wb(rows);
+        let mut ar = zip::ZipArchive::new(Cursor::new(base.as_slice())).unwrap();
+        let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default();
+        for i in 0..ar.len() {
+            let mut f = ar.by_index(i).unwrap();
+            let name = f.name().to_string();
+            let mut b = Vec::new();
+            f.read_to_end(&mut b).unwrap();
+            out.start_file(&name, opts).unwrap();
+            if name == "xl/workbook.xml" {
+                let s = String::from_utf8(b).unwrap();
+                let patched = s.replacen("</sheets>", &format!("</sheets>{defined_names_xml}"), 1);
+                out.write_all(patched.as_bytes()).unwrap();
+            } else {
+                out.write_all(&b).unwrap();
+            }
+        }
+        out.finish().unwrap().into_inner()
+    }
+
     #[test]
     fn cache_oracle_poison_diff_isolates_tainted_cells() {
         // REGRESSION (round-36): a policy-limited/unsupported/UDF function no longer disables the
@@ -3626,6 +3928,54 @@ mod tests {
         assert!(
             oracle.contains_key(&key("C1")),
             "a modern DATE serial (>= 61) stays vouchable — no over-refusal: {oracle:?}"
+        );
+    }
+
+    #[test]
+    fn bad_function_laundered_through_a_defined_name_is_excluded() {
+        // REGRESSION (round-53 defect 1, HIGH false-certify): a bad (unsupported/UDF) function that
+        // lives ONLY inside a DEFINED NAME's body is invisible to the cell-formula scan that builds
+        // `sources`, and poison-and-diff cannot poison a name — so a cell `=IFERROR(Bad,999)` used to
+        // survive with the engine's WRONG masked value (999) and vouch a forged cache. The
+        // defined-name closure must now mark such a cell as a source and EXCLUDE it, while a pure SUM
+        // stays vouchable (no blanket over-refusal).
+        // `Bad` refers to RTD — a policy-limited function (its value depends on an external service
+        // the engine never contacts, so the engine computes it WRONG, a #N/A the IFERROR masks to
+        // 999). It stands in for any bad function (UDF / unsupported / engine-divergent). It is
+        // injected into workbook.xml directly (the defined-name VALIDATOR rejects a function body via
+        // the API), and appears ONLY in the name — no cell formula calls RTD.
+        let rows = r#"<row r="1"><c r="A1"><v>10</v></c><c r="B1"><f>IFERROR(Bad,999)</f><v>999</v></c><c r="C1"><f>B1+1</f><v>1000</v></c><c r="D1"><f>SUM(A1:A1)</f><v>10</v></c></row>"#;
+        let names =
+            r#"<definedNames><definedName name="Bad">RTD("a","","b")</definedName></definedNames>"#;
+        let bytes = oracle_wb_named(rows, names);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load udf-name workbook");
+        let census = crate::census::function_census(&model);
+        assert!(
+            census.policy_limited.contains_key("RTD"),
+            "the function inside the defined name must be in the bad set: {census:?}"
+        );
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("B1")),
+            "a cell laundering a bad function through a defined name must be EXCLUDED (else a forged \
+             cache would false-certify): {oracle:?}"
+        );
+        assert!(
+            !oracle.contains_key(&key("C1")),
+            "a transitive dependent of the laundering cell is excluded too"
+        );
+        assert!(
+            oracle.contains_key(&key("D1")),
+            "a pure SUM independent of the bad name stays vouchable — no blanket over-refusal"
         );
     }
 
@@ -3902,6 +4252,55 @@ mod tests {
         let refusal =
             verify_noncell_refs(&good, &evil).expect("drawing hyperlink retarget must be caught");
         assert_eq!(refusal["reason"], "chart_drawing_mismatch");
+    }
+
+    #[test]
+    fn drawing_linked_image_external_target_repoint_is_caught() {
+        // REGRESSION (round-53 defect 7, HIGH security): a drawing LINKED image (`<a:blip r:link>`)
+        // resolves through the drawing's `.rels` to a `TargetMode="External"` URL that Excel
+        // auto-fetches on open. Only hyperlink + hlinkClick were resolved, so repointing the blip
+        // link to an attacker URL/UNC (drawing part byte-identical, change lives in the allowlisted
+        // `.rels`) used to CERTIFY. The external-rels comparator now catches it.
+        let parts = |target: &str| {
+            vec![
+                (
+                    "xl/drawings/drawing1.xml".to_string(),
+                    r#"<xdr:wsDr xmlns:xdr="urn:xdr" xmlns:a="urn:a"><xdr:pic><xdr:blipFill><a:blip xmlns:r="urn:r" r:link="rId1"/></xdr:blipFill></xdr:pic></xdr:wsDr>"#.to_string(),
+                ),
+                (
+                    "xl/drawings/_rels/drawing1.xml.rels".to_string(),
+                    format!(r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{target}" TargetMode="External"/></Relationships>"#),
+                ),
+            ]
+        };
+        let mk = |target: &str| {
+            let p = parts(target);
+            wb(
+                "",
+                &p.iter()
+                    .map(|(a, b)| (a.as_str(), b.as_str()))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let good = mk("https://legit.example/logo.png");
+        assert!(
+            verify_noncell_refs(&good, &good).is_none(),
+            "an identical linked image must not refuse"
+        );
+        let evil = mk(r"\\attacker.example\share\x.png");
+        let refusal =
+            verify_noncell_refs(&good, &evil).expect("a repointed linked-image target must refuse");
+        assert_eq!(refusal["reason"], "external_relationship_mismatch");
+        // An EMBEDDED image (internal, no TargetMode) is a package part, not an external target, so
+        // it does not enter this comparator (no over-refusal on a benign embed).
+        let embed = wb(
+            "",
+            &[(
+                "xl/drawings/_rels/drawing1.xml.rels",
+                r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/></Relationships>"#,
+            )],
+        );
+        assert!(external_rels_targets(&embed).is_empty());
     }
 
     #[test]

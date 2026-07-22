@@ -125,9 +125,36 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
             bytes.clone()
         };
         if name == edited_part {
+            // FAIL-CLOSED (round-53 defect 8): the streaming row insert/delete rewrite matches
+            // `<row>`/`<sheetData>` by FULL qualified name, but transform_tag shifts a cell `<c>` by
+            // LOCAL name. So a worksheet that binds the spreadsheetML namespace to a PREFIX
+            // (`<x:worksheet …><x:row><x:c>`) would have its CELL coordinates shifted while its ROW
+            // elements stay stale and the blank-row/delete logic is skipped — a silent value
+            // corruption the reopen check does not catch. A fully prefix-aware rewrite would touch
+            // the whole hot path (rewrite_edited_sheet[_move], maybe_inject, inject_blanks_at_end,
+            // delete_skip, expand_shared_in_sheet, strip_formula_caches, insert_overflows_grid); no
+            // real spreadsheet tool emits a prefixed main namespace, so we refuse this pathological
+            // encoding rather than risk the common path — never silently wrong.
+            if edited_sheet_has_prefixed_grid(&bytes) {
+                report.residuals.push(Residual {
+                    part: name.clone(),
+                    reason: "namespace_prefixed_worksheet".into(),
+                    detail: "the edited worksheet binds the spreadsheetML namespace to a PREFIX \
+                             (<x:row>/<x:c>); xlq's row insert/delete rewrite is not prefix-aware, \
+                             so committing it would shift cells without shifting their rows — edit \
+                             refused (fail-closed)"
+                        .into(),
+                });
+            }
             // Materialize shared formulas so σ shifts them uniformly, then run
             // the row/cell coordinate + formula surgery on the explicit sheet.
             let expanded = expand_shared_in_sheet(&bytes)?;
+            // Re-target autoFilter `<filterColumn colId>` (a column offset the ref shift leaves
+            // stale) BEFORE the ref itself is shifted by rewrite_edited_sheet, using the same
+            // shift_sqref so the two stay consistent.
+            let (expanded, afn, afe) = shift_autofilter_columns(&expanded, &edit.sheet, edit)?;
+            report.refs_shifted += afn;
+            report.ref_errors += afe;
             bytes = rewrite_edited_sheet(&expanded, edit, &name, &mut report)?;
             // A hyperlink's `location` (its destination) is not touched by rewrite_edited_sheet
             // (which shifts the `ref` it sits on); shift it here so a link into a moved cell
@@ -264,6 +291,14 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
                         .into(),
                 });
             }
+        } else if name == "xl/_rels/workbook.xml.rels" && mentions_dropped_part(&bytes) {
+            // The calcChain / volatileDependencies parts are DROPPED above; prune their
+            // workbook-rels <Relationship> too, else the package carries a dangling relationship
+            // (OPC-invalid — strict readers reject it and Excel flags the file for repair).
+            bytes = prune_relationships_to_dropped(&bytes);
+        } else if name == "[Content_Types].xml" && mentions_dropped_part(&bytes) {
+            // ...and prune the matching <Override> so no orphaned content-type declaration remains.
+            bytes = prune_content_type_overrides_of_dropped(&bytes);
         }
         // Engine-free xlq cannot recompute a formula result, and a structural edit changes
         // computed values transitively across the workbook, so every stored formula cache is now
@@ -312,6 +347,109 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
     report.parts_touched.insert(0, edited_part);
     let cur = writer.finish().map_err(|e| anyhow!("finalize: {e}"))?;
     Ok((cur.into_inner(), report))
+}
+
+/// Parts `structural_edit` DROPS (Excel rebuilds them on open). When a part is dropped its
+/// workbook-rels `<Relationship>` and `[Content_Types]` `<Override>` must be pruned too, or the
+/// package is left with a dangling relationship / orphaned override (OPC-invalid).
+const DROPPED_PARTS: &[&str] = &["xl/calcChain.xml", "xl/volatileDependencies.xml"];
+
+/// Cheap gate: do these bytes even mention a dropped part's basename? Avoids re-serializing
+/// workbook.xml.rels / [Content_Types].xml (and marking them touched) on the common workbook that
+/// has neither part.
+fn mentions_dropped_part(bytes: &[u8]) -> bool {
+    let hay = String::from_utf8_lossy(bytes);
+    DROPPED_PARTS
+        .iter()
+        .any(|p| p.rsplit('/').next().is_some_and(|base| hay.contains(base)))
+}
+
+/// Stream `xml`, dropping every top-level element whose LOCAL name is `local` and for which
+/// `drop_it` returns true (an OOXML `<Relationship>`/`<Override>` is always self-closing, but the
+/// Start..End form is handled too). On a parse error the ORIGINAL bytes are returned unchanged
+/// (fail-safe: never corrupt a part we could not fully parse).
+fn prune_elements(xml: &[u8], local: &[u8], drop_it: impl Fn(&BytesStart) -> bool) -> Vec<u8> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut writer = Writer::new(Cursor::new(Vec::new()));
+    let mut buf = Vec::new();
+    let mut skip_name: Vec<u8> = Vec::new();
+    let mut skip_depth = 0u32;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Empty(e))
+                if skip_depth == 0 && tag_local_eq(e.name().as_ref(), local) && drop_it(&e) => {}
+            Ok(Event::Start(e))
+                if skip_depth == 0 && tag_local_eq(e.name().as_ref(), local) && drop_it(&e) =>
+            {
+                skip_name = e.name().as_ref().to_vec();
+                skip_depth = 1;
+            }
+            Ok(Event::Start(e)) if skip_depth > 0 && e.name().as_ref() == skip_name.as_slice() => {
+                skip_depth += 1;
+            }
+            Ok(Event::End(e)) if skip_depth > 0 && e.name().as_ref() == skip_name.as_slice() => {
+                skip_depth -= 1;
+            }
+            Ok(_) if skip_depth > 0 => {}
+            Ok(Event::Eof) => break,
+            Ok(other) => {
+                let _ = writer.write_event(other);
+            }
+            Err(_) => return xml.to_vec(),
+        }
+        buf.clear();
+    }
+    writer.into_inner().into_inner()
+}
+
+/// Remove workbook-rels `<Relationship>`s whose `Target` resolves (relative to `xl/`) to a dropped
+/// part.
+fn prune_relationships_to_dropped(xml: &[u8]) -> Vec<u8> {
+    prune_elements(xml, b"Relationship", |e| {
+        attr_by_local(e, b"Target")
+            .map(|t| crate::ooxml::resolve_target("xl", &t))
+            .is_some_and(|p| DROPPED_PARTS.contains(&p.as_str()))
+    })
+}
+
+/// Remove `[Content_Types]` `<Override>`s whose `PartName` is a dropped part.
+fn prune_content_type_overrides_of_dropped(xml: &[u8]) -> Vec<u8> {
+    prune_elements(xml, b"Override", |e| {
+        attr_by_local(e, b"PartName").is_some_and(|p| {
+            let norm = p.trim_start_matches('/');
+            DROPPED_PARTS.contains(&norm)
+        })
+    })
+}
+
+/// True if the edited worksheet carries a NAMESPACE PREFIX on any grid element
+/// (`sheetData`/`row`/`c`/`f`/`v`) — e.g. `<x:row>` with `x` bound to the spreadsheetML main
+/// namespace. The row/insert/delete rewrite is not prefix-aware, so such a sheet is refused
+/// upfront (fail-closed) rather than committed with cells shifted but rows stale.
+fn edited_sheet_has_prefixed_grid(xml: &[u8]) -> bool {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let name = e.name();
+                let full = name.as_ref();
+                let local = local_of(full);
+                // A prefix is present iff the qualified name differs from its local part.
+                if full != local && matches!(local, b"sheetData" | b"row" | b"c" | b"f" | b"v") {
+                    return true;
+                }
+            }
+            // A parse error here is not our concern — the row/cell path handles malformed input
+            // elsewhere; report no prefix so we do not mask a different failure mode.
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    false
 }
 
 /// Parse a cell coordinate like `B5` into (col, row), 1-based.
@@ -795,7 +933,13 @@ fn edited_sheet_bad_attachment(
     sheet_part: &str,
     edit: &StructuralEdit,
 ) -> Option<String> {
-    const SAFE: &[&str] = &["/hyperlink", "/printerSettings", "/table"];
+    // `/image` at the WORKSHEET level is the sheet-background picture (`<picture r:id>` /
+    // CT_SheetBackgroundPicture) — it tiles the whole sheet and carries NO cell anchor, so a
+    // row/column edit never moves it and xlq's verbatim copy is a faithful identity. (Images
+    // embedded in a drawing are referenced from the DRAWING part's own rels, not the worksheet's, so
+    // a worksheet `/image` is unconditionally coordinate-free.) Refusing it was an over-refusal on
+    // every sheet that has a background image.
+    const SAFE: &[&str] = &["/hyperlink", "/printerSettings", "/table", "/image"];
     let (dir, file) = sheet_part.rsplit_once('/')?;
     let rels_part = format!("{dir}/_rels/{file}.rels");
     let bytes = crate::ooxml::read_part(input, &rels_part).ok()?;
@@ -1690,16 +1834,21 @@ pub(crate) fn formula_cache_map(xml: &[u8]) -> std::collections::BTreeMap<String
                 cap_v = true;
                 v_text.clear();
             }
-            Ok(Event::Text(t)) if cap_v => {
-                v_text.push_str(&String::from_utf8_lossy(t.as_ref()));
-            }
+            // Accumulate the `<v>` cache RAW (escaped): under quick-xml an entity reference
+            // (`&amp;`/`&lt;`/`&gt;`) arrives as a separate GeneralRef event, so a Text-only capture
+            // would DROP it (`Sales &amp; Costs` -> `Sales  Costs`) and never match the engine's true
+            // unescaped value — a spurious refusal of a faithful cache. Reassembled + unescaped at
+            // `</c>`, exactly as the other body readers do.
+            Ok(Event::Text(t)) if cap_v => push_text_raw(&mut v_text, &t),
+            Ok(Event::GeneralRef(r)) if cap_v => push_ref_raw(&mut v_text, &r),
             Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"v") => {
                 cap_v = false;
             }
             Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
-                if has_f && !v_text.trim().is_empty() {
+                let v_val = logical_formula(&v_text).unwrap_or_else(|| v_text.clone());
+                if has_f && !v_val.trim().is_empty() {
                     if let Some(r) = cell_ref.take() {
-                        out.insert(r, format!("{cell_type}:{}", v_text.trim()));
+                        out.insert(r, format!("{cell_type}:{}", v_val.trim()));
                     }
                 }
                 cell_ref = None;
@@ -4194,6 +4343,147 @@ fn has_ref_attr(name: &[u8]) -> bool {
 /// Returns (bytes, shifted, ref_errors); a target a delete CONSUMES becomes `#REF!`, mirroring
 /// the cell-formula path and Excel. When nothing shifts, the ORIGINAL bytes are returned
 /// verbatim so a no-op does not re-serialize the part (which would spuriously mark it touched).
+/// The 1-based column index of a reference's FIRST cell (`A1:D13` -> 1, `$C$2` -> 3).
+fn first_col_of_ref(reference: &str) -> Option<u32> {
+    let first = reference
+        .split(':')
+        .next()
+        .unwrap_or(reference)
+        .replace('$', "");
+    parse_cell_rc(&first).map(|(col, _row)| col)
+}
+
+/// Translate a single `<filterColumn>`'s `colId` for a column edit. `colId` is a 0-based offset
+/// from the autoFilter range's first column, so its ABSOLUTE column = `old_first + colId`. Returns
+/// `None` to DROP the filterColumn (its column was deleted / fell outside the shifted range), or
+/// `Some((tag, changed))` with the (possibly rewritten) element.
+fn translate_filter_column(
+    e: &BytesStart,
+    old_first: u32,
+    new_first: u32,
+    edit: &StructuralEdit,
+) -> Option<(BytesStart<'static>, bool)> {
+    let Some(col_id) = attr_u32(e, b"colId") else {
+        return Some((e.to_owned(), false)); // no colId to translate
+    };
+    let old_abs = old_first + col_id;
+    match refshift::shift_index(old_abs, edit) {
+        None => None, // filtered column deleted -> drop
+        Some(new_abs) if new_abs >= new_first => {
+            let new_col_id = new_abs - new_first;
+            if new_col_id == col_id {
+                Some((e.to_owned(), false))
+            } else {
+                Some((
+                    set_attrs(e, &[(b"colId".as_slice(), new_col_id.to_string())]),
+                    true,
+                ))
+            }
+        }
+        Some(_) => None, // shifted before the range's new first column -> drop (out of range)
+    }
+}
+
+/// Re-target every `<filterColumn colId>` under a sheet `<autoFilter>` when a COLUMN insert/delete
+/// moves the filtered column. `colId` is a 0-based offset from the autoFilter range's first column
+/// that the streaming rewrite (which shifts only the parent `ref`) leaves stale — so after the edit
+/// the filter predicate points at the wrong (blank/shifted) column, silently changing which rows a
+/// SUBTOTAL/AGGREGATE over the range hides. Runs BEFORE the `ref` is shifted and derives the new
+/// first column with the SAME `shift_sqref` the ref shift uses, so the two stay consistent. No-op
+/// for row/move edits (`colId` is a column offset; a move leaves the autoFilter extent invariant).
+fn shift_autofilter_columns(
+    xml: &[u8],
+    sheet: &str,
+    edit: &StructuralEdit,
+) -> Result<(Vec<u8>, u32, u32)> {
+    if edit.axis != Axis::Col || !matches!(edit.op, Op::Insert | Op::Delete) {
+        return Ok((xml.to_vec(), 0, 0));
+    }
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut writer = Writer::new(Cursor::new(Vec::new()));
+    let mut buf = Vec::new();
+    // (old_first_col, new_first_col) of the enclosing autoFilter, present only when both parse.
+    let mut cur: Option<(u32, u32)> = None;
+    let (mut shifted, mut errs) = (0u32, 0u32);
+    loop {
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| anyhow!("xml: {e}"))?;
+        match ev {
+            Event::Start(e) if local_of(e.name().as_ref()) == b"autoFilter" => {
+                // Derive (old first col, new first col) with the SAME shift_sqref the ref shift
+                // uses, so colId translation stays consistent with the (later) ref shift.
+                cur = attr_by_local(&e, b"ref").and_then(|reference| {
+                    let old = first_col_of_ref(&reference)?;
+                    let new_ref = shift_sqref(&reference, sheet, edit).0;
+                    let new = first_col_of_ref(&new_ref)?;
+                    Some((old, new))
+                });
+                writer.write_event(Event::Start(e.into_owned()))?;
+            }
+            Event::End(e) if local_of(e.name().as_ref()) == b"autoFilter" => {
+                cur = None;
+                writer.write_event(Event::End(e.into_owned()))?;
+            }
+            Event::Start(e) if local_of(e.name().as_ref()) == b"filterColumn" && cur.is_some() => {
+                let (of, nf) = cur.expect("checked is_some");
+                match translate_filter_column(&e, of, nf, edit) {
+                    Some((tag, changed)) => {
+                        shifted += changed as u32;
+                        writer.write_event(Event::Start(tag))?;
+                    }
+                    None => {
+                        // Drop the whole filterColumn subtree (its filters/criteria go with it).
+                        errs += skip_element(&mut reader, b"filterColumn")?;
+                        shifted += 1;
+                    }
+                }
+            }
+            Event::Empty(e) if local_of(e.name().as_ref()) == b"filterColumn" && cur.is_some() => {
+                let (of, nf) = cur.expect("checked is_some");
+                match translate_filter_column(&e, of, nf, edit) {
+                    Some((tag, changed)) => {
+                        shifted += changed as u32;
+                        writer.write_event(Event::Empty(tag))?;
+                    }
+                    None => shifted += 1, // dropped, no children
+                }
+            }
+            Event::Eof => break,
+            other => writer.write_event(other.into_owned())?,
+        }
+        buf.clear();
+    }
+    Ok((writer.into_inner().into_inner(), shifted, errs))
+}
+
+/// Consume events until the End that closes the currently-open element with local name `local`
+/// (which has already been read). Returns 0 (no error signalled; a dropped element is a faithful
+/// removal, not a #REF!).
+fn skip_element(reader: &mut Reader<&[u8]>, local: &[u8]) -> Result<u32> {
+    let mut depth = 1i32;
+    let mut buf = Vec::new();
+    loop {
+        match reader
+            .read_event_into(&mut buf)
+            .map_err(|e| anyhow!("xml: {e}"))?
+        {
+            Event::Start(e) if local_of(e.name().as_ref()) == local => depth += 1,
+            Event::End(e) if local_of(e.name().as_ref()) == local => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    Ok(0)
+}
+
 fn shift_hyperlink_locations(
     xml: &[u8],
     host: &str,
@@ -5548,11 +5838,13 @@ mod tests {
             ).into_bytes()
         };
         let base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-        // SAFE types produce no residual.
+        // SAFE types produce no residual. `/image` (round-53 defect 5) is the coordinate-free
+        // sheet-background picture at the worksheet level — an over-refusal until it was whitelisted.
         for ty in [
             format!("{base}/hyperlink"),
             format!("{base}/printerSettings"),
             format!("{base}/table"),
+            format!("{base}/image"),
         ] {
             let z = with_rels(&rel(&ty));
             assert!(
@@ -5928,6 +6220,132 @@ mod tests {
             br#"<worksheet><sheetData><row r="1"><c r="C1" t="str"><f>x</f><v>7</v></c></row></sheetData></worksheet>"#,
         );
         assert_eq!(text.get("C1").map(String::as_str), Some("str:7"));
+        // REGRESSION (round-53 defect 3): a cached STRING result containing an XML entity
+        // (`&amp;`/`&lt;`/`&gt;`) must be reassembled + UNESCAPED to the engine's true value, not
+        // have the entity dropped (`Sales &amp; Costs` -> `Sales  Costs`), which spuriously refused a
+        // faithful cache. The signature is the unescaped `str:Sales & Costs`.
+        let ent = formula_cache_map(
+            br#"<worksheet><sheetData><row r="1"><c r="C1" t="str"><f>A&amp;B</f><v>Sales &amp; Costs</v></c><c r="D1" t="str"><f>x</f><v>a &lt; b</v></c></row></sheetData></worksheet>"#,
+        );
+        assert_eq!(ent.get("C1").map(String::as_str), Some("str:Sales & Costs"));
+        assert_eq!(ent.get("D1").map(String::as_str), Some("str:a < b"));
+    }
+
+    #[test]
+    fn autofilter_filter_column_colid_is_retargeted() {
+        // REGRESSION (round-53 defect 4, silent-wrong): `<filterColumn colId>` is a 0-based offset
+        // from the autoFilter range's first column. When a COLUMN edit moves the filtered column it
+        // must be re-targeted (or dropped if its column is deleted); left stale it points the filter
+        // predicate at the wrong column, changing which rows SUBTOTAL/AGGREGATE hides.
+        let af = br#"<worksheet><sheetData/><autoFilter ref="A1:D13"><filterColumn colId="2"><filters><filter val="8"/></filters></filterColumn></autoFilter></worksheet>"#;
+        let colid = |xml: &[u8]| -> Option<u32> {
+            let s = String::from_utf8_lossy(xml);
+            s.split("colId=\"")
+                .nth(1)
+                .and_then(|t| t.split('"').next())
+                .and_then(|v| v.parse().ok())
+        };
+        // insert a column at 3 (the filtered column C): C moves to D, offset 2 -> 3.
+        let (out, n, _) =
+            shift_autofilter_columns(af, "Sheet1", &edit("Sheet1", Axis::Col, Op::Insert, 3, 1))
+                .unwrap();
+        assert_eq!(
+            colid(&out),
+            Some(3),
+            "colId re-targeted after column insert"
+        );
+        assert_eq!(n, 1);
+        // delete column B: C(3)->B(2), first col stays A -> offset 1.
+        let (out, _, _) =
+            shift_autofilter_columns(af, "Sheet1", &edit("Sheet1", Axis::Col, Op::Delete, 2, 1))
+                .unwrap();
+        assert_eq!(
+            colid(&out),
+            Some(1),
+            "colId re-targeted after column delete"
+        );
+        // delete the FILTERED column C itself: the whole <filterColumn> (with its <filters>) is dropped.
+        let (out, _, _) =
+            shift_autofilter_columns(af, "Sheet1", &edit("Sheet1", Axis::Col, Op::Delete, 3, 1))
+                .unwrap();
+        assert!(
+            !String::from_utf8_lossy(&out).contains("filterColumn"),
+            "deleted filtered column drops the filterColumn: {}",
+            String::from_utf8_lossy(&out)
+        );
+        assert!(
+            !String::from_utf8_lossy(&out).contains("<filter "),
+            "the filter criteria go with it"
+        );
+        // a ROW edit does not touch colId (it is a column offset) — no-op, byte-identical.
+        let (out, n, _) =
+            shift_autofilter_columns(af, "Sheet1", &edit("Sheet1", Axis::Row, Op::Insert, 2, 1))
+                .unwrap();
+        assert_eq!(
+            out,
+            af.to_vec(),
+            "a row edit leaves the autoFilter untouched"
+        );
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn prefixed_worksheet_grid_is_detected() {
+        // REGRESSION (round-53 defect 8, HIGH silent-wrong): a worksheet that binds the
+        // spreadsheetML namespace to a PREFIX must be detected so the edit refuses (fail-closed)
+        // rather than shift cells while leaving rows stale. An ordinary (default-namespace) sheet —
+        // the universal case — must NOT be flagged (no over-refusal).
+        assert!(edited_sheet_has_prefixed_grid(
+            br#"<x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData><x:row r="1"><x:c r="A1"><x:v>1</x:v></x:c></x:row></x:sheetData></x:worksheet>"#
+        ));
+        assert!(!edited_sheet_has_prefixed_grid(
+            br#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>"#
+        ));
+        // A prefix on an UNRELATED element (a foreign extension) does not trip the grid detector.
+        assert!(!edited_sheet_has_prefixed_grid(
+            br#"<worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData><ext:extLst xmlns:ext="urn:x"><ext:ext/></ext:extLst></worksheet>"#
+        ));
+    }
+
+    #[test]
+    fn dropped_part_relationship_and_override_are_pruned() {
+        // REGRESSION (round-53 defect 6, HIGH invalid-output): dropping calcChain.xml /
+        // volatileDependencies.xml must also prune their workbook-rels <Relationship> and
+        // [Content_Types] <Override>, else the package has a dangling relationship / orphaned
+        // override (OPC-invalid — strict readers reject it, Excel flags the file for repair).
+        let rels = br#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="x/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId5" Type="x/calcChain" Target="calcChain.xml"/><Relationship Id="rId6" Type="x/volatileDependencies" Target="volatileDependencies.xml"/><Relationship Id="rId2" Type="x/styles" Target="styles.xml"/></Relationships>"#;
+        let pruned = String::from_utf8(prune_relationships_to_dropped(rels)).unwrap();
+        assert!(
+            !pruned.contains("calcChain.xml"),
+            "calcChain rel pruned: {pruned}"
+        );
+        assert!(
+            !pruned.contains("volatileDependencies.xml"),
+            "volatileDependencies rel pruned: {pruned}"
+        );
+        assert!(
+            pruned.contains("worksheets/sheet1.xml"),
+            "worksheet rel kept"
+        );
+        assert!(pruned.contains("styles.xml"), "styles rel kept");
+
+        let ct = br#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/workbook.xml" ContentType="a"/><Override PartName="/xl/calcChain.xml" ContentType="b"/><Override PartName="/xl/styles.xml" ContentType="c"/></Types>"#;
+        let pruned_ct = String::from_utf8(prune_content_type_overrides_of_dropped(ct)).unwrap();
+        assert!(
+            !pruned_ct.contains("/xl/calcChain.xml"),
+            "calcChain override pruned: {pruned_ct}"
+        );
+        assert!(
+            pruned_ct.contains("/xl/workbook.xml"),
+            "workbook override kept"
+        );
+        assert!(pruned_ct.contains("/xl/styles.xml"), "styles override kept");
+
+        // A workbook with NEITHER part is not gated in (no needless re-serialization).
+        assert!(!mentions_dropped_part(
+            br#"<Relationships><Relationship Target="styles.xml"/></Relationships>"#
+        ));
+        assert!(mentions_dropped_part(rels));
     }
 
     #[test]
