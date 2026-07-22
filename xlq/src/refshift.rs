@@ -1041,15 +1041,18 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
     // range? Excel/IronCalc accept whitespace around the range colon (`A2 : A8` is the
     // range A2:A8), so we must skip it — otherwise the head and tail tokenize as two
     // independent single cells and shift separately, bypassing shift_span's straddle
-    // residual and delete clamp (a silent value corruption). (A space with NO colon is
-    // the intersection operator, a different construct, and is correctly left alone.)
+    // residual and delete clamp (a silent value corruption). Whitespace here is ANY of
+    // space/tab/newline/CR — Excel's formula bar (Alt+Enter) writes a newline, e.g.
+    // `A1\n:A10`; skipping only 0x20 left those tail cells to #REF! silently. (Whitespace
+    // with NO colon is the intersection operator, a different construct, and is left alone.)
+    let is_ws = |b: Option<&u8>| matches!(b, Some(b' ' | b'\t' | b'\n' | b'\r'));
     let mut colon = l1;
-    while sb.get(colon) == Some(&b' ') {
+    while is_ws(sb.get(colon)) {
         colon += 1;
     }
     if sb.get(colon) == Some(&b':') {
         let mut tail_start = colon + 1;
-        while sb.get(tail_start) == Some(&b' ') {
+        while is_ws(sb.get(tail_start)) {
             tail_start += 1;
         }
         let (l2, c2, r2) = scan_endpoint(&s[tail_start..]);

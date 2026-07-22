@@ -174,6 +174,28 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
             bytes = out;
             report.refs_shifted += n;
             report.ref_errors += r;
+            // Legacy conditional-formatting / data-validation formula bodies
+            // (`<formula>`/`<formula1>`/`<formula2>`) on a foreign sheet can reference the edited
+            // sheet (a dashboard CF rule `Data!$A$11>50`); shift them like `<f>` (host = this sheet,
+            // so a foreign-LOCAL ref stays put and only an edited-sheet-qualified ref moves). Runs
+            // regardless of the `<f>` gate — a sheet whose ONLY cross-reference is such a formula
+            // still needs it shifted (else it is left stale, the over-refusal these used to trip).
+            for tag in [b"formula".as_slice(), b"formula1", b"formula2"] {
+                let (out, n, r, qrisk) = shift_text_in_element(&bytes, tag, edit, &host)?;
+                bytes = out;
+                report.refs_shifted += n;
+                report.ref_errors += r;
+                if qrisk {
+                    report.residuals.push(Residual {
+                        part: name.clone(),
+                        reason: "non_ascii_sheet_qualifier".into(),
+                        detail: "unquoted non-ASCII sheet qualifier in a cross-sheet \
+                                 conditional-formatting / data-validation formula — edit refused \
+                                 (fail-closed)"
+                            .into(),
+                    });
+                }
+            }
         } else if name == "xl/workbook.xml" {
             let (out, n, r, qrisk) = shift_defined_names(&bytes, edit, &sheet_names)?;
             bytes = out;
@@ -1175,7 +1197,10 @@ fn edited_sheet_body_unshifted_ref(
                         .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                         .unwrap_or_default();
                     // `ref`/`sqref` is shifted ONLY for the has_ref_attr elements; on anything
-                    // else it is left stale — but flag it only if this edit would move it.
+                    // else it is left stale — but flag it only if this edit would move it. Matched
+                    // by FULL name (see shift_ref_attrs): a namespace-prefixed element is left to
+                    // refuse here because resolving whether its prefix is spreadsheetML (shift) or a
+                    // foreign namespace (must not shift the attribute) needs namespace resolution.
                     if (k == b"ref" || k == b"sqref") && !has_ref_attr(full) {
                         return would_shift(&val);
                     }
@@ -1544,6 +1569,88 @@ pub(crate) fn date_typed_value_cells(xml: &[u8]) -> Vec<(String, String)> {
     out
 }
 
+/// Cell refs (`<c r>`) whose `<f>` body carries a range-intersection — Excel's space operator
+/// (`A1:A10 A3:A5`), at any paren depth (inside `SUM(…)` too). IronCalc cannot evaluate an
+/// intersection: it collapses the second operand (SUM form -> #ERROR!) or returns a wrong scalar
+/// (bare form), so the cache oracle must NOT vouch these cells (they are excluded, fail-closed).
+/// Detected from the RAW `<f>` because the engine's own reparse drops the operator. Namespace-aware.
+pub(crate) fn cells_with_range_intersection(xml: &[u8]) -> Vec<String> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut cur_ref: Option<String> = None;
+    let mut in_f = false;
+    let mut raw = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                cur_ref = attr_by_local(&e, b"r");
+            }
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
+                in_f = true;
+                raw.clear();
+            }
+            Ok(Event::Text(t)) if in_f => push_text_raw(&mut raw, &t),
+            Ok(Event::GeneralRef(r)) if in_f => push_ref_raw(&mut raw, &r),
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
+                in_f = false;
+                let body = logical_formula(&raw).unwrap_or_else(|| raw.clone());
+                if has_range_intersection_any_depth(&body) {
+                    if let Some(r) = cur_ref.clone() {
+                        out.push(r);
+                    }
+                }
+                raw.clear();
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                cur_ref = None;
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
+/// True if any `<c>` cell carries TWO OR MORE `<v>` value children — a schema violation (CT_Cell
+/// permits at most one `<v>`). Excel and LibreOffice (lenient readers) take the LAST `<v>`, but
+/// ironcalc's importer misreads such a cell as empty/error, so certify's engine snapshot is blind
+/// to a value injected as a second `<v>`. certify refuses a workbook carrying one (fail-closed).
+/// Namespace-aware; an unparseable sheet returns true (fail-closed).
+pub(crate) fn cell_has_repeated_value(xml: &[u8]) -> bool {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut in_c = false;
+    let mut v_count = 0u32;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                in_c = true;
+                v_count = 0;
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                in_c = false;
+            }
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if in_c && tag_local_eq(e.name().as_ref(), b"v") =>
+            {
+                v_count += 1;
+                if v_count >= 2 {
+                    return true;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => return true, // unparseable -> fail closed
+            _ => {}
+        }
+        buf.clear();
+    }
+    false
+}
+
 /// Map every FORMULA cell (`<c>` with an `<f>`) that carries a PRESENT, non-empty stored
 /// cache (`<v>…</v>`) to its stored value text, keyed by the cell's `r` reference.
 ///
@@ -1878,6 +1985,68 @@ fn has_top_level_intersection(body: &str) -> bool {
             '(' | '[' | '{' => depth += 1,
             ')' | ']' | '}' => depth -= 1,
             _ if c.is_whitespace() && depth == 0 => {
+                let prev = chars[..i]
+                    .iter()
+                    .rev()
+                    .find(|c| !c.is_whitespace())
+                    .copied();
+                let mut j = i;
+                while j < chars.len() && chars[j].is_whitespace() {
+                    j += 1;
+                }
+                let next = chars.get(j).copied();
+                if let (Some(p), Some(n)) = (prev, next) {
+                    if is_operand_end(p) && is_operand_start(n) {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
+/// True if `body` contains a range-INTERSECTION operator at ANY paren depth (`SUM(A1:A10 A3:A5)` as
+/// well as the bare top-level `A1:A10 A3:A5`): a whitespace run OUTSIDE string/quoted-name literals
+/// and OUTSIDE a `[...]` structured-ref bracket (where a column name legitimately holds spaces,
+/// e.g. `Table[Amount Due]`), flanked by operand characters. IronCalc cannot evaluate an
+/// intersection anywhere (it errors or returns a wrong scalar), so certify excludes such a cell
+/// from the cache oracle. (Distinct from `has_top_level_intersection`, which is depth-0 only and
+/// feeds the hidden-token signature.)
+fn has_range_intersection_any_depth(body: &str) -> bool {
+    let chars: Vec<char> = body.chars().collect();
+    let mut bracket_depth: i32 = 0;
+    let mut in_dq = false;
+    let mut in_sq = false;
+    let is_operand_end =
+        |c: char| c.is_alphanumeric() || matches!(c, ')' | '$' | '!' | '}' | '_' | '.' | '#');
+    let is_operand_start =
+        |c: char| c.is_alphanumeric() || matches!(c, '$' | '\'' | '[' | '_' | '(');
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if in_dq {
+            if c == '"' {
+                in_dq = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_sq {
+            if c == '\'' {
+                in_sq = false;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            '"' => in_dq = true,
+            '\'' => in_sq = true,
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = (bracket_depth - 1).max(0),
+            _ if c.is_whitespace() && bracket_depth == 0 => {
                 let prev = chars[..i]
                     .iter()
                     .rev()
@@ -2272,12 +2441,11 @@ fn foreign_sheet_cross_ref_unshifted(xml: &[u8], edit: &StructuralEdit) -> bool 
             Ok(Event::Start(e)) => {
                 let name = e.name();
                 let is_f = tag_local_eq(name.as_ref(), b"f");
-                // A plain/shared `<f>` IS shifted (shared via expansion), and so is `<xm:f>`
-                // (the x14/sparkline extLst formula — same local name `f`, matched by the
-                // shift). Captured as UNSHIFTED: a non-`<f>` legacy formula tag (`<formula>` /
-                // `<formula1>` / `<formula2>`), or an ARRAY `<f>` (the shift skips it).
-                let unshifted_body =
-                    (is_formula_tag(name.as_ref()) && !is_f) || (is_f && is_array_f(&e));
+                // A plain/shared `<f>` IS shifted (shared via expansion), so is `<xm:f>` (the
+                // x14/sparkline extLst formula — same local name `f`), and so now are the legacy
+                // CF/DV formula tags (`<formula>`/`<formula1>`/`<formula2>`, shifted in the foreign
+                // path). The ONLY formula body the shift still skips is an ARRAY `<f>`.
+                let unshifted_body = is_f && is_array_f(&e);
                 if unshifted_body {
                     capture_depth += 1;
                     raw.clear();
@@ -4133,6 +4301,11 @@ fn shift_ref_attrs(
     report: &mut StructuralReport,
 ) -> BytesStart<'static> {
     let name = e.name().as_ref().to_vec();
+    // Matched by the FULL element name (namespace-prefix SENSITIVE): a prefixed `<x:mergeCell>`
+    // could be a spreadsheetML element (same namespace, just prefixed — should shift) OR a foreign
+    // element that merely shares the local name (should NOT have its attribute rewritten). Telling
+    // them apart needs namespace resolution (the prefix's xmlns binding), which this scan does not
+    // do — so it stays conservative (a prefixed element is left to the pre-flight refusal).
     let ref_attrs: &[&[u8]] = match name.as_slice() {
         b"mergeCell" | b"hyperlink" | b"dimension" | b"autoFilter" | b"sortState"
         | b"sortCondition" => &[b"ref"],
@@ -5527,37 +5700,29 @@ mod tests {
     }
 
     #[test]
-    fn foreign_cross_ref_uses_the_shift_oracle_not_substrings() {
-        // Insert at row 1 so every row reference on the edited sheet shifts.
+    fn foreign_cf_dv_formula_cross_ref_is_shifted_not_refused() {
+        // REGRESSION (round-51 defect 4): a foreign CF <formula> / DV <formula1> naming the edited
+        // sheet is now SHIFTED (host = its own sheet), so foreign_sheet_cross_ref_unshifted does NOT
+        // flag it. (A 3D-span / non-ASCII CF formula stays refused — via the separate
+        // threeD_span_unverifiable / non_ascii_qualifier residuals, not this scan.)
         let e = edit("Sheet1", Axis::Row, Op::Insert, 1, 1);
         let hit = |xml: &[u8]| foreign_sheet_cross_ref_unshifted(xml, &e);
 
-        // A foreign CF <formula> naming the edited sheet is unshifted by the base engine.
-        assert!(hit(br#"<worksheet><conditionalFormatting sqref="D1"><cfRule><formula>Sheet1!$A$11&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#));
-        // Data-validation <formula1>.
-        assert!(hit(br#"<worksheet><dataValidation sqref="E1"><formula1>Sheet1!$B$1</formula1></dataValidation></worksheet>"#));
-        // ARRAY <f> — shift_text_in_element SKIPS these, so a cross-ref is left stale.
+        let cf = br#"<worksheet><conditionalFormatting sqref="D1"><cfRule><formula>Sheet1!$A$11&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#;
+        assert!(!hit(cf));
+        let (out, n, _r, _q) = shift_text_in_element(cf, b"formula", &e, "Sheet2").unwrap();
+        assert!(n >= 1 && String::from_utf8_lossy(&out).contains("Sheet1!$A$12"));
+        let dv = br#"<worksheet><dataValidation sqref="E1"><formula1>Sheet1!$B$1</formula1></dataValidation></worksheet>"#;
+        assert!(!hit(dv));
+        let (out, n, _r, _q) = shift_text_in_element(dv, b"formula1", &e, "Sheet2").unwrap();
+        assert!(n >= 1 && String::from_utf8_lossy(&out).contains("Sheet1!$B$2"));
+
+        // ARRAY <f> — shift_text_in_element SKIPS these, so a cross-ref is left stale -> still flagged.
         assert!(hit(br#"<worksheet><sheetData><row r="1"><c r="A1"><f t="array" ref="A1:B2">SUM(Sheet1!A1)</f></c></row></sheetData></worksheet>"#));
-
-        // --- evasions the old substring predicate missed, now caught by the σ oracle ---
-        // 3D span whose FIRST endpoint is the edited sheet ("Sheet1:" not "Sheet1!").
-        assert!(hit(br#"<worksheet><conditionalFormatting sqref="D1"><cfRule><formula>SUM(Sheet1:Sheet3!$A$1)&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#));
-        // Case-variant qualifier.
-        assert!(hit(br#"<worksheet><dataValidation sqref="E1"><formula1>SHEET1!$A$1</formula1></dataValidation></worksheet>"#));
-        // Entity-encoded `!` (a GeneralRef) reassembled before the oracle.
-        assert!(hit(br#"<worksheet><dataValidation sqref="E1"><formula1>Sheet1&#33;$A$1</formula1></dataValidation></worksheet>"#));
-
-        // --- must NOT flag (no over-refusal) ---
-        // A plain cell <f> IS shifted by the base engine -> not a residual hazard.
+        // A plain cell <f> IS shifted -> not a residual hazard.
         assert!(!hit(br#"<worksheet><sheetData><row r="1"><c r="A1"><f>Sheet1!A11</f></c></row></sheetData></worksheet>"#));
-        // extLst <xm:f> IS shifted too (local name `f`), so it is NOT a residual (round-18).
-        assert!(!hit(
-            br#"<worksheet><extLst><ext><xm:f>Sheet1!$A$1</xm:f></ext></extLst></worksheet>"#
-        ));
-        // A CF body naming a DIFFERENT sheet.
+        // A CF body naming a DIFFERENT sheet -> nothing to shift, not flagged.
         assert!(!hit(br#"<worksheet><conditionalFormatting sqref="D1"><cfRule><formula>Sheet2!$A$1&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#));
-        // A CF body naming a look-alike sheet (Sheet10, not Sheet1).
-        assert!(!hit(br#"<worksheet><conditionalFormatting sqref="D1"><cfRule><formula>Sheet10!$A$1&gt;0</formula></cfRule></conditionalFormatting></worksheet>"#));
     }
 
     #[test]
@@ -5884,9 +6049,54 @@ mod tests {
         let (out, n, _r, _q) = shift_text_in_element(spark, b"f", &e, "Sheet2").unwrap();
         assert!(n >= 1);
         assert!(String::from_utf8_lossy(&out).contains("Sheet1!A2:A11"));
-        // A LEGACY <formula> (not <f>-local) is still NOT shifted -> still flagged.
+        // A LEGACY CF <formula> qualified to the edited sheet is now SHIFTED (round-51), so it is
+        // NOT flagged, and the foreign shift rewrites Sheet1!A1 -> Sheet1!A2.
         let legacy = br#"<worksheet><sheetData/><conditionalFormatting><cfRule><formula>Sheet1!A1</formula></cfRule></conditionalFormatting></worksheet>"#;
-        assert!(foreign_sheet_cross_ref_unshifted(legacy, &e));
+        assert!(!foreign_sheet_cross_ref_unshifted(legacy, &e));
+        let (lout, ln, _r, _q) = shift_text_in_element(legacy, b"formula", &e, "Sheet2").unwrap();
+        assert!(ln >= 1);
+        assert!(String::from_utf8_lossy(&lout).contains("Sheet1!A2"));
+        // An ARRAY <f> is still not shifted -> still flagged.
+        let arr = br#"<worksheet><sheetData><row r="1"><c r="C1"><f t="array" ref="C1:C1">Sheet1!A1</f></c></row></sheetData></worksheet>"#;
+        assert!(foreign_sheet_cross_ref_unshifted(arr, &e));
+    }
+
+    #[test]
+    fn whitespace_padded_range_colon_is_a_range() {
+        // REGRESSION (round-51 defect 1): a range whose `:` is padded by NON-space whitespace
+        // (newline from Excel Alt+Enter, or a tab) must be recognized as a range and delete-clamped,
+        // not split into two independent cells (which left the tail at #REF!).
+        let del = edit("S", Axis::Row, Op::Delete, 8, 3);
+        for f in [
+            "SUM(A1\n:A10)",
+            "SUM(A1 :\tA10)",
+            "SUM(A1\r\n:\r\nA10)",
+            "SUM(A1:A10)",
+        ] {
+            let (out, _n) = refshift::shift_formula(f, "S", &del);
+            assert!(
+                out.contains("A1:A7") && !out.contains("#REF!"),
+                "`{f}` must clamp to A1:A7, got `{out}`"
+            );
+        }
+    }
+
+    #[test]
+    fn repeated_value_cell_is_detected() {
+        // REGRESSION (round-51 defect 2): a `<c>` with two `<v>` children is malformed; certify
+        // refuses a workbook carrying one (the engine misreads it, real readers take the last <v>).
+        let bad = br#"<worksheet><sheetData><row r="1"><c r="A1" t="n"><v>0</v><v>999</v></c></row></sheetData></worksheet>"#;
+        assert!(cell_has_repeated_value(bad));
+        let ok = br#"<worksheet><sheetData><row r="1"><c r="A1"><f>SUM(B1:B2)</f><v>5</v></c></row></sheetData></worksheet>"#;
+        assert!(!cell_has_repeated_value(ok));
+    }
+
+    #[test]
+    fn range_intersection_cells_are_detected() {
+        // REGRESSION (round-51 defect 7): a cell whose `<f>` has a top-level range-intersection is
+        // detected from the RAW XML (the engine drops the operator on reparse).
+        let xml = br#"<worksheet><sheetData><row r="1"><c r="B1"><f>SUM(A1:A10 A3:A5)</f><v>12</v></c><c r="B2"><f>SUM(A1:A10)</f><v>55</v></c></row></sheetData></worksheet>"#;
+        assert_eq!(cells_with_range_intersection(xml), vec!["B1".to_string()]);
     }
 
     #[test]

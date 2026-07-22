@@ -169,7 +169,11 @@ pub fn run(
                 // sheet_order_and_settings; reading both is belt-and-suspenders).
                 let date1904 =
                     workbook_is_date1904(&expected_bytes) || workbook_is_date1904(&edited_bytes);
-                build_cache_oracle(&mut expected_model, date1904)
+                build_cache_oracle(
+                    &mut expected_model,
+                    date1904,
+                    &intersection_cells(&expected_bytes),
+                )
             };
         // A volatile cell's cache is self-healing ONLY when Excel recomputes it on load — i.e.
         // AUTO calc mode (we are already in the branch where fullCalcOnLoad is NOT set on the
@@ -196,12 +200,21 @@ pub fn run(
     // "0.00" to "0" rounds 1.44→1 and recomputes `=A1*10` as 10 instead of 14.4; (2) a
     // `CELL("format"/"color"/"parentheses", A1)` formula reads `A1`'s number format directly, so
     // restyling `A1` changes that formula's result. In either case format diffs are disqualifying.
-    let format_disqualifying =
-        if precision_as_displayed(&edited_bytes) || has_format_sensitive_cell_fn(&edited_bytes) {
-            counts.format
-        } else {
-            0
-        };
+    let cell_reads_format = has_format_sensitive_cell_fn(&edited_bytes);
+    let mut format_disqualifying = if precision_as_displayed(&edited_bytes) || cell_reads_format {
+        counts.format
+    } else {
+        0
+    };
+    // The display-based `format` diff misses a number-format CODE change that leaves the RENDERED
+    // value unchanged (numFmtId 1 "0" -> 0 General both render 5 as "5"). But `CELL("format")` reads
+    // the CODE, so that restyle DOES change the formula's value — compare the resolved per-cell
+    // format codes directly and disqualify a mismatch when such a formula is present.
+    if cell_reads_format
+        && cell_number_formats(&expected_bytes) != cell_number_formats(&edited_bytes)
+    {
+        format_disqualifying += 1;
+    }
     let disqualifying = counts.formula
         + counts.value
         + counts.added
@@ -298,6 +311,18 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
             "reason": "date_value_mismatch",
             "detail": "an ISO-8601 date value cell (t=\"d\") differs from xlq's transform — a value \
                        the engine cannot load and the cell diff cannot see",
+        }));
+    }
+    // A cell with TWO OR MORE `<v>` children is malformed (CT_Cell permits one). Excel/LibreOffice
+    // take the LAST `<v>` while ironcalc misreads the cell as empty/error — so certify's engine
+    // snapshot is blind to a value smuggled in as a second `<v>`. Refuse a workbook carrying one
+    // (fail-closed): a well-formed workbook never has this, so there is no over-refusal.
+    if has_repeated_value_cell(expected) || has_repeated_value_cell(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "malformed_multi_value_cell",
+            "detail": "a cell has more than one <v> value child (schema-invalid) — the engine \
+                       misreads it, so its value cannot be verified",
         }));
     }
     // AutoFilter FILTER CRITERIA (the customFilter/filter/… predicate) are a value input:
@@ -913,6 +938,111 @@ fn cell_lock_states(bytes: &[u8]) -> Vec<String> {
                         out.push(format!(
                             "{name}|{}",
                             attr_local(&e, b"r").unwrap_or_default()
+                        ));
+                    }
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The resolved number-format CODE of each cellXf (by index) in xl/styles.xml. A custom numFmt (an
+/// id declared in `<numFmts>`) resolves to its `formatCode`; a built-in id resolves to
+/// `builtin:{id}` (the id IS the canonical key for built-ins). Used to detect a number-format change
+/// that `CELL("format")` reads but that leaves the RENDERED value unchanged (so the display-based
+/// `format` diff misses it).
+fn cellxfs_numfmt_codes(styles: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(styles);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut custom: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+    let mut ids: Vec<u32> = Vec::new(); // cellXf index -> numFmtId
+    let mut in_cellxfs = false;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                match structural::local_of(e.name().as_ref()) {
+                    b"numFmt" => {
+                        if let (Some(id), Some(code)) = (
+                            attr_local(&e, b"numFmtId").and_then(|v| v.parse::<u32>().ok()),
+                            attr_local(&e, b"formatCode"),
+                        ) {
+                            custom.insert(id, code);
+                        }
+                    }
+                    b"cellXfs" => in_cellxfs = true,
+                    b"xf" if in_cellxfs => {
+                        ids.push(
+                            attr_local(&e, b"numFmtId")
+                                .and_then(|v| v.parse().ok())
+                                .unwrap_or(0),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(e)) if structural::local_of(e.name().as_ref()) == b"cellXfs" => {
+                in_cellxfs = false;
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    ids.into_iter()
+        .map(|id| {
+            custom
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| format!("builtin:{id}"))
+        })
+        .collect()
+}
+
+/// The (sheet|cell, number-format-code) of every cell carrying a NON-default (non-General) number
+/// format, sorted — compared only when a `CELL("format"/"color"/"parentheses", …)` formula reads a
+/// cell's number format. `CELL("format")` returns a code derived from the format, so a restyle that
+/// changes the format CODE (numFmtId 1 "0" -> 0 General) changes that formula's value even when the
+/// cell's rendered value is identical ("5" either way) — which the display-based `format` diff
+/// misses. An unreadable workbook returns a sentinel (fail-closed).
+fn cell_number_formats(bytes: &[u8]) -> Vec<(String, String)> {
+    use quick_xml::events::Event;
+    let codes = crate::ooxml::read_part(bytes, "xl/styles.xml")
+        .map(|s| cellxfs_numfmt_codes(&s))
+        .unwrap_or_default();
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return vec![("__unreadable__".into(), String::new())];
+    };
+    let mut out = Vec::new();
+    for (name, part) in sheets {
+        let Ok(xml) = crate::ooxml::read_part(bytes, &part) else {
+            out.push((format!("{name}|__unreadable__"), String::new()));
+            continue;
+        };
+        let mut reader = quick_xml::Reader::from_reader(xml.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                    if structural::local_of(e.name().as_ref()) == b"c" =>
+                {
+                    let s: usize = attr_local(&e, b"s")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
+                    let code = codes.get(s).map(String::as_str).unwrap_or("builtin:0");
+                    // General (builtin:0) is the default; emit only non-default so a change TO or
+                    // FROM General still flips the set, without listing every plain cell.
+                    if code != "builtin:0" {
+                        out.push((
+                            format!("{name}|{}", attr_local(&e, b"r").unwrap_or_default()),
+                            code.to_string(),
                         ));
                     }
                 }
@@ -1982,9 +2112,27 @@ const DATE_SERIAL_PRODUCERS: &[&str] = &[
 /// effectively unconstructable, and such a cell's value is a genuine constant anyway. A cell that
 /// survives is provably independent of every unsupported result, so the engine's value for it
 /// equals Excel's and vouching a matching cache is sound.
+/// The (sheet-name, A1) of every cell whose `<f>` body carries a top-level range-intersection —
+/// excluded from the cache oracle (the engine cannot evaluate the operator). Read from the raw XML
+/// because the engine's reparse drops it.
+fn intersection_cells(bytes: &[u8]) -> std::collections::HashSet<(String, String)> {
+    let mut set = std::collections::HashSet::new();
+    if let Ok(sheets) = crate::ooxml::all_sheets(bytes) {
+        for (name, part) in sheets {
+            if let Ok(xml) = crate::ooxml::read_part(bytes, &part) {
+                for cell in structural::cells_with_range_intersection(&xml) {
+                    set.insert((name.clone(), cell));
+                }
+            }
+        }
+    }
+    set
+}
+
 fn build_cache_oracle(
     model: &mut ironcalc::base::Model,
     date1904: bool,
+    intersection_excluded: &std::collections::HashSet<(String, String)>,
 ) -> Option<std::collections::HashMap<(String, String), String>> {
     let census = crate::census::function_census(model);
     // Functions whose value the engine cannot faithfully reproduce (external data / not implemented
@@ -2036,6 +2184,12 @@ fn build_cache_oracle(
         ) else {
             continue;
         };
+        // A top-level range-INTERSECTION (`A1:A10 A3:A5`, Excel's space operator) is an OPERATOR the
+        // engine cannot evaluate — it collapses to #ERROR! or a wrong scalar — so exclude the cell
+        // (fail-closed): its cache is refused rather than vouched against the engine's wrong value.
+        if intersection_excluded.contains(&(name.clone(), a1.clone())) {
+            sources.push((cell.index, cell.row, cell.column));
+        }
         formula_cells.push(((cell.index, cell.row, cell.column), (name.clone(), a1)));
         let fns = crate::census::extract_function_names(&f);
         if !bad.is_empty() && fns.iter().any(|n| bad.contains(n)) {
@@ -2262,6 +2416,16 @@ fn nums_equal_at_excel_precision(x: f64, y: f64) -> bool {
     if !x.is_finite() || !y.is_finite() {
         return false;
     }
+    // Excel and LibreOffice snap a catastrophic-cancellation result to EXACTLY 0 (`0.5-0.4-0.1` and
+    // `0.1+0.2-0.3` -> 0), while ironcalc keeps the raw IEEE residual (~1e-17). A real editor's
+    // stored cache of exactly 0 and the oracle's tiny residual denote the SAME value at Excel's
+    // precision floor — treat a residual below the cancellation noise floor as 0. This is SOUND on a
+    // TERMINAL cache (the round-46 lesson): it fires ONLY when the real editor computed exactly 0,
+    // and any genuine value below the floor is itself IEEE noise a real editor would also snap. The
+    // floor covers cancellation of operands up to ~1e7 (residual ~ operand * 2^-52).
+    if (x == 0.0 && y.abs() < 1e-9) || (y == 0.0 && x.abs() < 1e-9) {
+        return true;
+    }
     // Canonical 14-significant-figure form (13 fractional digits in scientific notation);
     // 0.0 and -0.0 collapse to one key.
     let round14 = |v: f64| {
@@ -2372,6 +2536,19 @@ fn date_value_cells(bytes: &[u8]) -> Vec<(String, String, String)> {
     }
     out.sort();
     out
+}
+
+/// True if any worksheet has a `<c>` cell with two or more `<v>` children (see
+/// `structural::cell_has_repeated_value`). An unreadable workbook fails closed (true).
+fn has_repeated_value_cell(bytes: &[u8]) -> bool {
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return true;
+    };
+    sheets.into_iter().any(|(_name, part)| {
+        crate::ooxml::read_part(bytes, &part)
+            .map(|xml| structural::cell_has_repeated_value(&xml))
+            .unwrap_or(true)
+    })
 }
 
 #[derive(Default)]
@@ -3231,7 +3408,8 @@ mod tests {
             ),
         )
         .expect("load rtd workbook");
-        let oracle = build_cache_oracle(&mut model, false).expect("oracle is always Some");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
         let key = |c: &str| ("Sheet1".to_string(), c.to_string());
         // The PURE SUM cell is provably independent of RTD -> vouchable (the over-refusal fix).
         assert!(
@@ -3267,7 +3445,8 @@ mod tests {
             ),
         )
         .expect("load round workbook");
-        let oracle = build_cache_oracle(&mut model, false).expect("oracle is always Some");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
         let key = |c: &str| ("Sheet1".to_string(), c.to_string());
         // ROUND now agrees with Excel -> vouchable (both directions of the old bug fixed).
         assert!(
@@ -3309,7 +3488,8 @@ mod tests {
         )
         .expect("load date workbook");
         // date1904=false: the DEFAULT 1900 system, where the finder's false-certify lived.
-        let oracle = build_cache_oracle(&mut model, false).expect("oracle is always Some");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
         let key = |c: &str| ("Sheet1".to_string(), c.to_string());
         assert!(
             !oracle.contains_key(&key("A1")),
@@ -3341,7 +3521,8 @@ mod tests {
             ),
         )
         .expect("load 3d-span workbook");
-        let oracle = build_cache_oracle(&mut model, false).expect("oracle is always Some");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
         let key = |c: &str| ("Sheet1".to_string(), c.to_string());
         // SUM(Sheet1:Sheet2!A5) = 10 (Sheet1!A5=10 + Sheet2!A5=empty) — vouched at the true value.
         assert_eq!(
@@ -3378,6 +3559,50 @@ mod tests {
                 ["reason"],
             "date_value_mismatch"
         );
+    }
+
+    #[test]
+    fn multi_value_cell_is_refused() {
+        // REGRESSION (round-51 defect 2): a cell with two `<v>` children is malformed — the engine
+        // misreads it, real readers take the last <v>. verify_noncell_refs refuses a workbook with one.
+        let good = wb(
+            r#"<sheetData><row r="1"><c r="Z1" t="n"><v>5</v></c></row></sheetData>"#,
+            &[],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let bad = wb(
+            r#"<sheetData><row r="1"><c r="Z1" t="n"><v>0</v><v>999</v></c></row></sheetData>"#,
+            &[],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &bad).expect("a multi-<v> cell must refuse")["reason"],
+            "malformed_multi_value_cell"
+        );
+    }
+
+    #[test]
+    fn cancellation_residual_equals_zero_cache() {
+        // REGRESSION (round-51 defect 6): Excel/LibreOffice snap a catastrophic-cancellation result
+        // to EXACTLY 0 (0.5-0.4-0.1) while ironcalc keeps the IEEE residual (~-2.78e-17). A cache of
+        // 0 and that residual are the same value at Excel's precision floor. A genuine value stays
+        // distinct.
+        assert!(nums_equal_at_excel_precision(0.0, -2.7755575615628914e-17));
+        assert!(nums_equal_at_excel_precision(2.7e-17, 0.0));
+        assert!(!nums_equal_at_excel_precision(0.0, 5.0));
+        assert!(!nums_equal_at_excel_precision(0.0, 0.5)); // a real 0.5 is NOT snapped
+    }
+
+    #[test]
+    fn number_format_code_change_is_detected() {
+        // REGRESSION (round-51 defect 5): a numFmt change that leaves the RENDERED value unchanged
+        // ("0" vs "General" both show 5) is invisible to the display-based `format` diff, but
+        // CELL("format") reads the CODE. Resolve per-cellXf format codes: custom -> formatCode,
+        // built-in -> `builtin:{id}`.
+        let styles = br#"<styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/></numFmts><cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="1"/><xf numFmtId="164"/></cellXfs></styleSheet>"#;
+        let codes = cellxfs_numfmt_codes(styles);
+        assert_eq!(codes[0], "builtin:0"); // General
+        assert_eq!(codes[1], "builtin:1"); // "0"
+        assert_eq!(codes[2], "\"$\"#,##0.00"); // custom
     }
 
     #[test]
