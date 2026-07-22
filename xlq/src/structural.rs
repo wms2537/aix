@@ -60,6 +60,11 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
         sheets.iter().map(|(n, p)| (p.clone(), n.clone())).collect();
     // Sheet names in workbook order — a definedName's `localSheetId` is a 0-based index here.
     let sheet_names: Vec<String> = sheets.iter().map(|(n, _)| n.clone()).collect();
+    // Map each drawing part -> the worksheet it floats over, so a live cell reference inside a
+    // drawing (a linked shape's `textlink`, a graphic-frame `<xdr:f>`) can scope its UNQUALIFIED
+    // references to that sheet when shifted. Built by inverting each worksheet's `/drawing`
+    // relationship.
+    let drawing_owner = drawing_owner_sheets(input, &part_sheet);
 
     let mut archive =
         zip::ZipArchive::new(Cursor::new(input)).map_err(|e| anyhow!("open zip: {e}"))?;
@@ -211,6 +216,29 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
                     detail: "a pivot cache source other than a worksheetSource (e.g. a \
                              consolidation rangeSet) references the edited sheet; its grid range \
                              is not shifted — edit refused (fail-closed)"
+                        .into(),
+                });
+            }
+        } else if name.starts_with("xl/drawings/") && name.ends_with(".xml") {
+            // A drawing floats over one sheet but can carry a LIVE cell reference — a linked
+            // shape's `textlink="Sheet1!$A$8"` or a graphic-frame `<xdr:f>` — that mirrors a
+            // cell's value. If this edit MOVES that cell, the reference must follow or the shape
+            // silently shows a DIFFERENT cell's value. Host = the drawing's OWNING sheet, so an
+            // unqualified `$A$8` (local to the sheet the drawing floats over) shifts while a
+            // reference to an unrelated sheet is left untouched. An edit on one sheet never moves
+            // a drawing's ANCHOR on another sheet, so a foreign drawing needs only its refs
+            // shifted; the edited sheet's own drawing anchor is guarded by edited_sheet_bad_attachment.
+            let host = drawing_owner.get(&name).cloned().unwrap_or_default();
+            let (out, n, r, qrisk) = shift_drawing_refs(&bytes, &host, edit)?;
+            bytes = out;
+            report.refs_shifted += n;
+            report.ref_errors += r;
+            if qrisk {
+                report.residuals.push(Residual {
+                    part: name.clone(),
+                    reason: "non_ascii_sheet_qualifier".into(),
+                    detail: "unquoted non-ASCII sheet qualifier in a drawing reference — edit \
+                             refused (fail-closed)"
                         .into(),
                 });
             }
@@ -761,20 +789,17 @@ fn edited_sheet_bad_attachment(
                     if SAFE.iter().any(|s| ty.ends_with(s)) {
                         continue;
                     }
-                    // A DRAWING (image / chart / shape) is copied verbatim, so it is a hazard
-                    // only if THIS edit would MOVE one of its cell anchors — a logo/chart pinned
-                    // above or left of the edited range is unaffected. Resolve the drawing part
-                    // and affect-check its `<xdr:from>/<xdr:to>` anchors, like the other guards.
+                    // A DRAWING (image / chart / shape) is copied verbatim EXCEPT for the live cell
+                    // references inside it (`textlink` / `<xdr:f>`), which the drawing dispatch
+                    // shifts. So the remaining hazard is only the ANCHOR: if THIS edit would MOVE
+                    // one of the drawing's `<xdr:from>/<xdr:to>` cell anchors the image/chart is
+                    // displaced (a logo/chart pinned above or left of the edited range is
+                    // unaffected). Refuse on an affected anchor, like the other guards.
                     if ty.ends_with("/drawing") {
                         let affected = attr_by_local(&e, b"Target")
                             .map(|t| crate::ooxml::resolve_target(dir, &t))
                             .and_then(|p| crate::ooxml::read_part(input, &p).ok())
-                            // Refuse if the edit moves either a drawing ANCHOR (image/chart
-                            // displaced) or a live cell REFERENCE inside it (a linked shape's
-                            // textlink / graphic-frame formula left pointing at the wrong cell).
-                            .map(|x| {
-                                drawing_anchor_affected(&x, edit) || drawing_ref_affected(&x, edit)
-                            })
+                            .map(|x| drawing_anchor_affected(&x, edit))
                             .unwrap_or(true); // unresolved/unreadable -> fail closed
                         if affected {
                             return Some("drawing".into());
@@ -881,57 +906,149 @@ fn drawing_anchor_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
     }
 }
 
-/// True if this edit would MOVE a LIVE CELL REFERENCE carried inside a drawing part — a linked
-/// shape/textbox's `textlink="Sheet1!$A$8"` (what Excel writes when you select a shape and type
-/// `=A8` in the formula bar) or a graphic-frame `<xdr:f>` formula. The drawing is copied
-/// verbatim, so such a reference is NEVER shifted; if the edit moves the cell it names, the
-/// shape silently mirrors a DIFFERENT cell's value. `drawing_anchor_affected` inspects only the
-/// `<from>/<to>` anchor position, so a textlink on a shape anchored away from the edit slipped
-/// through. Runs the σ oracle with the edited sheet as host, so both an explicitly-qualified
-/// (`Sheet1!$A$8`) and an unqualified (`$A$8`, local to the sheet the drawing is attached to)
-/// reference count, while a reference to another sheet does not. Fail-closed on a parse error.
-fn drawing_ref_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
-    let mut reader = Reader::from_reader(xml);
-    reader.config_mut().expand_empty_elements = false;
-    let mut buf = Vec::new();
-    let mut in_f = false;
-    let mut raw = String::new();
-    let sigma_moves = |logical: &str| -> bool {
-        let (shifted, _n) = refshift::shift_formula(logical, &edit.sheet, edit);
-        shifted != logical
-    };
-    loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
-                // `textlink` attr is already unescaped by attr_by_local -> shift directly.
-                if let Some(tl) = attr_by_local(&e, b"textlink") {
-                    if !tl.trim().is_empty() && sigma_moves(&tl) {
-                        return true;
-                    }
-                }
-                if tag_local_eq(e.name().as_ref(), b"f") {
-                    in_f = true;
-                    raw.clear();
-                }
-            }
-            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"f") => {
-                if in_f {
-                    if let Some(logical) = logical_formula(&raw) {
-                        if sigma_moves(&logical) {
-                            return true;
+/// Map each drawing part -> the worksheet that OWNS it, by inverting every worksheet's `/drawing`
+/// relationship. A drawing floats over exactly one sheet, and an UNQUALIFIED reference inside it
+/// (`textlink="$A$8"`, an `<xdr:f>` body) is local to that owning sheet — so shifting the
+/// reference needs the owning sheet as its σ host. Drawings not owned by any WORKSHEET (orphans, a
+/// chartsheet's drawing) are absent from the map; their unqualified references are not
+/// worksheet-cell-local and a qualified reference shifts without a host, so `host = ""` is sound.
+fn drawing_owner_sheets(
+    input: &[u8],
+    part_sheet: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for (sheet_part, sheet_name) in part_sheet {
+        let (dir, file) = match sheet_part.rsplit_once('/') {
+            Some(x) => x,
+            None => continue,
+        };
+        let rels_part = format!("{dir}/_rels/{file}.rels");
+        let bytes = match crate::ooxml::read_part(input, &rels_part) {
+            Ok(b) => b,
+            Err(_) => continue, // no rels => this sheet has no drawing
+        };
+        let mut reader = Reader::from_reader(bytes.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                    if tag_local_eq(e.name().as_ref(), b"Relationship") =>
+                {
+                    let is_drawing = attr_by_local(&e, b"Type")
+                        .map(|t| t.ends_with("/drawing"))
+                        .unwrap_or(false);
+                    if is_drawing {
+                        if let Some(t) = attr_by_local(&e, b"Target") {
+                            out.insert(crate::ooxml::resolve_target(dir, &t), sheet_name.clone());
                         }
                     }
-                    in_f = false;
                 }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
             }
-            Ok(Event::Text(t)) if in_f => push_text_raw(&mut raw, &t),
-            Ok(Event::GeneralRef(r)) if in_f => push_ref_raw(&mut raw, &r),
-            Ok(Event::Eof) => return false,
-            Err(_) => return true, // unparseable -> fail closed
-            _ => {}
+            buf.clear();
+        }
+    }
+    out
+}
+
+/// Shift the live cell references carried inside a drawing part so they follow the cells this edit
+/// moves: a graphic-frame `<xdr:f>` formula body and a linked shape's `textlink` attribute (the
+/// two channels certify treats as value-bearing in `chart_drawing_refs`). `host` is the drawing's
+/// OWNING sheet, scoping unqualified references. Returns (bytes, refs_shifted, ref_errors,
+/// qualifier_risk); a parse/write error fails closed by propagating.
+fn shift_drawing_refs(
+    src: &[u8],
+    host: &str,
+    edit: &StructuralEdit,
+) -> Result<(Vec<u8>, u32, u32, bool)> {
+    // `<xdr:f>` bodies (local name `f`) — reuse the hardened `<f>`-body shifter.
+    let (b1, n1, e1, q1) = shift_text_in_element(src, b"f", edit, host)?;
+    // Linked-shape `textlink="…"` attributes.
+    let (b2, n2, e2, q2) = shift_textlink_attrs(&b1, host, edit)?;
+    Ok((b2, n1 + n2, e1 + e2, q1 || q2))
+}
+
+/// Rewrite the shifted `textlink` on a single drawing element, if present. Excel writes
+/// `textlink="Sheet1!$A$8"` when a shape's text is bound to a cell (`=A8` in the formula bar); the
+/// shape mirrors that cell's value, so if the edit MOVES the cell the attribute must follow.
+/// Fail-closed on an unquoted non-ASCII sheet qualifier (flag, do not shift). Returns the (possibly
+/// unchanged) tag plus (refs_shifted, ref_errors, qualifier_risk).
+fn shift_textlink_in_tag(
+    e: &BytesStart,
+    host: &str,
+    edit: &StructuralEdit,
+) -> (BytesStart<'static>, u32, u32, bool) {
+    let tl = match attr_by_local(e, b"textlink") {
+        Some(v) if !v.trim().is_empty() => v,
+        _ => return (e.to_owned(), 0, 0, false),
+    };
+    if refshift::has_unquoted_non_ascii_qualifier(&tl) {
+        return (e.to_owned(), 0, 0, true);
+    }
+    let before_ref = tl.matches("#REF!").count();
+    let (nv, n) = refshift::shift_formula(&tl, host, edit);
+    // Count only NEWLY introduced #REF! (a genuine straddle/overflow), matching shift_text_in_element.
+    let errs = nv.matches("#REF!").count().saturating_sub(before_ref) as u32;
+    if nv == tl {
+        (e.to_owned(), n, errs, false)
+    } else {
+        (set_attrs(e, &[(&b"textlink"[..], nv)]), n, errs, false)
+    }
+}
+
+/// Shift every linked-shape `textlink` attribute in a drawing part (see `shift_textlink_in_tag`).
+fn shift_textlink_attrs(
+    src: &[u8],
+    host: &str,
+    edit: &StructuralEdit,
+) -> Result<(Vec<u8>, u32, u32, bool)> {
+    let mut reader = Reader::from_reader(src);
+    reader.config_mut().expand_empty_elements = false;
+    let mut writer = Writer::new(Cursor::new(Vec::new()));
+    let mut buf = Vec::new();
+    let (mut shifted, mut errs) = (0u32, 0u32);
+    let mut qualifier_risk = false;
+    loop {
+        // Fail closed: a mid-stream parse or write error must NOT commit a truncated drawing.
+        let ev = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| anyhow!("xml: {e}"))?;
+        match ev {
+            Event::Eof => break,
+            Event::Start(e) => {
+                let (t, n, r, q) = shift_textlink_in_tag(&e, host, edit);
+                shifted += n;
+                errs += r;
+                qualifier_risk |= q;
+                writer
+                    .write_event(Event::Start(t))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
+            }
+            Event::Empty(e) => {
+                let (t, n, r, q) = shift_textlink_in_tag(&e, host, edit);
+                shifted += n;
+                errs += r;
+                qualifier_risk |= q;
+                writer
+                    .write_event(Event::Empty(t))
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
+            }
+            other => {
+                writer
+                    .write_event(other.into_owned())
+                    .map_err(|e| anyhow!("xml write: {e}"))?;
+            }
         }
         buf.clear();
     }
+    Ok((
+        writer.into_inner().into_inner(),
+        shifted,
+        errs,
+        qualifier_risk,
+    ))
 }
 
 /// True if an `<extLst>` reference on the edited sheet — an `<xm:sqref>` range for x14
@@ -1329,6 +1446,61 @@ pub(crate) fn element_text_semantics(xml: &[u8], locals: &[&[u8]]) -> Vec<String
             Ok(Event::Eof) => break,
             Err(_) => {
                 out.push("parse_error".into());
+                break;
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+    out.sort();
+    out
+}
+
+/// Every ISO-8601 date VALUE cell (`<c r="H1" t="d"><v>2020-01-01T00:00:00</v></c>`, ECMA-376
+/// §18.18.11 ST_CellType `d`) as (A1-ref, trimmed `<v>` text). ironcalc's importer does NOT
+/// implement this cell type — it discards the value and loads a constant NIMPL error — so certify's
+/// engine snapshot is blind to a change of the stored date; certify compares these at the byte
+/// level instead. Namespace-aware (matches `<c>`/`<v>` and the `t`/`r` attributes by local name);
+/// an empty `<c t="d"/>` yields an empty value.
+pub(crate) fn date_typed_value_cells(xml: &[u8]) -> Vec<(String, String)> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut in_d_cell = false;
+    let mut cur_ref = String::new();
+    let mut in_v = false;
+    let mut val = String::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                if attr_by_local(&e, b"t").as_deref() == Some("d") {
+                    in_d_cell = true;
+                    cur_ref = attr_by_local(&e, b"r").unwrap_or_default();
+                    val.clear();
+                } else {
+                    in_d_cell = false;
+                }
+            }
+            Ok(Event::Empty(e)) if tag_local_eq(e.name().as_ref(), b"c") => {
+                if attr_by_local(&e, b"t").as_deref() == Some("d") {
+                    out.push((attr_by_local(&e, b"r").unwrap_or_default(), String::new()));
+                }
+            }
+            Ok(Event::Start(e)) if in_d_cell && tag_local_eq(e.name().as_ref(), b"v") => {
+                in_v = true;
+                val.clear();
+            }
+            Ok(Event::Text(t)) if in_v => val.push_str(&String::from_utf8_lossy(t.as_ref())),
+            Ok(Event::End(e)) if in_v && tag_local_eq(e.name().as_ref(), b"v") => in_v = false,
+            Ok(Event::End(e)) if in_d_cell && tag_local_eq(e.name().as_ref(), b"c") => {
+                out.push((cur_ref.clone(), val.trim().to_string()));
+                in_d_cell = false;
+            }
+            Ok(Event::Eof) => break,
+            // Unparseable -> sentinel so expected != edited forces a fail-closed refusal.
+            Err(_) => {
+                out.push(("__parse_error__".into(), String::new()));
                 break;
             }
             _ => {}
@@ -3115,7 +3287,7 @@ fn rewrite_edited_sheet(
                 writer.write_event(Event::Start(transform_tag(&e, &sheet, edit, report)))?;
             }
             Event::Empty(e) => {
-                if e.name().as_ref() == b"f" {
+                if tag_local_eq(e.name().as_ref(), b"f") {
                     if is_array_f(&e) {
                         // An array STUB (no body): affect-check its ref extent only.
                         let ref_extent = attr_by_local(&e, b"ref").unwrap_or_default();
@@ -3525,7 +3697,10 @@ fn transform_tag_move(
     edit: &StructuralEdit,
     report: &mut StructuralReport,
 ) -> BytesStart<'static> {
-    match e.name().as_ref() {
+    // Match by LOCAL name so a namespace-PREFIXED element (`<x:c>`/`<x:f>` bound to the main
+    // SpreadsheetML namespace, legal OOXML) is shifted too — a prefixed data-table `<x:f>` was
+    // left with stale r1/r2 input cells (silent value corruption).
+    match local_of(e.name().as_ref()) {
         b"c" => shift_cell_tag(e, edit),
         b"f" if is_datatable_f(e) => shift_datatable_attrs(e, sheet, edit, report),
         b"mergeCell" | b"hyperlink" | b"conditionalFormatting" | b"dataValidation" => {
@@ -3542,7 +3717,8 @@ fn transform_tag(
     edit: &StructuralEdit,
     report: &mut StructuralReport,
 ) -> BytesStart<'static> {
-    match e.name().as_ref() {
+    // Match by LOCAL name (namespace-prefix aware) — see transform_tag_move.
+    match local_of(e.name().as_ref()) {
         b"c" => shift_cell_tag(e, edit),
         b"f" if is_datatable_f(e) => shift_datatable_attrs(e, sheet, edit, report),
         n if has_ref_attr(n) => shift_ref_attrs(e, sheet, edit, report),
@@ -3793,10 +3969,10 @@ fn shift_hyperlink_tag(
 /// Unlike an ordinary `<f>`, it carries LIVE coordinates in ATTRIBUTES — `ref` (the output
 /// array extent), `r1` (the column input cell), `r2` (the row input cell) — none in the body.
 fn is_datatable_f(e: &BytesStart) -> bool {
-    e.name().as_ref() == b"f"
+    local_of(e.name().as_ref()) == b"f"
         && e.attributes()
             .flatten()
-            .any(|a| a.key.as_ref() == b"t" && a.value.as_ref() == b"dataTable")
+            .any(|a| local_of(a.key.as_ref()) == b"t" && a.value.as_ref() == b"dataTable")
 }
 
 /// Shift a data-table `<f>`'s `ref`/`r1`/`r2` cell references. Left unshifted (the `<f>` body
@@ -4703,6 +4879,99 @@ mod tests {
         m
     }
 
+    fn rezip(parts: &BTreeMap<String, Vec<u8>>) -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let mut z = zip::ZipWriter::new(Cursor::new(&mut out));
+            let opts = zip::write::SimpleFileOptions::default();
+            for (n, c) in parts {
+                z.start_file(n, opts).unwrap();
+                std::io::Write::write_all(&mut z, c).unwrap();
+            }
+            z.finish().unwrap();
+        }
+        out
+    }
+
+    #[test]
+    fn foreign_sheet_drawing_textlink_is_shifted_end_to_end() {
+        // REGRESSION (round-49 defect 1/4): a drawing on a FOREIGN sheet (Sheet2) carrying a linked
+        // shape `textlink="Sheet1!$A$8"` must SHIFT when the edited sheet (Sheet1) moves that cell —
+        // else the shape silently mirrors a different cell (value corruption), and certify's own
+        // baseline (built from this transform) is equally stale so it spuriously REFUSES the
+        // faithful edit. structural_edit must now shift the drawing and report it in parts_touched.
+        let base = std::fs::read(format!("{FIX}refs.xlsx")).unwrap();
+        let mut parts = zip_parts(&base);
+        let s2 = String::from_utf8(parts["xl/worksheets/sheet2.xml"].clone())
+            .unwrap()
+            .replace(
+                "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">",
+                "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" \
+                 xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">",
+            )
+            .replace("</worksheet>", "<drawing r:id=\"rId1\"/></worksheet>");
+        parts.insert("xl/worksheets/sheet2.xml".into(), s2.into_bytes());
+        parts.insert(
+            "xl/worksheets/_rels/sheet2.xml.rels".into(),
+            br#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>"#.to_vec(),
+        );
+        // A qualified textlink (Sheet1!$A$8) AND an unqualified `<xdr:f>` (A8, local to Sheet2's
+        // host — must NOT shift, since Sheet2 row 8 is untouched by an edit on Sheet1).
+        parts.insert(
+            "xl/drawings/drawing1.xml".into(),
+            br#"<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"><xdr:twoCellAnchor><xdr:from><xdr:col>3</xdr:col><xdr:row>0</xdr:row></xdr:from><xdr:to><xdr:col>5</xdr:col><xdr:row>2</xdr:row></xdr:to><xdr:sp macro="" textlink="Sheet1!$A$8"><xdr:spPr/></xdr:sp><xdr:graphicFrame><xdr:f>A8</xdr:f></xdr:graphicFrame></xdr:twoCellAnchor></xdr:wsDr>"#.to_vec(),
+        );
+        let input = rezip(&parts);
+        let (out, report) =
+            structural_edit(&input, &edit("Sheet1", Axis::Row, Op::Insert, 1, 3)).unwrap();
+        assert!(
+            report.residuals.is_empty(),
+            "faithful drawing shift must not refuse: {:?}",
+            report.residuals
+        );
+        let drawing = read_zip_part(&out, "xl/drawings/drawing1.xml");
+        // qualified cross-sheet textlink follows the moved cell A8 -> A11
+        assert!(
+            drawing.contains(r#"textlink="Sheet1!$A$11""#),
+            "cross-sheet textlink must shift A8->A11: {drawing}"
+        );
+        // unqualified `<xdr:f>` is local to Sheet2 (the host) -> Sheet2 row 8 unaffected -> unchanged
+        assert!(
+            drawing.contains("<xdr:f>A8</xdr:f>"),
+            "an unqualified drawing ref local to the foreign host must NOT shift: {drawing}"
+        );
+        assert!(
+            report
+                .parts_touched
+                .iter()
+                .any(|p| p == "xl/drawings/drawing1.xml"),
+            "a shifted drawing must be reported in parts_touched: {:?}",
+            report.parts_touched
+        );
+    }
+
+    #[test]
+    fn date_typed_value_cells_extracts_iso_dates() {
+        // The t="d" scanner backs certify's byte-level date_value_mismatch guard (round-49 defect 3).
+        let xml = br#"<worksheet xmlns="urn:x"><sheetData><row r="1"><c r="A1" t="n"><v>5</v></c><c r="H1" t="d"><v>2020-01-01T00:00:00</v></c></row><row r="2"><c r="H2" t="d"><v>1999-12-31T00:00:00</v></c></row></sheetData></worksheet>"#;
+        assert_eq!(
+            date_typed_value_cells(xml),
+            vec![
+                ("H1".to_string(), "2020-01-01T00:00:00".to_string()),
+                ("H2".to_string(), "1999-12-31T00:00:00".to_string()),
+            ]
+        );
+        // namespace-PREFIXED date cell (bound to main ns) is caught too — a prefix must not evade it.
+        let px = br#"<x:worksheet xmlns:x="urn:x"><x:sheetData><x:c r="B2" t="d"><x:v>2000-06-15T00:00:00</x:v></x:c></x:sheetData></x:worksheet>"#;
+        assert_eq!(
+            date_typed_value_cells(px),
+            vec![("B2".to_string(), "2000-06-15T00:00:00".to_string())]
+        );
+        // an ordinary (non-date) cell whose VALUE happens to look like a date is NOT captured.
+        let nd = br#"<worksheet><sheetData><row><c r="A1"><v>2020-01-01T00:00:00</v></c></row></sheetData></worksheet>"#;
+        assert!(date_typed_value_cells(nd).is_empty());
+    }
+
     #[test]
     fn cf_and_dv_formula_bodies_shift() {
         // conditional-formatting rule body + data-validation formula must shift,
@@ -5030,27 +5299,32 @@ mod tests {
     }
 
     #[test]
-    fn drawing_textlink_affect_check() {
-        // REGRESSION (round-32): a linked shape's `textlink` (or graphic-frame `<xdr:f>`) is a
-        // live cell reference, invisible to the anchor-only guard. An edit that MOVES the cell
-        // it names must be refused even when the shape's anchor is unaffected.
+    fn drawing_textlink_and_xdrf_are_shifted() {
+        // A linked shape's `textlink` (and a graphic-frame `<xdr:f>`) is a live cell reference that
+        // mirrors a cell's value. An edit that MOVES the referenced cell must SHIFT it (Excel does),
+        // scoping unqualified refs to the drawing's owning sheet. `host` is that owning sheet.
         let ins5 = edit("Sheet1", Axis::Row, Op::Insert, 5, 1);
         let tl = |v: &str| {
             format!(
                 r#"<xdr:wsDr xmlns:xdr="u"><xdr:twoCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:row>0</xdr:row></xdr:from><xdr:to><xdr:col>1</xdr:col><xdr:row>1</xdr:row></xdr:to><xdr:sp macro="" textlink="{v}"><xdr:spPr/></xdr:sp></xdr:twoCellAnchor></xdr:wsDr>"#
             )
         };
-        // qualified ref to a MOVED cell (A8, row >= 5) -> affected
-        assert!(drawing_ref_affected(tl("Sheet1!$A$8").as_bytes(), &ins5));
-        // ref ABOVE the edit (A2) -> unaffected (no over-refusal)
-        assert!(!drawing_ref_affected(tl("Sheet1!$A$2").as_bytes(), &ins5));
-        // ref to ANOTHER sheet -> unaffected by an edit on Sheet1
-        assert!(!drawing_ref_affected(tl("Sheet2!$A$8").as_bytes(), &ins5));
-        // UNQUALIFIED ref ($A$8) is local to the attached (edited) sheet -> affected
-        assert!(drawing_ref_affected(tl("$A$8").as_bytes(), &ins5));
-        // a graphic-frame formula referencing a moved cell -> affected
-        let gf = br#"<xdr:wsDr xmlns:xdr="u"><xdr:graphicFrame><xdr:f>Sheet1!$A$8</xdr:f></xdr:graphicFrame></xdr:wsDr>"#;
-        assert!(drawing_ref_affected(gf, &ins5));
+        let shifted = |x: &str| -> String {
+            let (out, _n, _e, q) = shift_drawing_refs(x.as_bytes(), "Sheet1", &ins5).unwrap();
+            assert!(!q);
+            String::from_utf8(out).unwrap()
+        };
+        // qualified ref to a MOVED cell (A8, row >= 5) -> shifts to A9
+        assert!(shifted(&tl("Sheet1!$A$8")).contains(r#"textlink="Sheet1!$A$9""#));
+        // ref ABOVE the edit (A2) -> unchanged (no false shift)
+        assert!(shifted(&tl("Sheet1!$A$2")).contains(r#"textlink="Sheet1!$A$2""#));
+        // ref to ANOTHER sheet -> unchanged by an edit on Sheet1
+        assert!(shifted(&tl("Sheet2!$A$8")).contains(r#"textlink="Sheet2!$A$8""#));
+        // UNQUALIFIED ref ($A$8) is local to the owning (host) sheet -> shifts to $A$9
+        assert!(shifted(&tl("$A$8")).contains(r#"textlink="$A$9""#));
+        // a graphic-frame formula referencing a moved cell -> `<xdr:f>` body shifts to A9
+        let gf = r#"<xdr:wsDr xmlns:xdr="u"><xdr:graphicFrame><xdr:f>Sheet1!$A$8</xdr:f></xdr:graphicFrame></xdr:wsDr>"#;
+        assert!(shifted(gf).contains("<xdr:f>Sheet1!$A$9</xdr:f>"));
     }
 
     #[test]

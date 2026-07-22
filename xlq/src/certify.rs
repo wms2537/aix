@@ -286,6 +286,20 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        from xlq's transform — it was not shifted faithfully",
         }));
     }
+    // ISO-8601 date VALUE cells (`t="d"`) are DISCARDED by ironcalc's importer (loaded as a
+    // constant NIMPL error), so the engine snapshot cannot see a change to their stored date — a
+    // foreign edit could rewrite 2020-01-01 to 2099-12-31 with no cell-value diff for compare() to
+    // catch. xlq's transform copies these cells verbatim at shifted coordinates, so compare them at
+    // the byte level: a faithful edit matches, a value change (or a moved/added/removed date cell)
+    // differs.
+    if date_value_cells(expected) != date_value_cells(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "date_value_mismatch",
+            "detail": "an ISO-8601 date value cell (t=\"d\") differs from xlq's transform — a value \
+                       the engine cannot load and the cell diff cannot see",
+        }));
+    }
     // AutoFilter FILTER CRITERIA (the customFilter/filter/… predicate) are a value input:
     // SUBTOTAL(1xx,…) and AGGREGATE exclude autofilter-hidden rows, so changing which rows
     // the filter hides changes those formulas' results. The transform preserves the criteria
@@ -1919,6 +1933,24 @@ const DATE_EPOCH_FUNCTIONS: &[&str] = &[
     "TODAY",
 ];
 
+/// The subset of DATE_EPOCH_FUNCTIONS that PRODUCE a date serial (rather than consuming one to
+/// return a calendar part or a difference). Under the DEFAULT 1900 date system the engine follows
+/// Google-Docs / LibreOffice semantics — it omits Excel's phantom 1900-02-29 leap day (a
+/// deliberate engine design choice, not a bug: see base `test_date_early_dates`) — so a serial one
+/// of these produces that lands BEFORE 1900-03-01 (value < 61) is off by one from Excel's stored
+/// serial (`DATE(1900,1,1)` = 2 here, 1 in Excel). A preserved foreign cache carrying either
+/// serial is therefore unvouchable: excluded value-gated in `build_cache_oracle` so that the
+/// ubiquitous MODERN date cache (serial >= 61, where the engine and Excel agree) stays vouchable.
+/// Uppercase to match `extract_function_names`.
+const DATE_SERIAL_PRODUCERS: &[&str] = &[
+    "DATE",
+    "DATEVALUE",
+    "EDATE",
+    "EOMONTH",
+    "WORKDAY",
+    "WORKDAY.INTL",
+];
+
 /// An oracle mapping (sheet name, A1 cell) -> the `type:value` cache signature of the TRUE computed
 /// value of xlq's proven transform, used to vouch a foreign edit's PRESERVED formula caches (which
 /// xlq's own transform blanks). Always returns Some, but INCLUDES ONLY cells whose engine value can
@@ -1975,6 +2007,9 @@ fn build_cache_oracle(
     type FormulaCell = ((u32, i32, i32), (String, String));
     let mut formula_cells: Vec<FormulaCell> = Vec::new();
     let mut sources: Vec<(u32, i32, i32)> = Vec::new();
+    // Cells whose formula PRODUCES a date serial — value-gated into `sources` below once the model
+    // is evaluated (a pre-1900 serial the engine computes off-by-one from Excel is unvouchable).
+    let mut date_producers: Vec<(u32, i32, i32)> = Vec::new();
     for cell in model.get_all_cells() {
         let Ok(Some(f)) = model.get_cell_formula(cell.index, cell.row, cell.column) else {
             continue;
@@ -1986,12 +2021,15 @@ fn build_cache_oracle(
             continue;
         };
         formula_cells.push(((cell.index, cell.row, cell.column), (name.clone(), a1)));
-        if !bad.is_empty()
-            && crate::census::extract_function_names(&f)
-                .iter()
-                .any(|n| bad.contains(n))
-        {
+        let fns = crate::census::extract_function_names(&f);
+        if !bad.is_empty() && fns.iter().any(|n| bad.contains(n)) {
             sources.push((cell.index, cell.row, cell.column));
+        }
+        if fns
+            .iter()
+            .any(|n| DATE_SERIAL_PRODUCERS.contains(&n.as_str()))
+        {
+            date_producers.push((cell.index, cell.row, cell.column));
         }
     }
     let snap =
@@ -2005,6 +2043,21 @@ fn build_cache_oracle(
             m
         };
     model.evaluate();
+    // Exclude off-by-one PRE-1900 date serials (see DATE_SERIAL_PRODUCERS). The engine omits
+    // Excel's phantom 1900-02-29, so a produced serial < 61 differs from Excel's stored value under
+    // BOTH date systems (the 1904 blanket exclusion above only guards the 1904 direction). Adding
+    // such a cell to `sources` makes poison-and-diff drop it AND its dependents, so a preserved
+    // foreign cache carrying the engine's off-by-one serial is refused, not vouched. Value-gated so
+    // the ubiquitous MODERN date cache (serial >= 61, engine == Excel) stays vouchable.
+    for &(s, r, c) in &date_producers {
+        let serial = cell_value_sig(model, s, r, c)
+            .and_then(|sig| sig.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok()));
+        if matches!(serial, Some(v) if v < 61.0) {
+            sources.push((s, r, c));
+        }
+    }
+    sources.sort();
+    sources.dedup();
     // Fast path: no unsupported/policy/UDF function -> every formula cell is trustworthy.
     if sources.is_empty() {
         return Some(snap(model));
@@ -2255,6 +2308,33 @@ fn sheet_ref_constructs(bytes: &[u8]) -> Vec<(String, String, String)> {
         };
         for (kind, key) in structural::sheet_ref_construct_semantics(&xml) {
             out.push((sheet_name.clone(), kind, key));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Every ISO-8601 date VALUE cell (`t="d"`) across all worksheets as (sheet, A1-ref, value).
+/// ironcalc discards these on import, so the engine snapshot is blind to their value — certify
+/// compares them here at the byte level (see the `date_value_mismatch` guard). Path-robust: sheets
+/// are enumerated through the workbook relationships, keyed by sheet NAME so a cosmetic part-path
+/// difference does not spuriously diverge. Fail-closed sentinels on an unreadable workbook/sheet.
+fn date_value_cells(bytes: &[u8]) -> Vec<(String, String, String)> {
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return vec![(
+            "__unreadable_workbook__".into(),
+            String::new(),
+            String::new(),
+        )];
+    };
+    let mut out = Vec::new();
+    for (sheet_name, part_path) in sheets {
+        let Ok(xml) = crate::ooxml::read_part(bytes, &part_path) else {
+            out.push((sheet_name, "__unreadable_sheet__".into(), String::new()));
+            continue;
+        };
+        for (cell_ref, value) in structural::date_typed_value_cells(&xml) {
+            out.push((sheet_name.clone(), cell_ref, value));
         }
     }
     out.sort();
@@ -3174,6 +3254,62 @@ mod tests {
         assert!(
             !oracle.contains_key(&key("F1")),
             "a cell depending on TEXT is excluded"
+        );
+    }
+
+    #[test]
+    fn pre_1900_date_serial_excluded_but_modern_date_vouchable() {
+        // REGRESSION (round-49 defect 5): the engine deliberately omits Excel's phantom 1900-02-29
+        // (it follows Google-Docs/LibreOffice), so a DATE result BEFORE 1900-03-01 (serial < 61) is
+        // off by one from Excel's stored serial — under the DEFAULT 1900 system, not just 1904. Such
+        // a cache (and its dependents) must be EXCLUDED (fail-closed): vouching the engine's serial
+        // would CERTIFY a value-corrupting cache and REFUSE the faithful Excel one. A MODERN date
+        // (serial >= 61, where engine == Excel) must stay vouchable — value-gated, no over-refusal.
+        let rows = r#"<row r="1"><c r="A1"><f>DATE(1900,1,1)</f><v>2</v></c><c r="B1"><f>A1+0</f><v>2</v></c><c r="C1"><f>DATE(2020,1,1)</f><v>43831</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load date workbook");
+        // date1904=false: the DEFAULT 1900 system, where the finder's false-certify lived.
+        let oracle = build_cache_oracle(&mut model, false).expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("A1")),
+            "a pre-1900 DATE serial must be excluded from the oracle: {oracle:?}"
+        );
+        assert!(
+            !oracle.contains_key(&key("B1")),
+            "a cell depending on a pre-1900 DATE is excluded transitively"
+        );
+        assert!(
+            oracle.contains_key(&key("C1")),
+            "a modern DATE serial (>= 61) stays vouchable — no over-refusal: {oracle:?}"
+        );
+    }
+
+    #[test]
+    fn iso_date_value_change_is_refused() {
+        // REGRESSION (round-49 defect 3): an ISO-8601 date VALUE cell (t="d") is discarded by
+        // ironcalc's importer (loaded as a constant NIMPL error), so the engine snapshot is blind to
+        // a change of its stored date. verify_noncell_refs must catch it at the byte level.
+        let dt = |v: &str| {
+            format!(r#"<sheetData><row r="1"><c r="Z1" t="d"><v>{v}</v></c></row></sheetData>"#)
+        };
+        let good = wb(&dt("2020-01-01T00:00:00"), &[]);
+        assert!(
+            verify_noncell_refs(&good, &good).is_none(),
+            "an identical t=\"d\" date must not refuse"
+        );
+        let changed = wb(&dt("2099-12-31T00:00:00"), &[]);
+        assert_eq!(
+            verify_noncell_refs(&good, &changed).expect("a changed t=\"d\" date must refuse")
+                ["reason"],
+            "date_value_mismatch"
         );
     }
 
