@@ -125,6 +125,50 @@ pub fn to_excel_precision(value: f64, precision: usize) -> f64 {
     s.parse::<f64>().unwrap_or(value)
 }
 
+/// Render a number to text the way Excel's General format does when a number is COERCED to text
+/// (the `&` operator, CONCATENATE, EXACT, …). An exact integer within f64 integer precision is
+/// shown in FULL — Excel never rounds an integer to 15 significant figures, so `1234567890123456`
+/// must stay `1234567890123456`, not `1234567890123460`. Other values use 15 significant figures
+/// (`0.1+0.2` -> "0.3", `1/3` -> "0.333333333333333"). Very large/small magnitudes still fall back
+/// to a scientific form whose exact exponent formatting differs across Excel/LibreOffice/this
+/// engine — an inter-engine disagreement no single render can satisfy, so certify fail-safely
+/// refuses such a coerced-text cache rather than vouching one spelling of it.
+pub fn number_to_excel_text(value: f64) -> String {
+    if !value.is_finite() {
+        return if value.is_nan() {
+            "NaN".to_string()
+        } else if value > 0.0 {
+            "inf".to_string()
+        } else {
+            "-inf".to_string()
+        };
+    }
+    if value == 0.0 {
+        return "0".to_string();
+    }
+    let abs = value.abs();
+    // Excel's General coercion shows numbers in FIXED notation across a wide range at 15
+    // SIGNIFICANT figures (`0.0000001`, `0.333333333333333`, `12345.678`), switching to scientific
+    // only at the extremes. Compute the decimals for 15 sig figs from the base-10 exponent (via
+    // `{:e}`, which is exact), then trim trailing zeros. Outside the fixed range, fall back to the
+    // shortest 15-sig-fig form — a scientific spelling on which Excel/LibreOffice/this engine
+    // disagree, so certify fail-safely refuses such a coerced cache rather than vouching one.
+    if (1e-11..1e15).contains(&abs) {
+        let exp: i32 = format!("{abs:e}")
+            .rsplit('e')
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let decimals = (14 - exp).max(0) as usize;
+        let mut s = format!("{value:.decimals$}");
+        if s.contains('.') {
+            s = s.trim_end_matches('0').trim_end_matches('.').to_string();
+        }
+        return s;
+    }
+    to_precision_str(value, 15)
+}
+
 pub fn to_precision_str(value: f64, precision: usize) -> String {
     if !value.is_finite() {
         if value.is_infinite() {

@@ -314,7 +314,7 @@ impl<'a> Model<'a> {
         // divergent string against a `str:` cache (byte-exact), false-certifying a wrong displayed
         // value and over-refusing the faithful one.
         match result {
-            CalcResult::Number(f) => Ok(crate::number_format::to_excel_precision_str(f)),
+            CalcResult::Number(f) => Ok(crate::number_format::number_to_excel_text(f)),
             CalcResult::String(s) => Ok(s),
             CalcResult::Boolean(f) => {
                 if f {

@@ -840,6 +840,30 @@ no counted diff. A literal value difference is therefore always disqualifying.
   `row=1,rowOff=190500`), so any col/row comparison refused a positionally-faithful chart re-save.
   Chart position changes no value and is outside certify's value/security charter; the value-bearing
   drawing references (`<f>`, textlink, hyperlink) are still compared.
+- **`certify` compares the rich-value store in document ORDER, and the metadata resolution chain
+  (false-certify fixes).** Completing the linked-data-type chain begun in rounds 46–47: (a) the
+  richData records are now position-keyed, so a value-preserving PERMUTATION of two records — which
+  transposes which cell shows which value — differs (the round-46 sorted multiset was permutation-
+  blind); (b) the MIDDLE link — the `rc`/`rvb i` index mapping inside `xl/metadata.xml` — is now
+  compared, so a reindex that repoints a cell to a different record (`rvb i="0"`→`"1"`) with both the
+  cell `vm` and the richData store byte-identical is caught.
+- **`certify` compares a cell's LOCKED state when a `CELL("protect")` formula reads it (false-certify
+  fix).** Cell lock state is a style attribute the cell diff and the style-is-benign rule both ignore,
+  but `CELL("protect", A1)` returns `1`/`0` from it, so unlocking `A1` (repointing it to an xf with
+  `<protection locked="0"/>`) changes that formula's value with no cell/formula diff. When such a
+  formula is present, the set of unlocked cells is compared; without one, lock state stays benign.
+- **`restructure` refuses an insert whose own blank rows/cols would run past the grid edge
+  (invalid-output fix).** `insert-rows --at 1048575 --count 3` emitted schema-invalid `<row r>`
+  coordinates beyond row 1,048,576 and committed them as a verified success — the overflow guard only
+  checked EXISTING populated coordinates, not the blank rows the inserter itself writes into an empty
+  region. The inserted range `[at, at+count-1]` is now bounded up front.
+- **The vendored engine renders a coerced number in 15-significant-figure FIXED notation across the
+  normal range (over-refusal fix).** The round-47 coercion fix used a shortest-repr renderer that
+  emitted scientific notation for small magnitudes (`"" & 0.0000001` → `1e-7`), diverging from Excel's
+  `0.0000001` and re-refusing a faithful cache. Number→text coercion now uses fixed notation at 15
+  significant figures for the range Excel does, matching `0.0000001`/`0.333333333333333`/`12345.678`;
+  true scientific extremes (`>1e15`, `<1e-11`), on whose exponent spelling Excel and LibreOffice
+  themselves disagree, remain a fail-safe refusal.
 
 The compare surface certify extracts per worksheet remains an enumerated *semantic*
 surface (it must tolerate a foreign tool's cosmetic re-serialization), so its

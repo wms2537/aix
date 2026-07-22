@@ -368,6 +368,30 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
                        silently swaps the cell's real offline value while its text stays identical",
         }));
     }
+    if metadata_index_chain(expected) != metadata_index_chain(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "metadata_index_mismatch",
+            "detail": "the xl/metadata.xml index mapping (the `rc`/`rvb`/`cm` chain that resolves a \
+                       cell's `vm`/`cm` to a rich-value record) differs from xlq's transform — a \
+                       reindex repoints which record a cell shows with both endpoints unchanged",
+        }));
+    }
+    // A cell's LOCKED state is a style attribute the cell diff and the style-is-benign rule ignore,
+    // but `CELL("protect", A1)` reads it: unlocking a cell flips that formula's result. Compare the
+    // unlocked-cell set only when such a formula is present (a rare, targeted check).
+    if (workbook_has_cell_info_fn(expected, &["protect"])
+        || workbook_has_cell_info_fn(edited, &["protect"]))
+        && cell_lock_states(expected) != cell_lock_states(edited)
+    {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "cell_lock_state_mismatch",
+            "detail": "a cell's protection (locked) state differs from xlq's transform and a \
+                       CELL(\"protect\",…) formula reads it — unlocking a cell changes that formula's \
+                       value with no cell/formula diff",
+        }));
+    }
     // Tokens the engine NORMALIZES AWAY on load — the required `_xlfn.` prefix on post-2007
     // functions (dropping it makes Excel show `#NAME?`) and the implicit-intersection `@`
     // operator (`@A1:A10` scalar vs the bare `A1:A10` spilling array) — are invisible to the
@@ -785,18 +809,206 @@ fn cell_metadata_bindings(bytes: &[u8]) -> Vec<String> {
     out
 }
 
+/// The LOCKED state of each `<xf>` in styles.xml `<cellXfs>`, in document order. The default is
+/// LOCKED (`true`); an `<xf>` carrying `<protection locked="0"/>` (or "false") is unlocked. The
+/// resolution need not be perfectly Excel-accurate — only CONSISTENT between the two files, so a
+/// genuine unlock (a change to the xf's protection) differs and a benign edit does not.
+fn cellxfs_locked(styles: &[u8]) -> Vec<bool> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(styles);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut in_cellxfs = false;
+    let mut in_xf = false;
+    let mut cur = true;
+    let locked_of = |e: &quick_xml::events::BytesStart| {
+        attr_local(e, b"locked").map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+    };
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => match structural::local_of(e.name().as_ref()) {
+                b"cellXfs" => in_cellxfs = true,
+                b"xf" if in_cellxfs => {
+                    in_xf = true;
+                    cur = true;
+                }
+                b"protection" if in_xf => {
+                    if let Some(l) = locked_of(&e) {
+                        cur = l;
+                    }
+                }
+                _ => {}
+            },
+            Ok(Event::Empty(e)) => match structural::local_of(e.name().as_ref()) {
+                b"xf" if in_cellxfs => out.push(true),
+                b"protection" if in_xf => {
+                    if let Some(l) = locked_of(&e) {
+                        cur = l;
+                    }
+                }
+                _ => {}
+            },
+            Ok(Event::End(e)) => match structural::local_of(e.name().as_ref()) {
+                b"cellXfs" => in_cellxfs = false,
+                b"xf" if in_xf => {
+                    out.push(cur);
+                    in_xf = false;
+                }
+                _ => {}
+            },
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
+/// The (sheet, cell) of every UNLOCKED cell, sorted — compared ONLY when a `CELL("protect", …)`
+/// formula reads a cell's lock state. Excel's cell diff and certify's style-is-benign rule both
+/// miss an unlock (repointing a cell to an xf with `<protection locked="0"/>`), but
+/// `CELL("protect", A1)` turns it into a computed-value change (`1`→`0`). Only unlocked cells are
+/// emitted (locked is the default), so both a new unlock and a re-lock change the set.
+fn cell_lock_states(bytes: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let locked = crate::ooxml::read_part(bytes, "xl/styles.xml")
+        .map(|s| cellxfs_locked(&s))
+        .unwrap_or_default();
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (name, part) in sheets {
+        let Ok(xml) = crate::ooxml::read_part(bytes, &part) else {
+            continue;
+        };
+        let mut reader = quick_xml::Reader::from_reader(xml.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                    if structural::local_of(e.name().as_ref()) == b"c" =>
+                {
+                    let s: usize = attr_local(&e, b"s")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
+                    // Default (no cellXfs / out-of-range index) is LOCKED, so absence is not emitted.
+                    if !locked.get(s).copied().unwrap_or(true) {
+                        out.push(format!(
+                            "{name}|{}",
+                            attr_local(&e, b"r").unwrap_or_default()
+                        ));
+                    }
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+    }
+    out.sort();
+    out
+}
+
 fn rich_data_values(bytes: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
     let names = structural::archive_names(bytes).unwrap_or_default();
     let mut out = Vec::new();
     for n in &names {
         let low = n.to_ascii_lowercase();
-        if low.starts_with("xl/richdata/") && low.ends_with(".xml") {
-            if let Ok(x) = crate::ooxml::read_part(bytes, n) {
-                out.extend(structural::element_text_semantics(&x, &[b"v"]));
+        if !(low.starts_with("xl/richdata/") && low.ends_with(".xml")) {
+            continue;
+        }
+        let base = n.rsplit('/').next().unwrap_or(n).to_ascii_lowercase();
+        let Ok(x) = crate::ooxml::read_part(bytes, n) else {
+            continue;
+        };
+        // Each `<v>` field is keyed by its POSITION in the part (round-48): a value-preserving
+        // PERMUTATION of two rich-value records transposes which cell shows which value, so an
+        // order-independent multiset (round-46) missed it. Position-keying makes a swap differ.
+        let mut reader = quick_xml::Reader::from_reader(x.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        let mut cap = false;
+        let mut raw = String::new();
+        let mut seq = 0usize;
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) if structural::local_of(e.name().as_ref()) == b"v" => {
+                    cap = true;
+                    raw.clear();
+                }
+                Ok(Event::End(e)) if structural::local_of(e.name().as_ref()) == b"v" => {
+                    if cap {
+                        out.push(format!("{base}[{seq}]={raw}"));
+                        seq += 1;
+                        cap = false;
+                    }
+                }
+                Ok(Event::Text(t)) if cap => {
+                    // Keep the raw (still-escaped) bytes — both sides escape identically, so a
+                    // rewrite/permutation still differs and a benign re-serialization does not.
+                    raw.push_str(&String::from_utf8_lossy(t.as_ref()));
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
             }
+            buf.clear();
         }
     }
     out.sort();
+    out
+}
+
+/// The index mapping inside `xl/metadata.xml`, captured in DOCUMENT ORDER — the MIDDLE link of the
+/// rich-value resolution chain `cell.vm -> valueMetadata <rc v> -> futureMetadata <bk> ...
+/// <xlrd:rvb i> -> richData record`. Round 46 compared the richData records and round 47 the cell
+/// `vm`, but the `rc v`/`rvb i` remap between them was uncompared — with 2+ records, remapping
+/// `rvb i="0"` to `i="1"` repoints WHICH record a cell resolves to while both endpoints stay
+/// byte-identical. Each index-bearing element (`rc`, `rvb`, `cm`) is keyed by its position so a
+/// reorder or reindex differs; a benign re-serialization (whitespace/attr-order) does not.
+fn metadata_index_chain(bytes: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let Ok(x) = crate::ooxml::read_part(bytes, "xl/metadata.xml") else {
+        return Vec::new();
+    };
+    let mut reader = quick_xml::Reader::from_reader(x.as_slice());
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut seq = 0usize;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let name = e.name();
+                let local = structural::local_of(name.as_ref());
+                if matches!(local, b"rc" | b"rvb" | b"cm") {
+                    let l = String::from_utf8_lossy(local).into_owned();
+                    let mut a: Vec<String> = e
+                        .attributes()
+                        .flatten()
+                        .map(|at| {
+                            format!(
+                                "{}={}",
+                                String::from_utf8_lossy(structural::local_of(at.key.as_ref())),
+                                at.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                                    .map(|c| c.into_owned())
+                                    .unwrap_or_default(),
+                            )
+                        })
+                        .collect();
+                    a.sort();
+                    out.push(format!("{seq}:{l}|{}", a.join(" ")));
+                    seq += 1;
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
     out
 }
 
@@ -1434,6 +1646,12 @@ fn precision_as_displayed(bytes: &[u8]) -> bool {
 /// conservatively as sensitive. Info types that do not depend on the number format
 /// (`contents`, `type`, `row`, `col`, `address`, …) do not trip this.
 fn has_format_sensitive_cell_fn(bytes: &[u8]) -> bool {
+    workbook_has_cell_info_fn(bytes, &CELL_FORMAT_SENSITIVE)
+}
+
+/// True when any worksheet formula calls `CELL()` with one of the given info types (or a non-literal
+/// info type — conservatively treated as any).
+fn workbook_has_cell_info_fn(bytes: &[u8], info: &[&str]) -> bool {
     let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
         return false;
     };
@@ -1441,7 +1659,7 @@ fn has_format_sensitive_cell_fn(bytes: &[u8]) -> bool {
         crate::ooxml::read_part(bytes, &part).is_ok_and(|xml| {
             structural::element_text_semantics(&xml, &[b"f"])
                 .iter()
-                .any(|f| formula_calls_sensitive_cell(f))
+                .any(|f| formula_calls_sensitive_cell(f, info))
         })
     })
 }
@@ -1455,7 +1673,7 @@ const CELL_FORMAT_SENSITIVE: [&str; 3] = ["format", "color", "parentheses"];
 /// literal, or is not a string literal at all (info type unresolvable -> conservative). String
 /// literals and single-quoted sheet qualifiers are skipped so `="CELL(...)"` text and a sheet
 /// named `CELL` do not false-trip.
-fn formula_calls_sensitive_cell(f: &str) -> bool {
+fn formula_calls_sensitive_cell(f: &str, sensitive: &[&str]) -> bool {
     let b = f.as_bytes();
     let n = b.len();
     let mut i = 0;
@@ -1512,10 +1730,7 @@ fn formula_calls_sensitive_cell(f: &str) -> bool {
                             while k < n && b[k] != b'"' {
                                 k += 1;
                             }
-                            if CELL_FORMAT_SENSITIVE
-                                .iter()
-                                .any(|t| f[s..k].eq_ignore_ascii_case(t))
-                            {
+                            if sensitive.iter().any(|t| f[s..k].eq_ignore_ascii_case(t)) {
                                 return true;
                             }
                             // A format-INSENSITIVE literal: this call is safe, keep scanning.
@@ -2592,6 +2807,51 @@ mod tests {
                 ["reason"],
             "rich_data_mismatch"
         );
+        // REGRESSION (round-48): a value-preserving PERMUTATION of two records (which transposes
+        // which cell shows which value) must ALSO differ — the compare is order-sensitive now.
+        let two = |a: &str, b: &str| {
+            format!(
+                r#"<rvData xmlns="urn:x"><rv s="0"><v>{a}</v></rv><rv s="0"><v>{b}</v></rv></rvData>"#
+            )
+        };
+        let ab = wb(
+            "",
+            &[("xl/richData/rdrichvalue.xml", &two("Alpha", "Beta"))],
+        );
+        let ba = wb(
+            "",
+            &[("xl/richData/rdrichvalue.xml", &two("Beta", "Alpha"))],
+        );
+        assert_ne!(
+            rich_data_values(&ab),
+            rich_data_values(&ba),
+            "a record permutation must differ"
+        );
+    }
+
+    #[test]
+    fn metadata_index_reindex_is_caught() {
+        // REGRESSION (round-48): the MIDDLE link of the rich-value chain — the `rvb i` mapping in
+        // metadata.xml — must be compared. Remapping i="0"->i="1" repoints a cell to a different
+        // record with both the cell `vm` and the richData store byte-identical.
+        let md = |i: &str| {
+            wb(
+                "",
+                &[(
+                    "xl/metadata.xml",
+                    &format!(
+                        r#"<metadata xmlns="urn:x" xmlns:xlrd="urn:xlrd"><valueMetadata><bk><rc t="1" v="0"/></bk></valueMetadata><futureMetadata><bk><ext><xlrd:rvb i="{i}"/></ext></bk></futureMetadata></metadata>"#
+                    ),
+                )],
+            )
+        };
+        let a = md("0");
+        assert_eq!(metadata_index_chain(&a), metadata_index_chain(&md("0")));
+        assert_ne!(metadata_index_chain(&a), metadata_index_chain(&md("1")));
+        assert_eq!(
+            verify_noncell_refs(&a, &md("1")).expect("an rvb reindex must refuse")["reason"],
+            "metadata_index_mismatch"
+        );
     }
 
     #[test]
@@ -3139,29 +3399,56 @@ mod tests {
     #[test]
     fn cell_info_function_sensitivity_scan() {
         // Number-format-sensitive info types -> a format change is value-affecting.
-        assert!(formula_calls_sensitive_cell(r#"CELL("format",A1)"#));
-        assert!(formula_calls_sensitive_cell(r#"CELL("color",A1)"#));
         assert!(formula_calls_sensitive_cell(
-            r#"IF(CELL("parentheses",B2)=1,"y","n")"#
+            r#"CELL("format",A1)"#,
+            &CELL_FORMAT_SENSITIVE
+        ));
+        assert!(formula_calls_sensitive_cell(
+            r#"CELL("color",A1)"#,
+            &CELL_FORMAT_SENSITIVE
+        ));
+        assert!(formula_calls_sensitive_cell(
+            r#"IF(CELL("parentheses",B2)=1,"y","n")"#,
+            &CELL_FORMAT_SENSITIVE
         ));
         // Case- and _xlfn.-insensitive.
-        assert!(formula_calls_sensitive_cell(r#"cell("FORMAT",A1)"#));
-        assert!(formula_calls_sensitive_cell(r#"_xlfn.CELL("format",A1)"#));
+        assert!(formula_calls_sensitive_cell(
+            r#"cell("FORMAT",A1)"#,
+            &CELL_FORMAT_SENSITIVE
+        ));
+        assert!(formula_calls_sensitive_cell(
+            r#"_xlfn.CELL("format",A1)"#,
+            &CELL_FORMAT_SENSITIVE
+        ));
         // A NON-literal info type is unresolvable -> conservative true.
-        assert!(formula_calls_sensitive_cell("CELL(D1,A1)"));
+        assert!(formula_calls_sensitive_cell(
+            "CELL(D1,A1)",
+            &CELL_FORMAT_SENSITIVE
+        ));
         // Format-INSENSITIVE info types -> not sensitive.
-        assert!(!formula_calls_sensitive_cell(r#"CELL("contents",A1)"#));
         assert!(!formula_calls_sensitive_cell(
-            r#"CELL("row",A1)+CELL("col",A1)"#
+            r#"CELL("contents",A1)"#,
+            &CELL_FORMAT_SENSITIVE
+        ));
+        assert!(!formula_calls_sensitive_cell(
+            r#"CELL("row",A1)+CELL("col",A1)"#,
+            &CELL_FORMAT_SENSITIVE
         ));
         // A STRING LITERAL that merely contains "CELL(" is not a call.
         assert!(!formula_calls_sensitive_cell(
-            r#"CONCAT("CELL(""format"",A1)","x")"#
+            r#"CONCAT("CELL(""format"",A1)","x")"#,
+            &CELL_FORMAT_SENSITIVE
         ));
         // A sheet named CELL is not the function.
-        assert!(!formula_calls_sensitive_cell("'CELL'!A1+1"));
+        assert!(!formula_calls_sensitive_cell(
+            "'CELL'!A1+1",
+            &CELL_FORMAT_SENSITIVE
+        ));
         // No CELL at all.
-        assert!(!formula_calls_sensitive_cell("SUM(A1:A10)*1.1"));
+        assert!(!formula_calls_sensitive_cell(
+            "SUM(A1:A10)*1.1",
+            &CELL_FORMAT_SENSITIVE
+        ));
     }
 
     #[test]

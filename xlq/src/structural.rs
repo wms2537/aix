@@ -3981,6 +3981,13 @@ fn insert_overflows_grid(xml: &[u8], edit: &StructuralEdit) -> bool {
     if edit.op != Op::Insert {
         return false;
     }
+    // The inserted blank rows/cols themselves occupy [at, at+count-1]; if that range runs past the
+    // grid edge the inserter would emit an off-grid `<row r>`/cell coordinate (schema-invalid, and
+    // Excel refuses the edit). Guard this UP FRONT — the per-coordinate scan below only catches an
+    // EXISTING populated datum shifted off-grid, not the blank rows emitted into an empty region.
+    if edit.at.saturating_add(edit.count).saturating_sub(1) > refshift::grid_max(edit.axis) {
+        return true;
+    }
     let row_axis = edit.axis == Axis::Row;
     let mut reader = Reader::from_reader(xml);
     reader.config_mut().expand_empty_elements = false;
@@ -5288,6 +5295,21 @@ mod tests {
         assert!(!insert_overflows_grid(
             mid_row,
             &edit("Sheet1", Axis::Row, Op::Insert, 1, 1)
+        ));
+        // REGRESSION (round-48): the INSERTED BLANK ROWS themselves must not run past the grid, even
+        // with NO populated row near the boundary (the per-coordinate scan misses those blanks).
+        let empty = br#"<worksheet><sheetData/></worksheet>"#;
+        assert!(
+            insert_overflows_grid(empty, &edit("Sheet1", Axis::Row, Op::Insert, 1048575, 3)),
+            "blanks at 1048575..1048577 run off-grid"
+        );
+        assert!(insert_overflows_grid(
+            empty,
+            &edit("Sheet1", Axis::Row, Op::Insert, 2000000, 5)
+        ));
+        assert!(!insert_overflows_grid(
+            empty,
+            &edit("Sheet1", Axis::Row, Op::Insert, 5, 1)
         ));
         // Column axis: a cell at XFD pushed past column 16384 by an insert-cols.
         let xfd = br#"<worksheet><sheetData><row r="1"><c r="XFD1"><v>5</v></c></row></sheetData></worksheet>"#;
