@@ -109,7 +109,15 @@ pub fn run(
     // reference-bearing part certify does not compare fails closed.
     let edited_bytes =
         std::fs::read(edited).with_context(|| format!("read {}", diff::basename(edited)))?;
-    if let Some(refusal) = verify_noncell_refs(&expected_bytes, &edited_bytes) {
+    // The expected bytes are xlq's transform of `original`, so their self-referential hyperlink
+    // Targets (if any) name `original`; the edited bytes' name `edited`. Passing each basename lets
+    // an internal hyperlink encoded as a self-file external Target (LibreOffice) match faithfully.
+    if let Some(refusal) = verify_noncell_refs_named(
+        &expected_bytes,
+        &edited_bytes,
+        &diff::basename(original),
+        &diff::basename(edited),
+    ) {
         return Ok(refusal);
     }
 
@@ -247,7 +255,22 @@ pub fn run(
 /// compare. Returns Some(refusal) if the foreign edit's defined names differ from
 /// xlq's transform, or if the workbook carries a reference-bearing part certify cannot
 /// verify (fail closed). None if all clear.
+// Test-only thin wrapper: the many `verify_noncell_refs(expected, edited)` unit tests don't carry
+// file names, so the hyperlink self-file fold is disabled (conservative default: never folds an
+// external target to internal). Production always calls `verify_noncell_refs_named` with basenames.
+#[cfg(test)]
 fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
+    verify_noncell_refs_named(expected, edited, "", "")
+}
+
+/// As `verify_noncell_refs`, but with each workbook's own basename so an internal hyperlink
+/// encoded as a self-referential external Target (LibreOffice) is recognised as internal.
+fn verify_noncell_refs_named(
+    expected: &[u8],
+    edited: &[u8],
+    expected_name: &str,
+    edited_name: &str,
+) -> Option<Value> {
     // defined names must match xlq's proven transform exactly (name -> refers-to)
     if defined_names(expected) != defined_names(edited) {
         return Some(json!({
@@ -264,7 +287,7 @@ fn verify_noncell_refs(expected: &[u8], edited: &[u8]) -> Option<Value> {
     // value/structure write-surface. Pure view-state (dimension/selection/pane/brk)
     // is deliberately excluded — it is non-semantic and foreign tools legitimately
     // vary it; it does not affect computed values.
-    if structural_ref_attrs(expected) != structural_ref_attrs(edited) {
+    if structural_ref_attrs(expected, expected_name) != structural_ref_attrs(edited, edited_name) {
         return Some(json!({
             "status": "REFUSED",
             "reason": "structural_ref_mismatch",
@@ -997,12 +1020,56 @@ fn cellxfs_numfmt_codes(styles: &[u8]) -> Vec<String> {
     }
     ids.into_iter()
         .map(|id| {
+            // A cell may carry a builtin numFmtId directly (what Excel/openpyxl emit) OR, after a
+            // real-editor re-save, the SAME format materialized as a custom `<numFmt>` with the
+            // equivalent formatCode. Resolve a builtin to its canonical ECMA-376 code so the two
+            // forms compare EQUAL (else CELL("format") over-refused a faithful builtin->custom
+            // expansion). A builtin without a canonical code (locale-reserved) stays `builtin:{id}`.
             custom
                 .get(&id)
                 .cloned()
+                .or_else(|| builtin_numfmt_code(id).map(str::to_string))
                 .unwrap_or_else(|| format!("builtin:{id}"))
         })
         .collect()
+}
+
+/// The canonical ECMA-376 (§18.8.30) format code of a BUILTIN number-format id, for the ids with a
+/// standardized, locale-independent code. Locale-dependent (currency 5-8, 41-44) and reserved ids
+/// return None (handled as `builtin:{id}`, fail-safe). Used to fold a builtin id and its expanded
+/// custom `<numFmt>` to the same key for the CELL("format") comparison.
+fn builtin_numfmt_code(id: u32) -> Option<&'static str> {
+    Some(match id {
+        0 => "General",
+        1 => "0",
+        2 => "0.00",
+        3 => "#,##0",
+        4 => "#,##0.00",
+        9 => "0%",
+        10 => "0.00%",
+        11 => "0.00E+00",
+        12 => "# ?/?",
+        13 => "# ??/??",
+        14 => "mm-dd-yy",
+        15 => "d-mmm-yy",
+        16 => "d-mmm",
+        17 => "mmm-yy",
+        18 => "h:mm AM/PM",
+        19 => "h:mm:ss AM/PM",
+        20 => "h:mm",
+        21 => "h:mm:ss",
+        22 => "m/d/yy h:mm",
+        37 => "#,##0 ;(#,##0)",
+        38 => "#,##0 ;[Red](#,##0)",
+        39 => "#,##0.00;(#,##0.00)",
+        40 => "#,##0.00;[Red](#,##0.00)",
+        45 => "mm:ss",
+        46 => "[h]:mm:ss",
+        47 => "mmss.0",
+        48 => "##0.0E+0",
+        49 => "@",
+        _ => return None,
+    })
 }
 
 /// The (sheet|cell, number-format-code) of every cell carrying a NON-default (non-General) number
@@ -1210,11 +1277,20 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
                 let sig = match tag.as_str() {
                     // A `<dataField>`'s aggregation (`subtotal`, default "sum" when absent) is the
                     // VALUE the pivot materializes — a SUM->COUNT flip changes the output column.
+                    // `showDataAs` (the "Show Values As" operation: percentOfCol/runTotal/…, default
+                    // "normal") likewise transforms every data cell on the next refresh (a SUM ->
+                    // "% of column" flip) — a silent value corruption of pivot output.
                     "dataField" => {
                         let st = pick("subtotal=");
                         let st = if st.is_empty() { "sum".to_string() } else { st };
+                        let sda = pick("showDataAs=");
+                        let sda = if sda.is_empty() {
+                            "normal".to_string()
+                        } else {
+                            sda
+                        };
                         format!(
-                            "dataField|name={}|fld={}|subtotal={st}|baseField={}|baseItem={}",
+                            "dataField|name={}|fld={}|subtotal={st}|showDataAs={sda}|baseField={}|baseItem={}",
                             pick("name="),
                             pick("fld="),
                             pick("baseField="),
@@ -1530,7 +1606,17 @@ fn defined_names(bytes: &[u8]) -> Vec<(String, String, String)> {
 /// of the key (resolved via the workbook relationships, robust to a foreign tool
 /// renumbering sheet PARTS) so that RELOCATING a reference to a different sheet — which
 /// leaves the cross-sheet multiset unchanged — is still detected as a divergence.
-fn structural_ref_attrs(bytes: &[u8]) -> Vec<(String, String, String)> {
+/// True when a rels hyperlink `target` denotes the workbook's OWN file — a bare relative
+/// filename (no directory separator, no scheme) equal to `own_name`. Such a target resolves,
+/// relative to the workbook's own directory, to the workbook itself, so it is semantically an
+/// INTERNAL jump (LibreOffice encodes same-document links this way). The bare-name requirement
+/// keeps this SOUND: a path- or scheme-qualified `../min.xlsx` / `file:///x/min.xlsx` could name
+/// a DIFFERENT file, so it is left external (a fail-safe over-refusal, never a false certify).
+fn hyperlink_target_is_own_file(target: &str, own_name: &str) -> bool {
+    !own_name.is_empty() && target == own_name && !target.contains('/') && !target.contains('\\')
+}
+
+fn structural_ref_attrs(bytes: &[u8], own_name: &str) -> Vec<(String, String, String)> {
     use quick_xml::events::Event;
     let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
         return Vec::new();
@@ -1585,10 +1671,16 @@ fn structural_ref_attrs(bytes: &[u8]) -> Vec<(String, String, String)> {
                             // refused a faithful edit that merely round-tripped the encoding, so
                             // fold both to (dest, ext=""). A genuine external target (URL / other-
                             // workbook file) still lands in `ext`, so a real retarget (a phishing
-                            // swap, a mispoint to another file) differs.
+                            // swap, a mispoint to another file) differs. A THIRD encoding of the
+                            // same internal jump is a self-referential external Target naming the
+                            // workbook's own file (`Target="min.xlsx" TargetMode="External"` +
+                            // `location`, written by LibreOffice) — folded to internal too, so a
+                            // faithful cross-tool edit is not refused.
                             let (dest, ext) = if let Some(internal) = target.strip_prefix('#') {
                                 (internal.to_string(), String::new())
-                            } else if target.is_empty() {
+                            } else if target.is_empty()
+                                || hyperlink_target_is_own_file(target, own_name)
+                            {
                                 (location.clone(), String::new())
                             } else {
                                 (location.clone(), target.to_string())
@@ -2416,16 +2508,15 @@ fn nums_equal_at_excel_precision(x: f64, y: f64) -> bool {
     if !x.is_finite() || !y.is_finite() {
         return false;
     }
-    // Excel and LibreOffice snap a catastrophic-cancellation result to EXACTLY 0 (`0.5-0.4-0.1` and
-    // `0.1+0.2-0.3` -> 0), while ironcalc keeps the raw IEEE residual (~1e-17). A real editor's
-    // stored cache of exactly 0 and the oracle's tiny residual denote the SAME value at Excel's
-    // precision floor — treat a residual below the cancellation noise floor as 0. This is SOUND on a
-    // TERMINAL cache (the round-46 lesson): it fires ONLY when the real editor computed exactly 0,
-    // and any genuine value below the floor is itself IEEE noise a real editor would also snap. The
-    // floor covers cancellation of operands up to ~1e7 (residual ~ operand * 2^-52).
-    if (x == 0.0 && y.abs() < 1e-9) || (y == 0.0 && x.abs() < 1e-9) {
-        return true;
-    }
+    // NOTE (round-52): a zero-snap tolerance (treat a tiny residual as equal to a 0 cache — for the
+    // catastrophic-cancellation `0.5-0.4-0.1` -> 0 that ironcalc leaves at ~1e-17) was REMOVED as
+    // UNSOUND. A catastrophic-cancellation residual scales with the OPERAND magnitude (~operand *
+    // 2^-52), so NO absolute floor distinguishes a large-operand cancellation residual (~1e-10) from
+    // a GENUINE small computed value (1/8e9 = 1.25e-10): any floor wide enough to vouch the former
+    // FALSE-CERTIFIES a forged 0 hiding the latter. Unlike the RELATIVE 14-sig-fig compare below
+    // (whose residual is always at each value's own precision floor), an absolute near-zero snap can
+    // corrupt a full-precision small value. So a cancellation cache of exactly 0 stays a fail-safe
+    // over-refusal (a sound fix would need operand-scale-aware precision, unavailable here).
     // Canonical 14-significant-figure form (13 fractional digits in scientific notation);
     // 0.0 and -0.0 collapse to one key.
     let round14 = |v: f64| {
@@ -2823,6 +2914,39 @@ mod tests {
             )],
         );
         assert_eq!(pivot_refs(&off), pivot_refs(&off2));
+    }
+
+    #[test]
+    fn pivot_show_data_as_flip_is_compared() {
+        // REGRESSION (round-52 defect 2): `showDataAs` (the "Show Values As" transform) rewrites
+        // every data cell on refresh — a SUM -> "% of column" flip is a silent value corruption the
+        // dataField signature must catch. Absent keys the same as explicit "normal" (no over-refusal).
+        let pt = |sda: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="urn:x"><dataFields><dataField name="X" fld="1"{sda}/></dataFields></pivotTableDefinition>"#
+            )
+        };
+        let normal = wb("", &[("xl/pivotTables/pivotTable1.xml", &pt(""))]);
+        let pct = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &pt(r#" showDataAs="percentOfCol""#),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&normal),
+            pivot_refs(&pct),
+            "SUM vs % of column must differ"
+        );
+        let normal_explicit = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &pt(r#" showDataAs="normal""#),
+            )],
+        );
+        assert_eq!(pivot_refs(&normal), pivot_refs(&normal_explicit));
     }
 
     #[test]
@@ -3581,15 +3705,12 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_residual_equals_zero_cache() {
-        // REGRESSION (round-51 defect 6): Excel/LibreOffice snap a catastrophic-cancellation result
-        // to EXACTLY 0 (0.5-0.4-0.1) while ironcalc keeps the IEEE residual (~-2.78e-17). A cache of
-        // 0 and that residual are the same value at Excel's precision floor. A genuine value stays
-        // distinct.
-        assert!(nums_equal_at_excel_precision(0.0, -2.7755575615628914e-17));
-        assert!(nums_equal_at_excel_precision(2.7e-17, 0.0));
-        assert!(!nums_equal_at_excel_precision(0.0, 5.0));
-        assert!(!nums_equal_at_excel_precision(0.0, 0.5)); // a real 0.5 is NOT snapped
+    fn near_zero_cache_is_not_snapped_to_zero() {
+        // REGRESSION (round-52 defect 5): the zero-snap tolerance was UNSOUND and REMOVED — a forged
+        // 0 cache must NOT be vouched against a genuine tiny computed value (1.25e-10).
+        assert!(!nums_equal_at_excel_precision(0.0, 1.25e-10));
+        assert!(!nums_equal_at_excel_precision(0.0, -2.7755575615628914e-17));
+        assert!(nums_equal_at_excel_precision(0.0, 0.0));
     }
 
     #[test]
@@ -3597,12 +3718,29 @@ mod tests {
         // REGRESSION (round-51 defect 5): a numFmt change that leaves the RENDERED value unchanged
         // ("0" vs "General" both show 5) is invisible to the display-based `format` diff, but
         // CELL("format") reads the CODE. Resolve per-cellXf format codes: custom -> formatCode,
-        // built-in -> `builtin:{id}`.
+        // built-in -> its canonical ECMA-376 code string (round-52 defect 4).
         let styles = br#"<styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/></numFmts><cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="1"/><xf numFmtId="164"/></cellXfs></styleSheet>"#;
         let codes = cellxfs_numfmt_codes(styles);
-        assert_eq!(codes[0], "builtin:0"); // General
-        assert_eq!(codes[1], "builtin:1"); // "0"
+        assert_eq!(codes[0], "General"); // built-in 0
+        assert_eq!(codes[1], "0"); // built-in 1
         assert_eq!(codes[2], "\"$\"#,##0.00"); // custom
+                                               // The three codes are distinct, so a numFmt CODE change is still detected.
+        assert_ne!(codes[0], codes[1]);
+    }
+
+    #[test]
+    fn builtin_numfmt_expanded_to_equivalent_custom_is_not_refused() {
+        // REGRESSION (round-52 defect 4): a faithful editor (LibreOffice) that re-encodes built-in
+        // numFmtId 2 as an EQUIVALENT custom `<numFmt formatCode="0.00">` must resolve to the SAME
+        // canonical code, so a CELL("format") reader sees no change and certify does not over-refuse.
+        let builtin =
+            br#"<styleSheet><cellXfs count="1"><xf numFmtId="2"/></cellXfs></styleSheet>"#;
+        let expanded = br#"<styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="0.00"/></numFmts><cellXfs count="1"><xf numFmtId="164"/></cellXfs></styleSheet>"#;
+        assert_eq!(
+            cellxfs_numfmt_codes(builtin),
+            cellxfs_numfmt_codes(expanded),
+            "built-in 2 and custom \"0.00\" must canonicalize identically"
+        );
     }
 
     #[test]
@@ -4044,7 +4182,7 @@ mod tests {
                 r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdH" Type="x/hyperlink" Target="https://good.example.com/safe" TargetMode="External"/></Relationships>"#,
             )],
         );
-        let keys: Vec<String> = structural_ref_attrs(&bytes)
+        let keys: Vec<String> = structural_ref_attrs(&bytes, "")
             .into_iter()
             .filter(|(_, e, _)| e == "hyperlink")
             .map(|(_, _, k)| k)
@@ -4077,7 +4215,10 @@ mod tests {
             r#"<hyperlinks><hyperlink ref="A4" location="Data!A1"/></hyperlinks>"#,
             &[],
         );
-        assert_eq!(structural_ref_attrs(&form_a), structural_ref_attrs(&form_b));
+        assert_eq!(
+            structural_ref_attrs(&form_a, ""),
+            structural_ref_attrs(&form_b, "")
+        );
         // A genuine external retarget still differs (the equivalence must not blur real swaps).
         let external = wb(
             r#"<hyperlinks><hyperlink xmlns:r="urn:r" ref="A4" r:id="rIdH"/></hyperlinks>"#,
@@ -4087,9 +4228,61 @@ mod tests {
             )],
         );
         assert_ne!(
-            structural_ref_attrs(&form_a),
-            structural_ref_attrs(&external)
+            structural_ref_attrs(&form_a, ""),
+            structural_ref_attrs(&external, "")
         );
+    }
+
+    #[test]
+    fn hyperlink_self_file_target_folds_to_internal() {
+        // REGRESSION (round-52 defect 3): a THIRD encoding of the same in-workbook jump is a
+        // self-referential external Target naming the workbook's OWN file (LibreOffice writes
+        // `Target="min.xlsx" TargetMode="External"` + `location="Data!A1"`). Given the workbook's
+        // own basename, it must fold to the SAME key as the openpyxl `#Data!A1` / bare-`location`
+        // forms, so a faithful cross-tool edit is not over-refused.
+        let openpyxl = wb(
+            r#"<hyperlinks><hyperlink ref="A4" location="Data!A1"/></hyperlinks>"#,
+            &[],
+        );
+        let libre = wb(
+            r#"<hyperlinks><hyperlink xmlns:r="urn:r" ref="A4" location="Data!A1" r:id="rIdH"/></hyperlinks>"#,
+            &[(
+                "xl/worksheets/_rels/sheet2.xml.rels",
+                r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdH" Type="x/hyperlink" Target="min.xlsx" TargetMode="External"/></Relationships>"#,
+            )],
+        );
+        // With the own basename, the self-file Target folds to internal -> keys match.
+        assert_eq!(
+            structural_ref_attrs(&openpyxl, "min.xlsx"),
+            structural_ref_attrs(&libre, "min.xlsx"),
+            "self-file external Target must fold to the internal jump"
+        );
+        assert!(verify_noncell_refs_named(&openpyxl, &libre, "min.xlsx", "min.xlsx").is_none());
+
+        // SOUNDNESS: the fold is name-gated. A Target naming a DIFFERENT workbook (`other.xlsx`)
+        // stays external and still differs — a real retarget is never blurred to internal.
+        let other = wb(
+            r#"<hyperlinks><hyperlink xmlns:r="urn:r" ref="A4" location="Data!A1" r:id="rIdH"/></hyperlinks>"#,
+            &[(
+                "xl/worksheets/_rels/sheet2.xml.rels",
+                r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdH" Type="x/hyperlink" Target="other.xlsx" TargetMode="External"/></Relationships>"#,
+            )],
+        );
+        assert_ne!(
+            structural_ref_attrs(&openpyxl, "min.xlsx"),
+            structural_ref_attrs(&other, "min.xlsx"),
+            "a target to a DIFFERENT workbook must NOT fold to internal"
+        );
+        // And a path-qualified target that merely ends in the own name is NOT folded (could be a
+        // different directory) — conservative fail-safe, never a false certify.
+        assert!(!hyperlink_target_is_own_file("../min.xlsx", "min.xlsx"));
+        assert!(!hyperlink_target_is_own_file(
+            "file:///x/min.xlsx",
+            "min.xlsx"
+        ));
+        assert!(hyperlink_target_is_own_file("min.xlsx", "min.xlsx"));
+        // Unknown own-name (empty) never folds.
+        assert!(!hyperlink_target_is_own_file("min.xlsx", ""));
     }
 
     #[test]
@@ -4107,7 +4300,7 @@ mod tests {
         );
         // xlq's own transform: NO hyperlink.
         let clean = wb("", &[]);
-        assert!(structural_ref_attrs(&clean).is_empty());
+        assert!(structural_ref_attrs(&clean, "").is_empty());
         // Attacker injects a PREFIXED hyperlink (x bound to the main ns) with an external target.
         let evil = wb(
             &format!(
@@ -4116,7 +4309,7 @@ mod tests {
             &[evil_rels],
         );
         assert!(
-            !structural_ref_attrs(&evil).is_empty(),
+            !structural_ref_attrs(&evil, "").is_empty(),
             "prefixed hyperlink must now be captured"
         );
         let refusal = verify_noncell_refs(&clean, &evil)
@@ -4129,8 +4322,8 @@ mod tests {
             &[evil_rels],
         );
         assert_eq!(
-            structural_ref_attrs(&evil),
-            structural_ref_attrs(&plain),
+            structural_ref_attrs(&evil, ""),
+            structural_ref_attrs(&plain, ""),
             "prefixed and unprefixed must key identically"
         );
     }

@@ -4335,11 +4335,48 @@ fn shift_ref_attrs(
 }
 
 /// Shift a space-separated sqref/ref value; drop consumed rectangles.
+/// Split a `sqref`/binding value into its space-separated reference tokens WITHOUT splitting inside
+/// a quoted sheet name (`'My Sheet'!$A$5` is ONE token). A raw `split_whitespace` broke a quoted
+/// qualifier into `'My` + `Sheet'!$A$5`, neither of which shift_ref recognizes — so a binding
+/// qualified to the edited sheet by a spaced, quoted name was silently left stale (would_shift
+/// returned false, defeating the refusal). Handles the `''` escape inside a quoted name.
+fn split_sqref_tokens(value: &str) -> Vec<&str> {
+    let bytes = value.as_bytes();
+    let mut tokens = Vec::new();
+    let mut in_quote = false;
+    let mut start = 0usize;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\'' => {
+                if in_quote && bytes.get(i + 1) == Some(&b'\'') {
+                    i += 2; // '' — an escaped quote inside the name
+                    continue;
+                }
+                in_quote = !in_quote;
+            }
+            b' ' | b'\t' | b'\n' | b'\r' if !in_quote => {
+                if start < i {
+                    tokens.push(&value[start..i]);
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if start < value.len() {
+        tokens.push(&value[start..]);
+    }
+    tokens
+}
+
 fn shift_sqref(value: &str, sheet: &str, edit: &StructuralEdit) -> (String, u32, u32, bool) {
     let mut parts = Vec::new();
     let (mut shifted, mut consumed) = (0u32, 0u32);
-    let total = value.split_whitespace().count();
-    for r in value.split_whitespace() {
+    let tokens = split_sqref_tokens(value);
+    let total = tokens.len();
+    for r in tokens {
         match refshift::shift_ref(r, sheet, edit) {
             Shift::Unchanged => parts.push(r.to_string()),
             Shift::Shifted(ns) => {
@@ -6421,6 +6458,34 @@ mod tests {
             canonical_sqref("B1:B1 A1:A2")
         );
         assert_ne!(canonical_sqref("B1:B11 C1:C11"), canonical_sqref("B1:D11"));
+    }
+
+    #[test]
+    fn sqref_tokeniser_keeps_quoted_space_names_whole() {
+        // REGRESSION (round-52 defect 1): sqref/ref-shaped values were split on raw whitespace, so a
+        // quoted sheet name containing a space (`'My Sheet'!$A$5`) was torn into `'My` and
+        // `Sheet'!$A$5` — neither a valid ref — and `would_shift` returned false, silently committing
+        // a STALE binding after an insert. A quote-aware tokeniser keeps it whole.
+        assert_eq!(
+            split_sqref_tokens("'My Sheet'!$A$5 'My Sheet'!$B$9"),
+            vec!["'My Sheet'!$A$5", "'My Sheet'!$B$9"]
+        );
+        // An escaped inner quote ('') does not close the quote.
+        assert_eq!(
+            split_sqref_tokens("'It''s A'!$A$1 B2"),
+            vec!["'It''s A'!$A$1", "B2"]
+        );
+        // Plain unqualified ranges are unaffected.
+        assert_eq!(
+            split_sqref_tokens("A1:A5 B2 C3:D4"),
+            vec!["A1:A5", "B2", "C3:D4"]
+        );
+
+        // End-to-end through the shift: a `'My Sheet'!$A$5` binding on sheet "My Sheet" DOES shift
+        // when a row is inserted above it (previously it stayed put).
+        let e = edit("My Sheet", Axis::Row, Op::Insert, 3, 1);
+        let (nv, _n, _c, _all) = shift_sqref("'My Sheet'!$A$5", "My Sheet", &e);
+        assert_eq!(nv, "'My Sheet'!$A$6");
     }
 
     #[test]
