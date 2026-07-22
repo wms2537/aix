@@ -1176,6 +1176,20 @@ fn rich_data_values(bytes: &[u8]) -> Vec<String> {
                     // rewrite/permutation still differs and a benign re-serialization does not.
                     raw.push_str(&String::from_utf8_lossy(t.as_ref()));
                 }
+                // REGRESSION (round-54 defect 9, HIGH false-certify): under quick-xml an entity /
+                // numeric char-reference (`&amp;`, `&#57;`) inside `<v>` arrives as a SEPARATE
+                // GeneralRef event, and CDATA as a CData event — the Text-only capture dropped both,
+                // so a tampered rich value (`420.5` -> `&#57;420.5` = "9420.5") whose literal runs
+                // stayed byte-identical CERTIFIED. Reassemble the entity/CDATA raw (both sides
+                // escape identically), so any entity insert/delete/substitution differs.
+                Ok(Event::GeneralRef(r)) if cap => {
+                    raw.push('&');
+                    raw.push_str(&r.decode().unwrap_or_default());
+                    raw.push(';');
+                }
+                Ok(Event::CData(c)) if cap => {
+                    raw.push_str(&String::from_utf8_lossy(c.as_ref()));
+                }
                 Ok(Event::Eof) | Err(_) => break,
                 _ => {}
             }
@@ -1682,6 +1696,24 @@ fn hyperlink_target_is_own_file(target: &str, own_name: &str) -> bool {
     !own_name.is_empty() && target == own_name && !target.contains('/') && !target.contains('\\')
 }
 
+/// Canonicalize the SHEET QUALIFIER of an internal-hyperlink destination to its bare (unquoted)
+/// form, so every encoding of one destination folds to a single key: `'My Data'!A8`, `My Data!A8`,
+/// `'Data'!A8`, and `Data!A8` all normalize to `<bare sheet>!<cell>`. Tools disagree on whether to
+/// quote a (space-bearing) sheet name in a `location` / rel-target, so the hyperlink dest needs the
+/// same quote-normalization every other reference surface already gets. A DIFFERENT sheet, cell, or
+/// external target still differs, so a real mispoint / phishing retarget is still caught.
+fn canonicalize_hyperlink_dest(dest: &str) -> String {
+    // A sheet name cannot contain `!`, so the first `!` separates `sheet!cell`.
+    let Some((sheet, cell)) = dest.split_once('!') else {
+        return dest.to_string();
+    };
+    let bare = match sheet.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+        Some(inner) => inner.replace("''", "'"), // '' is an escaped quote inside a quoted name
+        None => sheet.to_string(),
+    };
+    format!("{bare}!{cell}")
+}
+
 fn structural_ref_attrs(bytes: &[u8], own_name: &str) -> Vec<(String, String, String)> {
     use quick_xml::events::Event;
     let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
@@ -1751,6 +1783,9 @@ fn structural_ref_attrs(bytes: &[u8], own_name: &str) -> Vec<(String, String, St
                             } else {
                                 (location.clone(), target.to_string())
                             };
+                            // Normalize the dest's sheet-quote so a faithful edit that quotes (or
+                            // unquotes) the sheet name of the same destination is not refused.
+                            let dest = canonicalize_hyperlink_dest(&dest);
                             format!("ref={r}|dest={dest}|ext={ext}")
                         } else {
                             format!("ref={r}")
@@ -1821,13 +1856,16 @@ fn rels_targets(bytes: &[u8], sheet_part: &str) -> std::collections::BTreeMap<St
     map
 }
 
-/// Every EXTERNAL relationship target across ALL `*.rels` parts, EXCEPT `hyperlink` (which has its
-/// own normalized comparators — worksheet `structural_ref_attrs` with the internal-jump / self-file
-/// folds, and drawing `hlinkClick` in `chart_drawing_refs`). This closes the hole that the blanket
-/// `.rels` allowlist left open: certify resolved external targets for only hyperlink + hlinkClick,
-/// so a LINKED image (`<a:blip r:link>`), a hover hyperlink, a linked OLE server, linked media, or
-/// an external-workbook link — all `TargetMode="External"` in an allowlisted `.rels` with a
-/// byte-identical owning part — could be repointed to an attacker URL/UNC and CERTIFY. xlq's
+/// Every EXTERNAL relationship target across ALL `*.rels` parts. Hyperlink-typed relationships are
+/// skipped ONLY for WORKSHEET-owned rels — those have their own normalized comparator
+/// (`structural_ref_attrs`, with the internal-jump / self-file folds), so re-emitting them here
+/// would double-refuse the folded forms. A hyperlink external owned by any OTHER part (a chart /
+/// drawing `hlinkClick` / `hlinkHover`) is folded nowhere, so it IS emitted and compared here.
+/// This closes the hole the blanket `.rels` allowlist left open: certify resolved external targets
+/// for only worksheet hyperlink + drawing `hlinkClick`, so a LINKED image (`<a:blip r:link>`), a
+/// drawing hover hyperlink, a CHART-part hyperlink (title/label), a linked OLE server, linked
+/// media, or an external-workbook link — all `TargetMode="External"` in an allowlisted `.rels`
+/// with a byte-identical owning part — could be repointed to an attacker URL/UNC and CERTIFY. xlq's
 /// transform copies these verbatim, so a faithful edit keys identically; only a genuine repoint
 /// (or an inserted/removed external link) changes the sorted multiset. Keyed by relationship TYPE +
 /// TARGET, not by part name, so a benign part renumber does not false-refuse.
@@ -1839,6 +1877,9 @@ fn external_rels_targets(bytes: &[u8]) -> Vec<String> {
         if !low.ends_with(".rels") {
             continue;
         }
+        // A worksheet's own rels (`xl/worksheets/_rels/sheetN.xml.rels`) — its hyperlinks are folded
+        // by structural_ref_attrs and must not be double-compared here.
+        let worksheet_owned = low.starts_with("xl/worksheets/_rels/");
         let Ok(part) = crate::ooxml::read_part(bytes, n) else {
             continue;
         };
@@ -1859,11 +1900,14 @@ fn external_rels_targets(bytes: &[u8]) -> Vec<String> {
             };
             // The relationship TYPE's local segment (`.../relationships/image` -> `image`).
             let ty_local = ty.rsplit(['/', ':']).next().unwrap_or(&ty).to_string();
-            // Hyperlinks are compared (with internal-jump / self-file folds) by the dedicated
-            // hyperlink comparators; re-emitting them here would double-refuse the folded forms.
-            if ty_local.eq_ignore_ascii_case("hyperlink") {
+            // A WORKSHEET hyperlink is folded elsewhere — skip it here (but a chart/drawing hyperlink
+            // is folded nowhere, so compare it).
+            if worksheet_owned && ty_local.eq_ignore_ascii_case("hyperlink") {
                 continue;
             }
+            // A single trailing `/` on a bare-authority URL is a benign renormalization (mirrors the
+            // hyperlink comparator); a real retarget still differs on host/path.
+            let target = target.strip_suffix('/').unwrap_or(&target);
             out.push(format!("ext|{ty_local}|{target}"));
         }
     }
@@ -2302,6 +2346,82 @@ const DATE_SERIAL_PRODUCERS: &[&str] = &[
     "WORKDAY.INTL",
 ];
 
+/// The subset of DATE_EPOCH_FUNCTIONS that CONSUME a serial to return a calendar component or a
+/// day-count. The engine routes these through `from_excel_date`, which omits Excel's phantom
+/// 1900-02-29 — so for an INPUT serial < 61 the engine's day/month/year/weekday is off by one from
+/// Excel (`DAY(59)` = 27 here, 28 in Excel). `DAYS360` is deliberately EXCLUDED: it already uses the
+/// phantom-leap-day-aware `excel_serial_to_ymd`, so it matches Excel for all serials. A consumer
+/// reading an early serial is value-gated out of the oracle in `build_cache_oracle` (else the
+/// engine's wrong value would be vouched); a consumer reading only modern serials (>= 61) stays
+/// vouchable — no blanket over-refusal of the ubiquitous DAY/MONTH/YEAR.
+const DATE_CONSUMER_FUNCTIONS: &[&str] = &[
+    "YEAR",
+    "MONTH",
+    "DAY",
+    "WEEKDAY",
+    "WEEKNUM",
+    "ISOWEEKNUM",
+    "NETWORKDAYS",
+    "NETWORKDAYS.INTL",
+    "DAYS",
+    "YEARFRAC",
+    "DATEDIF",
+];
+
+/// True if `formula` contains a bare integer LITERAL in the divergent early-date range [1, 60]
+/// (e.g. the `59` in `=DAY(59)`) — bounded by non-identifier characters so it is not a fragment of a
+/// cell ref (`A60`), a larger number, or a decimal. Used to gate a date consumer reading a hard-coded
+/// early serial when the workbook has no early date VALUE.
+fn formula_has_early_serial_literal(formula: &str) -> bool {
+    let b = formula.as_bytes();
+    let mut i = 0usize;
+    while i < b.len() {
+        if b[i].is_ascii_digit() {
+            let start = i;
+            while i < b.len() && b[i].is_ascii_digit() {
+                i += 1;
+            }
+            // Reject if glued to a letter/`$`/`.`/`_` on either side (a cell ref / decimal / name).
+            let prev = if start == 0 { None } else { Some(b[start - 1]) };
+            let next = b.get(i).copied();
+            let glued = |x: Option<u8>| matches!(x, Some(c) if c.is_ascii_alphabetic() || c == b'$' || c == b'.' || c == b'_');
+            if !glued(prev) && !glued(next) {
+                if let Ok(v) = formula[start..i].parse::<u32>() {
+                    if (1..=60).contains(&v) {
+                        return true;
+                    }
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
+/// True if the model holds a DATE-formatted numeric value in the divergent early-date range (a
+/// serial in `(0, 61)`), meaning a date consumer that reads it would compute an Excel-divergent
+/// result. Uses the engine's own date-format classifier so a plain small number (a count/index) is
+/// NOT mistaken for a date — which keeps the consumer gate from over-refusing the common workbook.
+fn model_has_early_date_value(model: &ironcalc::base::Model) -> bool {
+    for cell in model.get_all_cells() {
+        let is_early = matches!(
+            cell_value_sig(model, cell.index, cell.row, cell.column)
+                .and_then(|sig| sig.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok())),
+            Some(v) if v > 0.0 && v < 61.0
+        );
+        if !is_early {
+            continue;
+        }
+        if let Ok(style) = model.get_style_for_cell(cell.index, cell.row, cell.column) {
+            if ironcalc::base::formatter::lexer::is_likely_date_number_format(&style.num_fmt) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// An oracle mapping (sheet name, A1 cell) -> the `type:value` cache signature of the TRUE computed
 /// value of xlq's proven transform, used to vouch a foreign edit's PRESERVED formula caches (which
 /// xlq's own transform blanks). Always returns Some, but INCLUDES ONLY cells whose engine value can
@@ -2474,6 +2594,10 @@ fn build_cache_oracle(
     // Cells whose formula uses a 3D span — value-gated into `sources` below (excluded only if the
     // engine still cannot evaluate the span, i.e. its value is an error).
     let mut three_d_span_cells: Vec<(u32, i32, i32)> = Vec::new();
+    // Cells whose formula CONSUMES a date serial (DAY/MONTH/YEAR/WEEKDAY/…). Excluded below iff the
+    // workbook has an early date value OR the consumer hard-codes an early-serial literal (`DAY(59)`)
+    // — the engine's off-by-one for a pre-1900-03-01 input would otherwise be vouched.
+    let mut date_consumers: Vec<((u32, i32, i32), bool)> = Vec::new();
     for cell in model.get_all_cells() {
         let Ok(Some(f)) = model.get_cell_formula(cell.index, cell.row, cell.column) else {
             continue;
@@ -2522,6 +2646,15 @@ fn build_cache_oracle(
             // covers a date serial produced through a defined name, not just an inline call.
             date_producers.push((cell.index, cell.row, cell.column));
         }
+        if fns
+            .iter()
+            .any(|n| DATE_CONSUMER_FUNCTIONS.contains(&n.as_str()))
+        {
+            date_consumers.push((
+                (cell.index, cell.row, cell.column),
+                formula_has_early_serial_literal(&f),
+            ));
+        }
     }
     let snap =
         |model: &ironcalc::base::Model| -> std::collections::HashMap<(String, String), String> {
@@ -2553,6 +2686,28 @@ fn build_cache_oracle(
     for &(s, r, c) in &three_d_span_cells {
         if cell_value_sig(model, s, r, c).is_none_or(|sig| sig.starts_with("e:")) {
             sources.push((s, r, c));
+        }
+    }
+    // Exclude a date CONSUMER (DAY/MONTH/YEAR/WEEKDAY/…) whose INPUT serial is in the divergent
+    // early-date range [1, 60], where the engine's phantom-leap-day omission makes its result off by
+    // one from Excel. Gate on a REACHABLE early input: an early date VALUE in the workbook (any
+    // consumer could read it) OR an early-serial LITERAL in the consumer's own formula (`DAY(59)`).
+    // Value/format-gated so the ubiquitous MODERN-date consumer (input >= 61, engine == Excel) stays
+    // vouchable — no blanket over-refusal. (A NON-date-formatted plain number < 61 fed directly to a
+    // date function — a semantically meaningless construct — is the one input this cannot see; it is
+    // a documented bounded limitation, consistent with the engine's deliberate pre-1900 divergence.)
+    if !date_consumers.is_empty() {
+        let workbook_has_early_date = date_producers.iter().any(|&(s, r, c)| {
+            matches!(
+                cell_value_sig(model, s, r, c)
+                    .and_then(|sig| sig.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok())),
+                Some(v) if v < 61.0
+            )
+        }) || model_has_early_date_value(model);
+        for &((s, r, c), has_early_literal) in &date_consumers {
+            if workbook_has_early_date || has_early_literal {
+                sources.push((s, r, c));
+            }
         }
     }
     sources.sort();
@@ -3517,6 +3672,27 @@ mod tests {
             rich_data_values(&ba),
             "a record permutation must differ"
         );
+        // REGRESSION (round-54 defect 9): a tampered field that injects an XML numeric char-ref
+        // (`420.5` -> `&#57;420.5` = "9420.5") whose literal text runs stay byte-identical must
+        // differ — the entity must be reassembled, not dropped.
+        let clean = wb("", &[("xl/richData/rdrichvalue.xml", &rv("MSFT", "420.5"))]);
+        let entity = wb(
+            "",
+            &[(
+                "xl/richData/rdrichvalue.xml",
+                r#"<rvData xmlns="urn:x"><rv s="0"><v>MSFT</v><v>&#57;420.5</v></rv></rvData>"#,
+            )],
+        );
+        assert_ne!(
+            rich_data_values(&clean),
+            rich_data_values(&entity),
+            "an injected numeric char-reference must differ (not be silently dropped)"
+        );
+        assert_eq!(
+            verify_noncell_refs(&clean, &entity)
+                .expect("an entity-injected rich value must refuse")["reason"],
+            "rich_data_mismatch"
+        );
     }
 
     #[test]
@@ -3932,6 +4108,56 @@ mod tests {
     }
 
     #[test]
+    fn early_date_consumer_excluded_but_modern_consumer_vouchable() {
+        // REGRESSION (round-54 defect 1, false-certify): a date CONSUMER (DAY/MONTH/YEAR/WEEKDAY/…)
+        // reading a pre-1900-03-01 serial (< 61) computes an Excel-divergent value on the engine
+        // (DAY(59) = 27 here, 28 in Excel), so its cache must be EXCLUDED from the oracle. A modern
+        // consumer (input >= 61) stays vouchable — no blanket over-refusal of DAY/MONTH/YEAR.
+        let rows = r#"<row r="1"><c r="B1"><f>DAY(59)</f><v>27</v></c><c r="C1"><f>B1+0</f><v>27</v></c><c r="D1"><f>DAY(50000)</f><v>18</v></c><c r="E1"><f>SUM(A1:A1)</f><v>0</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load date-consumer workbook");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("B1")),
+            "DAY(59) reads an early serial -> excluded (else the engine's off-by-one 27 would be \
+             vouched): {oracle:?}"
+        );
+        assert!(
+            !oracle.contains_key(&key("C1")),
+            "a dependent of the early-date consumer is excluded transitively"
+        );
+        assert!(
+            oracle.contains_key(&key("D1")),
+            "DAY(50000) reads a MODERN serial (>= 61) -> stays vouchable, no over-refusal: {oracle:?}"
+        );
+        assert!(
+            oracle.contains_key(&key("E1")),
+            "a pure SUM (no date function) stays vouchable"
+        );
+    }
+
+    #[test]
+    fn date_consumer_literal_and_format_gates() {
+        // The early-serial literal detector is bounded (a cell ref / decimal / larger number is not
+        // mistaken for an early serial).
+        assert!(formula_has_early_serial_literal("=DAY(59)"));
+        assert!(formula_has_early_serial_literal("=WEEKDAY(1)"));
+        assert!(!formula_has_early_serial_literal("=DAY(A59)")); // cell ref, not a literal
+        assert!(!formula_has_early_serial_literal("=DAY(590)")); // 590 not in [1,60]
+        assert!(!formula_has_early_serial_literal("=DAY(1.5)")); // decimal
+        assert!(!formula_has_early_serial_literal("=DAY(A1)+61")); // 61 excluded (>= 61)
+    }
+
+    #[test]
     fn bad_function_laundered_through_a_defined_name_is_excluded() {
         // REGRESSION (round-53 defect 1, HIGH false-certify): a bad (unsupported/UDF) function that
         // lives ONLY inside a DEFINED NAME's body is invisible to the cell-formula scan that builds
@@ -4304,6 +4530,56 @@ mod tests {
     }
 
     #[test]
+    fn chart_and_hover_hyperlink_external_targets_are_compared() {
+        // REGRESSION (round-54 defects 2/3/8): the round-53 external-rels comparator skipped ALL
+        // hyperlink-typed relationships (to avoid double-refusing worksheet folds), but the only
+        // dedicated hyperlink comparators were worksheet `<hyperlink>` and drawing `hlinkClick` — so
+        // a CHART-part hyperlink and a drawing `hlinkHover` (both Type=hyperlink, External) were
+        // compared by nothing and a phishing repoint CERTIFIED. Now scoped to worksheet-owned rels,
+        // so chart/drawing hyperlink externals are compared.
+        let mk = |rels_part: &str, target: &str| {
+            wb(
+                "",
+                &[(
+                    rels_part,
+                    // The owning XML part is byte-identical across good/evil; only the rels differs.
+                    &format!(
+                        r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdH" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="{target}" TargetMode="External"/></Relationships>"#
+                    ),
+                )],
+            )
+        };
+        for rels in [
+            "xl/charts/_rels/chart1.xml.rels",
+            "xl/drawings/_rels/drawing1.xml.rels",
+        ] {
+            let good = mk(rels, "https://good.example.com/x");
+            assert!(
+                verify_noncell_refs(&good, &good).is_none(),
+                "identical {rels} hyperlink must not refuse"
+            );
+            let evil = mk(rels, "https://evil.example.com/phish");
+            let refusal = verify_noncell_refs(&good, &evil)
+                .unwrap_or_else(|| panic!("a repointed {rels} hyperlink must refuse"));
+            assert_eq!(refusal["reason"], "external_relationship_mismatch");
+        }
+        // A WORKSHEET-owned hyperlink is still folded (not double-compared) — a benign trailing
+        // slash on a bare-authority chart URL is not a spurious mismatch.
+        let a = mk(
+            "xl/charts/_rels/chart1.xml.rels",
+            "https://good.example.com",
+        );
+        let b = mk(
+            "xl/charts/_rels/chart1.xml.rels",
+            "https://good.example.com/",
+        );
+        assert!(
+            verify_noncell_refs(&a, &b).is_none(),
+            "a trailing-slash renormalization must not refuse"
+        );
+    }
+
+    #[test]
     fn chart_data_ref_is_compared_not_presence_refused() {
         let chart = |rng: &str| {
             (
@@ -4629,6 +4905,50 @@ mod tests {
         assert_ne!(
             structural_ref_attrs(&form_a, ""),
             structural_ref_attrs(&external, "")
+        );
+    }
+
+    #[test]
+    fn hyperlink_dest_sheet_quote_is_normalized() {
+        // REGRESSION (round-54 defect 4, over-refusal): the hyperlink DEST was the one reference
+        // surface missing sheet-quote normalization, so a faithful edit that quotes the sheet name
+        // of the SAME destination (`'My Data'!A8` vs the rel form `#My Data!A8`, or `'Data'!A8` vs
+        // `Data!A8`) was refused. All encodings of one destination must fold to one key.
+        let loc = |dest: &str| {
+            wb(
+                &format!(r#"<hyperlinks><hyperlink ref="A4" location="{dest}"/></hyperlinks>"#),
+                &[],
+            )
+        };
+        let rel = |target: &str| {
+            wb(
+                r#"<hyperlinks><hyperlink xmlns:r="urn:r" ref="A4" r:id="rIdH"/></hyperlinks>"#,
+                &[(
+                    "xl/worksheets/_rels/sheet2.xml.rels",
+                    &format!(
+                        r##"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdH" Type="x/hyperlink" Target="#{target}"/></Relationships>"##
+                    ),
+                )],
+            )
+        };
+        // Quoted vs unquoted space-bearing sheet name — same destination.
+        assert_eq!(
+            structural_ref_attrs(&loc("'My Data'!A8"), ""),
+            structural_ref_attrs(&loc("My Data!A8"), "")
+        );
+        // Redundantly-quoted simple name vs bare, and location-form vs rel-target-form.
+        assert_eq!(
+            structural_ref_attrs(&loc("'Data'!A8"), ""),
+            structural_ref_attrs(&rel("Data!A8"), "")
+        );
+        // SOUNDNESS: a genuinely different sheet or cell still differs.
+        assert_ne!(
+            structural_ref_attrs(&loc("'My Data'!A8"), ""),
+            structural_ref_attrs(&loc("'Other'!A8"), "")
+        );
+        assert_ne!(
+            structural_ref_attrs(&loc("'My Data'!A8"), ""),
+            structural_ref_attrs(&loc("'My Data'!A9"), "")
         );
     }
 

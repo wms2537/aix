@@ -1000,6 +1000,23 @@ fn edited_sheet_bad_attachment(
                         }
                         continue;
                     }
+                    // A PivotTable renders on this sheet at its `<location ref>` (its display
+                    // extent); its data SOURCE (in the pivot cache) is shifted independently by
+                    // rewrite_pivot on the main loop. So — like a comment/drawing anchor — it is a
+                    // hazard only if THIS edit MOVES the render extent; a pivot whose location is
+                    // outside the edit's band is faithful and must not be presence-refused. Fail
+                    // closed on an unresolved/unreadable part.
+                    if ty.ends_with("/pivotTable") {
+                        let affected = attr_by_local(&e, b"Target")
+                            .map(|t| crate::ooxml::resolve_target(dir, &t))
+                            .and_then(|p| crate::ooxml::read_part(input, &p).ok())
+                            .map(|x| pivot_location_affected(&x, edit))
+                            .unwrap_or(true);
+                        if affected {
+                            return Some("pivotTable".into());
+                        }
+                        continue;
+                    }
                     // Any other attachment (OLE/ActiveX controls, …) is presence-refused —
                     // its coordinate parsing differs and is left fail-closed.
                     return Some(ty.rsplit('/').next().unwrap_or(&ty).to_string());
@@ -2561,8 +2578,15 @@ fn foreign_sheet_ref_attr_crosses(xml: &[u8], edit: &StructuralEdit) -> bool {
                     b"fmlaTxbx".as_slice(),
                 ] {
                     if let Some(v) = attr_by_local(&e, key) {
-                        // ref/sqref may be space-separated; test each token via the oracle.
-                        if v.split_whitespace()
+                        // ref/sqref may be space-separated; test each token via the oracle. Use the
+                        // QUOTE-AWARE tokenizer (round-52) so a space-containing quoted sheet
+                        // qualifier (`'My Sheet'!$A$8`) stays ONE token — a raw split_whitespace tore
+                        // it into `'My` + `Sheet'!$A$8`, neither of which the σ oracle recognizes, so
+                        // a foreign binding to the edited sheet was committed STALE (silent
+                        // mis-binding). The shift path already fixed this; the DETECTION path had
+                        // drifted.
+                        if split_sqref_tokens(&v)
+                            .into_iter()
                             .any(|tok| formula_would_shift(tok, edit))
                         {
                             return true;
@@ -3301,6 +3325,37 @@ fn comment_refs_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
     false
 }
 
+/// True if THIS edit would move a PivotTable's render `<location ref>` (its display extent on this
+/// sheet), so the pivot cannot be committed with a stale render position. A pivot whose extent lies
+/// entirely outside the edit's shift band is unaffected — faithful to copy verbatim. Fail-closed
+/// (returns true) if the part is malformed, has no location, or carries an unparseable ref.
+fn pivot_location_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
+    let mut saw_location = false;
+    for (tag, attrs) in element_attr_semantics(xml, &[b"location"]) {
+        if tag == "parse_error" {
+            return true;
+        }
+        saw_location = true;
+        let Some(r) = attrs
+            .split_whitespace()
+            .find_map(|kv| kv.strip_prefix("ref="))
+        else {
+            return true; // a location with no ref -> fail closed
+        };
+        for endpoint in r.split(':') {
+            let Some((col, row)) = parse_cell_rc(endpoint) else {
+                return true; // unparseable endpoint -> fail closed
+            };
+            let line = if edit.axis == Axis::Row { row } else { col };
+            if shift_line(line, edit) != Some(line) {
+                return true;
+            }
+        }
+    }
+    // A pivotTable part always has a <location>; its absence means we cannot prove it is unaffected.
+    !saw_location
+}
+
 /// True if any shiftable formula body (`<f>`, `<formula*>`, or `<definedName>`) in
 /// this part is wrapped in CDATA. The shift paths reassemble a formula only from
 /// `Event::Text` + entity (`Event::GeneralRef`) events; a CDATA body arrives as
@@ -3850,11 +3905,13 @@ fn rewrite_edited_sheet(
         out = inject_blanks_at_end(&out, edit)?;
         report.rows_inserted = edit.count;
     }
-    // A delete that consumes EVERY child of `<mergeCells>`/`<dataValidations>` drops the
-    // children but leaves the parent container empty — schema-invalid (CT_MergeCells /
-    // CT_DataValidations declare their child with minOccurs=1), which Excel opens with a repair
-    // prompt. Omit an emptied container (the `<cols>` path already does this for its children).
-    for c in ["mergeCells", "dataValidations"] {
+    // A delete that consumes EVERY child of `<mergeCells>`/`<dataValidations>`/`<hyperlinks>`
+    // drops the children but leaves the parent container empty — schema-invalid (CT_MergeCells /
+    // CT_DataValidations / CT_Hyperlinks all declare their child with minOccurs=1), which Excel
+    // opens with a repair prompt. Omit an emptied container (the `<cols>` path already does this for
+    // its children). `<hyperlinks` cannot collide with the child `<hyperlink ` — it is the longer
+    // name and omit_empty_container requires a name boundary.
+    for c in ["mergeCells", "dataValidations", "hyperlinks"] {
         out = omit_empty_container(out, c);
     }
     Ok(out)
@@ -5821,6 +5878,64 @@ mod tests {
     }
 
     #[test]
+    fn pivot_attachment_is_affect_based_not_presence_refused() {
+        // REGRESSION (round-54 defect 6, over-refusal): a PivotTable on the edited sheet was
+        // presence-refused unconditionally. Now it is affect-based (like comments/drawings): refused
+        // only when the edit moves its render <location ref>; a pivot outside the edit's band commits.
+        let pt = |loc: &str| {
+            format!(r#"<pivotTableDefinition xmlns="urn:x"><location ref="{loc}"/></pivotTableDefinition>"#).into_bytes()
+        };
+        // insert 1 row at 200: a pivot rendered at A100:F120 (entirely above) is UNAFFECTED.
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 200, 1);
+        assert!(
+            !pivot_location_affected(&pt("A100:F120"), &e),
+            "pivot above the edit is unaffected"
+        );
+        // the SAME pivot when the insert is ABOVE it (row 50) DOES move -> affected (fail-closed).
+        let e2 = edit("Sheet1", Axis::Row, Op::Insert, 50, 1);
+        assert!(
+            pivot_location_affected(&pt("A100:F120"), &e2),
+            "pivot below the insert moves -> affected"
+        );
+        // a straddling insert (inside the extent) grows it -> affected.
+        assert!(pivot_location_affected(
+            &pt("A100:F120"),
+            &edit("Sheet1", Axis::Row, Op::Insert, 110, 1)
+        ));
+        // a malformed / location-less part fails closed.
+        assert!(pivot_location_affected(
+            b"<pivotTableDefinition xmlns=\"urn:x\"/>",
+            &e
+        ));
+
+        // End-to-end through edited_sheet_bad_attachment: a /pivotTable rel to an unaffected pivot is
+        // NOT flagged; an affected one IS.
+        let with_pivot = |loc: &str| {
+            let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let opts = zip::write::SimpleFileOptions::default();
+            z.start_file("xl/worksheets/_rels/sheet1.xml.rels", opts)
+                .unwrap();
+            z.write_all(br#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable" Target="../pivotTables/pivotTable1.xml"/></Relationships>"#).unwrap();
+            z.start_file("xl/pivotTables/pivotTable1.xml", opts)
+                .unwrap();
+            z.write_all(&pt(loc)).unwrap();
+            z.finish().unwrap().into_inner()
+        };
+        use std::io::Write;
+        assert!(
+            edited_sheet_bad_attachment(&with_pivot("A100:F120"), "xl/worksheets/sheet1.xml", &e)
+                .is_none(),
+            "an unaffected pivot must not be presence-refused"
+        );
+        assert_eq!(
+            edited_sheet_bad_attachment(&with_pivot("A100:F120"), "xl/worksheets/sheet1.xml", &e2)
+                .as_deref(),
+            Some("pivotTable"),
+            "an affected pivot is still refused (fail-closed)"
+        );
+    }
+
+    #[test]
     fn edited_sheet_attachment_whitelist_is_prefix_insensitive_and_fails_closed() {
         use std::io::Write;
         // Build a tiny zip carrying only one sheet's .rels part.
@@ -6575,6 +6690,19 @@ mod tests {
             br#"<formControlPr fmlaTxbx="Sheet1!$A$5"/>"#,
             &e
         ));
+        // REGRESSION (round-54 defect 5): a binding qualified to the edited sheet by a QUOTED,
+        // space-containing sheet name (`'My Sheet'!$A$8`) must ALSO cross — split_whitespace tore it
+        // into two invalid tokens, so a foreign control was left STALE. The quote-aware tokenizer
+        // keeps it whole. (An unrelated quoted sheet name does not cross — no over-refusal.)
+        let e2 = edit("My Sheet", Axis::Row, Op::Insert, 1, 1);
+        assert!(foreign_sheet_ref_attr_crosses(
+            br#"<formControlPr fmlaLink="'My Sheet'!$A$8"/>"#,
+            &e2
+        ));
+        assert!(!foreign_sheet_ref_attr_crosses(
+            br#"<formControlPr fmlaLink="'Other Sheet'!$A$8"/>"#,
+            &e2
+        ));
         // And control_binding_attrs (certify's compare surface) captures them, so a re-point is
         // caught rather than false-certified.
         let g1 = control_binding_attrs(br#"<formControlPr fmlaGroup="Sheet2!$B$1"/>"#);
@@ -6632,6 +6760,33 @@ mod tests {
         assert!(
             String::from_utf8_lossy(&out2).contains("<mergeCells"),
             "non-empty container kept"
+        );
+    }
+
+    #[test]
+    fn delete_drops_a_fully_consumed_hyperlink_and_omits_empty_container() {
+        // REGRESSION (round-54 defect 7, invalid-output): deleting the only cell a <hyperlink> sits
+        // on drops the <hyperlink> but must NOT leave an empty <hyperlinks></hyperlinks> — that
+        // violates CT_Hyperlinks (child minOccurs=1) and Excel opens it with a repair prompt.
+        let xml = br#"<worksheet xmlns:r="urn:r"><sheetData><row r="1"><c r="A1"/></row></sheetData><hyperlinks><hyperlink ref="A5" r:id="rId1"/></hyperlinks></worksheet>"#;
+        let e = edit("Sheet1", Axis::Row, Op::Delete, 5, 1);
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet(xml, &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            !s.contains("<hyperlink "),
+            "the consumed hyperlink is dropped: {s}"
+        );
+        assert!(
+            !s.contains("<hyperlinks"),
+            "empty hyperlinks container omitted: {s}"
+        );
+        // A hyperlink on a surviving cell keeps its container.
+        let keep = br#"<worksheet xmlns:r="urn:r"><sheetData/><hyperlinks><hyperlink ref="A1" r:id="rId1"/></hyperlinks></worksheet>"#;
+        let out2 = rewrite_edited_sheet(keep, &e, "s", &mut report).unwrap();
+        assert!(
+            String::from_utf8_lossy(&out2).contains("<hyperlinks"),
+            "container with a surviving hyperlink kept"
         );
     }
 
