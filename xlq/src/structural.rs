@@ -4957,6 +4957,15 @@ fn shift_ref_attrs(
             report.refs_shifted += n;
             report.ref_errors += c;
             if nv != val {
+                // A single-cell VIEW-STATE anchor (`<pane topLeftCell>`) whose row/col is DELETED
+                // collapses to "" — a malformed ST_CellRef Excel treats as corrupt (the same class
+                // shift_datatable_attrs fails closed on, round-56). ref/sqref never reach this empty
+                // state (a fully-consumed one is dropped by ref_fully_consumed upstream), so keep the
+                // original (stale but valid) anchor rather than emit an empty attribute (round-64
+                // defect 6). View state is cosmetic, so a stale anchor is preferable to over-refusal.
+                if nv.trim().is_empty() && !val.is_empty() {
+                    continue;
+                }
                 repl.push((sk, nv));
             }
         }

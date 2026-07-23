@@ -657,6 +657,27 @@ fn ref_token_covers(
     }
 }
 
+/// True if `body` is EXACTLY a single (optionally sheet-qualified) A1 reference or range — the only
+/// defined-name refers-to form the vendored engine can faithfully resolve. A constant, an expression
+/// or function call (a dynamic OFFSET/INDIRECT name), a union (`A1,B2`), or a reference to another
+/// name yields InvalidDefinedNameFormula (#NAME?) in the engine — so a name whose body is NOT a plain
+/// ref is UNEVALUABLE and any cell using it is unvouchable (round-64). Used by the cache oracle.
+pub(crate) fn is_plain_reference(body: &str) -> bool {
+    let mut s = body.trim();
+    if let Some(rest) = s.strip_prefix('=') {
+        s = rest.trim();
+    }
+    if s.is_empty() || s.starts_with('[') {
+        return false; // empty, or an external-workbook ref the engine cannot vouch as local
+    }
+    let Some(body_start) = parse_ref_prefix(s) else {
+        return false;
+    };
+    let (body_len, is_ref) = scan_ref_body(&s[body_start..]);
+    // The ENTIRE trimmed body must be consumed as ONE reference token (no trailing operator/args).
+    is_ref && body_len > 0 && body_start + body_len == s.len()
+}
+
 /// True if `formula` (living on `home_sheet`) references the cell at (`target_sheet`, 1-based
 /// `target_col`, `target_row`) — directly, or via a range / whole-row / whole-column that CONTAINS
 /// it. A SOUND over-approximation for fail-closed reachability: it walks references with the same
@@ -1470,6 +1491,25 @@ pub fn residual_reason(formula_attrs: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_plain_reference_distinguishes_plain_refs_from_unevaluable_names() {
+        // Plain refs/ranges (engine-evaluable defined-name bodies).
+        assert!(is_plain_reference("Sheet1!$A$1"));
+        assert!(is_plain_reference("=Sheet1!$A$1"));
+        assert!(is_plain_reference("Sheet1!$A$1:$A$10"));
+        assert!(is_plain_reference("A1"));
+        assert!(is_plain_reference("'My Sheet'!$B$2"));
+        // NOT plain -> unevaluable by the engine (#NAME?).
+        assert!(!is_plain_reference("0.2")); // named constant
+        assert!(!is_plain_reference("Sheet1!$Z$1*2")); // named formula
+        assert!(!is_plain_reference("OFFSET(Sheet1!$Z$1,0,0)")); // dynamic range
+        assert!(!is_plain_reference("INDIRECT(\"A1\")"));
+        assert!(!is_plain_reference("Sheet1!A1,Sheet1!B2")); // union
+        assert!(!is_plain_reference("OtherName")); // reference to another name
+        assert!(!is_plain_reference("")); // empty
+        assert!(!is_plain_reference("[1]Sheet1!A1")); // external
+    }
 
     #[test]
     fn formula_references_cell_covers_single_range_sheet_and_boundaries() {

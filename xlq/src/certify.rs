@@ -3531,7 +3531,18 @@ fn build_cache_oracle(
     // WRONG value (999) and vouch a forged cache. Close the gap: compute the transitive-closure set of
     // defined names whose body (directly or via another such name) reaches a bad function, then mark
     // any cell that references one as a `source` so poison-and-diff drops it and its dependents.
-    let bad_names = defined_names_reaching(model, &bad);
+    let mut bad_names = defined_names_reaching(model, &bad);
+    // A defined name whose refers-to body is NOT a plain reference/range — a named CONSTANT (`=0.2`),
+    // a named FORMULA (`=Sheet1!$Z$1*2`), a DYNAMIC range (`=OFFSET(...)`/`=INDIRECT(...)`), a union,
+    // or a reference to another name — is UNEVALUABLE by the vendored engine (InvalidDefinedNameFormula
+    // -> #NAME?). An `=IFERROR(SUM(Nm),999)` then LAUNDERS the engine's #NAME? into the oracle as an
+    // attacker-chosen clean value (999), which by_eval vouches against a forged cache (round-64 defect
+    // 1). Treat such names as bad so every referencing cell is dropped, like a bad function.
+    for d in &model.workbook.defined_names {
+        if !crate::refshift::is_plain_reference(&d.formula) {
+            bad_names.insert(d.name.to_lowercase());
+        }
+    }
     let name_produces_date: std::collections::HashSet<String> = defined_names_reaching(
         model,
         &DATE_SERIAL_PRODUCERS
@@ -6368,6 +6379,44 @@ mod tests {
         assert!(
             oracle.contains_key(&key("D1")),
             "a pure SUM independent of the bad name stays vouchable — no blanket over-refusal"
+        );
+    }
+
+    #[test]
+    fn cell_referencing_an_unevaluable_defined_name_is_excluded() {
+        // REGRESSION (round-64 defect 1, HIGH false-certify): a defined name whose body is NOT a plain
+        // ref/range (a dynamic OFFSET range, a named constant, a named formula) is UNEVALUABLE by the
+        // engine (#NAME?); an IFERROR wrapper launders that into the oracle as a clean attacker value.
+        // Such names are now treated as bad, so a referencing cell is excluded.
+        let rows = r#"<row r="1"><c r="A1"><v>10</v></c><c r="Z1"><v>100</v></c><c r="B1"><f>IFERROR(SUM(Dyn),999)</f><v>999</v></c><c r="C1"><f>B1+1</f><v>1000</v></c><c r="D1"><f>K*2</f><v>0.4</v></c><c r="E1"><f>SUM(A1:A1)</f><v>10</v></c></row>"#;
+        let names = r#"<definedNames><definedName name="Dyn">OFFSET(Sheet1!$Z$1,0,0)</definedName><definedName name="K">0.2</definedName></definedNames>"#;
+        let bytes = oracle_wb_named(rows, names);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load unevaluable-name workbook");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("B1")),
+            "a cell reading a dynamic (OFFSET) defined name must be EXCLUDED: {oracle:?}"
+        );
+        assert!(
+            !oracle.contains_key(&key("C1")),
+            "a transitive dependent of the laundering cell is excluded too"
+        );
+        assert!(
+            !oracle.contains_key(&key("D1")),
+            "a cell reading a named CONSTANT (K=0.2, engine #NAME?) must be excluded too"
+        );
+        assert!(
+            oracle.contains_key(&key("E1")),
+            "a pure SUM independent of the unevaluable names stays vouchable — no blanket over-refusal"
         );
     }
 
