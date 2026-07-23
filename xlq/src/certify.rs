@@ -3569,29 +3569,47 @@ fn prune_early_date_consumers(
     if divergent.is_empty() {
         return oracle;
     }
-    // Settle the restored formulas before snapshotting the dependent-diff baseline.
-    model.evaluate();
-    // Phase B — drop each divergent consumer AND its transitive dependents. Poison every divergent
-    // consumer to a modern serial constant and re-evaluate: any oracle cell whose value CHANGES reads
-    // a divergent consumer (directly or through a chain) and so carries the engine's off-by-one value
-    // too; it is refused rather than vouched.
-    let snap = |model: &ironcalc::base::Model| -> std::collections::HashMap<(String, String), Option<String>> {
-        formula_cells
-            .iter()
-            .map(|(coord, k)| (k.clone(), cell_value_sig(model, coord.0, coord.1, coord.2)))
-            .collect()
-    };
-    let baseline = snap(model);
-    for &(s, r, c) in &divergent {
-        let _ = model.set_user_input(s, r, c, "44000".to_string());
+    // Phase B — drop each divergent consumer AND its transitive dependents by REFERENCE REACHABILITY.
+    // A value-diff (poison the consumer, re-evaluate, drop what changes) is UNSOUND here: a dependent
+    // whose value is FLAT at the poison yet discriminates the exact off-by-one boundary
+    // (`IF(C=28,1,0)` where the engine gives 27 but Excel 28) does not change under any single poison,
+    // so it would be retained carrying the engine's derived value (round-60 defect 1). Reachability is
+    // exact: compute the transitive-closure set of oracle formula cells whose formula REFERENCES a
+    // divergent consumer (directly or through a chain), and drop them all. Runs only when a divergent
+    // consumer exists (date consumers are rare), so the O(cells x reached) closure is bounded.
+    let mut cells: Vec<((u32, i32, i32), String, String)> = Vec::new();
+    for (coord, (sheet, _a1)) in formula_cells {
+        if let Ok(Some(f)) = model.get_cell_formula(coord.0, coord.1, coord.2) {
+            cells.push((*coord, sheet.clone(), f));
+        }
     }
-    model.evaluate();
-    let after = snap(model);
-    let divergent_keys: std::collections::HashSet<(String, String)> = divergent
-        .iter()
-        .filter_map(|&(s, r, c)| Some((names.get(s as usize)?.clone(), diff::a1(r, c).ok()?)))
-        .collect();
-    oracle.retain(|key, _| !divergent_keys.contains(key) && baseline.get(key) == after.get(key));
+    let mut reached: std::collections::HashSet<(u32, i32, i32)> =
+        divergent.iter().copied().collect();
+    loop {
+        let mut grew = false;
+        for (coord, home, f) in &cells {
+            if reached.contains(coord) {
+                continue;
+            }
+            let hits = reached.iter().any(|&(s, r, c)| {
+                names.get(s as usize).is_some_and(|ts| {
+                    crate::refshift::formula_references_cell(f, home, ts, c as u32, r as u32)
+                })
+            });
+            if hits {
+                reached.insert(*coord);
+                grew = true;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    for &(s, r, c) in &reached {
+        if let (Some(name), Ok(a1)) = (names.get(s as usize), diff::a1(r, c)) {
+            oracle.remove(&(name.clone(), a1));
+        }
+    }
     oracle
 }
 
@@ -5545,6 +5563,44 @@ mod tests {
         assert!(
             oracle.contains_key(&key("F1")),
             "a pure SUM stays vouchable"
+        );
+    }
+
+    #[test]
+    fn early_date_consumer_boundary_discriminating_dependent_is_excluded() {
+        // REGRESSION (round-60 defect 1, HIGH false-certify): a dependent that EQUALITY-TESTS the
+        // divergent consumer against Excel's true value (`C = IF(B=28,1,0)` where B = DAY(59): engine
+        // 27, Excel 28) is FLAT under the old single-constant poison (IF(27=28,..)=IF(44000=28,..)=0),
+        // so the value-diff retained it carrying the engine's derived 0. Reference reachability drops
+        // it (C references the divergent B). An independent modern consumer stays vouchable.
+        let rows = r#"<row r="1"><c r="A1"><v>59</v></c><c r="B1"><f>DAY(A1)</f><v>27</v></c><c r="C1"><f>IF(B1=28,1,0)</f><v>0</v></c><c r="D1"><f>C1+1</f><v>1</v></c><c r="E1"><f>DAY(50000)</f><v>18</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load boundary-discriminating workbook");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("B1")),
+            "the divergent consumer DAY(59) is excluded: {oracle:?}"
+        );
+        assert!(
+            !oracle.contains_key(&key("C1")),
+            "a boundary-discriminating dependent IF(B1=28,..) must be dropped by reachability"
+        );
+        assert!(
+            !oracle.contains_key(&key("D1")),
+            "a transitive dependent (D1=C1+1) must be dropped too"
+        );
+        assert!(
+            oracle.contains_key(&key("E1")),
+            "an independent modern consumer DAY(50000) stays vouchable — no over-refusal"
         );
     }
 

@@ -585,6 +585,131 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
     (out, shifted)
 }
 
+/// The (col_lo, col_hi, row_lo, row_hi) 1-based grid box a reference BODY spans (a single cell is a
+/// degenerate 1x1 box; a whole-row range `5:10` spans all columns; a whole-column range `A:B` spans
+/// all rows). None if the body is not a clean A1 reference.
+fn ref_box(body: &str) -> Option<(u32, u32, u32, u32)> {
+    let (h, t) = match body.split_once(':') {
+        Some((h, t)) => (h.trim(), t.trim()),
+        None => (body, body),
+    };
+    let hp = parse_endpoint(h)?;
+    let tp = parse_endpoint(t)?;
+    let (col_lo, col_hi) = match (hp.1, tp.1) {
+        (Some(a), Some(b)) => (a.min(b), a.max(b)),
+        (None, None) => (1, 16384), // whole-row range: every column
+        _ => return None,
+    };
+    let (row_lo, row_hi) = match (hp.3, tp.3) {
+        (Some(a), Some(b)) => (a.min(b), a.max(b)),
+        (None, None) => (1, 1_048_576), // whole-column range: every row
+        _ => return None,
+    };
+    Some((col_lo, col_hi, row_lo, row_hi))
+}
+
+/// Whether a single reference `token` (possibly sheet-qualified) covers the target cell.
+fn ref_token_covers(
+    token: &str,
+    home_sheet: &str,
+    target_sheet: &str,
+    target_col: u32,
+    target_row: u32,
+) -> bool {
+    if token.starts_with('[') {
+        return false; // external-workbook reference — never our cell
+    }
+    let (sheet_matches, body) = if let Some(bang) = token.rfind('!') {
+        let (sheet_part, rest) = token.split_at(bang);
+        let target = unquote_sheet(sheet_part);
+        let m = if let Some((s1, s2)) = target.split_once(':') {
+            // A 3D span references the cell on every sheet in the span; without sheet ORDER here,
+            // over-approximate to its named endpoints (the common consolidation case).
+            eq_sheet(s1, target_sheet) || eq_sheet(s2, target_sheet)
+        } else {
+            eq_sheet(&target, target_sheet)
+        };
+        (m, &rest[1..])
+    } else {
+        (eq_sheet(home_sheet, target_sheet), token)
+    };
+    if !sheet_matches {
+        return false;
+    }
+    match ref_box(body) {
+        Some((cl, ch, rl, rh)) => {
+            (cl..=ch).contains(&target_col) && (rl..=rh).contains(&target_row)
+        }
+        None => true, // sheet matches but body opaque -> conservatively a potential reference
+    }
+}
+
+/// True if `formula` (living on `home_sheet`) references the cell at (`target_sheet`, 1-based
+/// `target_col`, `target_row`) — directly, or via a range / whole-row / whole-column that CONTAINS
+/// it. A SOUND over-approximation for fail-closed reachability: it walks references with the same
+/// boundary/tokenizer logic as [`shift_formula`], and a token it cannot cleanly parse (but whose
+/// sheet matches) is treated as a potential reference. It therefore never UNDER-reports a dependency
+/// (it may over-report, which only over-refuses). Defined-name and structured (table) references are
+/// not resolved here — a caller relying on transitive closure through those must handle them
+/// separately (as `defined_names_reaching` does for names).
+pub(crate) fn formula_references_cell(
+    formula: &str,
+    home_sheet: &str,
+    target_sheet: &str,
+    target_col: u32,
+    target_row: u32,
+) -> bool {
+    let b = formula.as_bytes();
+    let mut prev: Option<char> = None;
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c == b'"' {
+            // Skip a string literal (with `""` escapes) — a ref inside it is not a reference.
+            i += 1;
+            while i < b.len() {
+                if b[i] == b'"' {
+                    i += 1;
+                    if i < b.len() && b[i] == b'"' {
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                i += utf8_len(b[i]);
+            }
+            prev = Some('"');
+            continue;
+        }
+        if ref_start_boundary(prev)
+            && (c == b'\''
+                || c == b'['
+                || c.is_ascii_alphabetic()
+                || c == b'$'
+                || c.is_ascii_digit())
+        {
+            let s = &formula[i..];
+            if let Some(body_start) = parse_ref_prefix(s) {
+                let (body_len, is_ref) = scan_ref_body(&s[body_start..]);
+                if is_ref && body_len > 0 {
+                    let total = body_start + body_len;
+                    let token = &s[..total];
+                    if ref_token_covers(token, home_sheet, target_sheet, target_col, target_row) {
+                        return true;
+                    }
+                    prev = token.chars().last();
+                    i += total;
+                    continue;
+                }
+            }
+        }
+        let l = utf8_len(c);
+        prev = formula[i..i + l].chars().next();
+        i += l;
+    }
+    false
+}
+
 /// True if `f` contains an UNQUOTED sheet qualifier (`…!`) whose name token
 /// contains non-ASCII bytes. The unquoted-qualifier grammar below and the
 /// scanner's boundary predicate are ASCII-only, so a name like `集計01` is
@@ -1322,6 +1447,35 @@ pub fn residual_reason(formula_attrs: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formula_references_cell_covers_single_range_sheet_and_boundaries() {
+        // Home sheet "S", target cell B2 (col 2, row 2).
+        let refs = |f: &str| formula_references_cell(f, "S", "S", 2, 2);
+        // Direct single-cell ref, with/without $ anchors.
+        assert!(refs("=B2+1"));
+        assert!(refs("=$B$2*2"));
+        assert!(refs("=SUM(A1,B2,C3)"));
+        // A range / whole-row / whole-column that CONTAINS B2.
+        assert!(refs("=SUM(A1:C3)"));
+        assert!(refs("=SUM(2:2)"));
+        assert!(refs("=SUM(B:B)"));
+        // Refs that do NOT cover B2.
+        assert!(!refs("=B3+A2"));
+        assert!(!refs("=SUM(C1:D9)"));
+        assert!(!refs("=B20")); // not glued: B2 is not a prefix-match of B20
+        assert!(!refs("=ABB2")); // a name, not a ref
+        assert!(!refs("=\"B2 in a string\""));
+        // Sheet qualification: an unqualified ref on a DIFFERENT home sheet does not cover S!B2.
+        assert!(!formula_references_cell("=B2", "Other", "S", 2, 2));
+        assert!(formula_references_cell("=S!B2", "Other", "S", 2, 2));
+        assert!(formula_references_cell("='S'!$B$2", "Other", "S", 2, 2));
+        assert!(!formula_references_cell("=Other!B2", "Other", "S", 2, 2));
+        // An external-workbook ref never covers our cell.
+        assert!(!formula_references_cell("=[1]S!B2", "S", "S", 2, 2));
+        // A 3D span naming S as an endpoint covers it (over-approximation).
+        assert!(formula_references_cell("=SUM(S:T!B2)", "X", "S", 2, 2));
+    }
 
     fn row_edit(op: Op, at: u32, count: u32) -> StructuralEdit {
         StructuralEdit {
