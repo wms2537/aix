@@ -729,6 +729,14 @@ fn element_attr_signatures(xml: &[u8]) -> Vec<String> {
         let mut attrs: Vec<String> = e
             .attributes()
             .filter_map(|a| a.ok())
+            // A namespace DECLARATION (`xmlns` / `xmlns:foo`) is a prefix BINDING, not content:
+            // `local_of` would leak the prefix ("foo=uri"), so a benign prefix rename that preserves
+            // every local name and bound URI would falsely differ. Skip them to keep this function
+            // genuinely namespace-prefix-agnostic (round-60 defect 8).
+            .filter(|a| {
+                let k = a.key.as_ref();
+                k != b"xmlns" && !k.starts_with(b"xmlns:")
+            })
             .map(|a| {
                 let key =
                     String::from_utf8_lossy(structural::local_of(a.key.as_ref())).into_owned();
@@ -2278,7 +2286,14 @@ fn external_rels_targets(bytes: &[u8]) -> Vec<String> {
                                 // A single trailing `/` on a bare-authority URL is a benign
                                 // renormalization; a real retarget still differs on host/path.
                                 let target = target.strip_suffix('/').unwrap_or(&target);
-                                out.push(format!("ext|{ty_local}|{target}"));
+                                // Bind the target to its relationship Id so TRANSPOSING two same-type
+                                // external targets within a part (a chart-title vs series hyperlink,
+                                // two linked-image blips) — which left the pooled (type,target)
+                                // multiset unchanged — now differs (round-60 defect 5). The rId is
+                                // intra-part (xlq copies rels verbatim; a referencing element resolves
+                                // it), so a benign part renumber still keys identically.
+                                let rid = attr_local(&e, b"Id").unwrap_or_default();
+                                out.push(format!("ext|{ty_local}|{rid}|{target}"));
                             }
                         }
                     }
@@ -2812,6 +2827,14 @@ const DATE_CONSUMER_FUNCTIONS: &[&str] = &[
     "DAYS",
     "YEARFRAC",
     "DATEDIF",
+    // EDATE/EOMONTH/WORKDAY/WORKDAY.INTL also PRODUCE a serial, but they CONSUME one in arg 0 too:
+    // reading a pre-1900-03-01 input (serial < 61) lands the engine up to a month off from Excel even
+    // when the OUTPUT is modern, so the producer's output-only gate misses it (round-60 defect 4). The
+    // serial-arg index is the default [0]; the word-boundary matcher separates WORKDAY/WORKDAY.INTL.
+    "EDATE",
+    "EOMONTH",
+    "WORKDAY",
+    "WORKDAY.INTL",
 ];
 
 /// The serial-valued ARGUMENT positions (0-based) of a date-consumer function — the arguments whose
@@ -5300,6 +5323,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn date_producer_consuming_an_early_serial_is_excluded() {
+        // REGRESSION (round-60 defect 4, HIGH false-certify): EDATE/EOMONTH/WORKDAY also CONSUME a
+        // serial in arg 0. Reading a pre-1900-03-01 input (< 61) lands the engine up to a month off
+        // from Excel even when the OUTPUT is modern (EOMONTH(32,2)=91 here vs Excel 121), so the
+        // producer's output-only gate missed it. Adding them as consumers evaluates their input arg.
+        let rows = r#"<row r="1"><c r="B1"><f>EOMONTH(32,2)</f><v>121</v></c><c r="C1"><f>EDATE(44000,2)</f><v>44059</v></c><c r="D1"><f>SUM(A1:A1)</f><v>0</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load producer-consumer workbook");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("B1")),
+            "EOMONTH reading an early serial (32) must be excluded (engine off by ~a month): {oracle:?}"
+        );
+        assert!(
+            oracle.contains_key(&key("C1")),
+            "EDATE reading a MODERN serial (44000) stays vouchable — no over-refusal"
+        );
+        assert!(
+            oracle.contains_key(&key("D1")),
+            "a pure SUM stays vouchable"
+        );
+    }
+
     /// Build a workbook from `rows` with `fullCalcOnLoad` stripped, so a preserved cache is actually
     /// verified (rather than short-circuited by the recalc-on-load path).
     fn e2e_wb_no_recalc(rows: &str) -> Vec<u8> {
@@ -5476,10 +5532,12 @@ mod tests {
         );
         assert_eq!(date_consumer_serial_args("=MYDAY(1)"), (vec![], false));
         assert_eq!(date_consumer_serial_args("=SUM(A1:A9)"), (vec![], false));
-        // Nested calls and quoted sheet names with commas do not tear the argument.
+        // Nested calls and quoted sheet names with commas do not tear the argument. EOMONTH is now
+        // itself a consumer (it reads a serial in arg 0), so BOTH the outer MONTH arg and the inner
+        // EOMONTH arg are extracted.
         assert_eq!(
             date_consumer_serial_args("=MONTH(EOMONTH(A1,1))"),
-            (vec!["EOMONTH(A1,1)".into()], true)
+            (vec!["EOMONTH(A1,1)".into(), "A1".into()], true)
         );
         assert_eq!(
             date_consumer_serial_args("=DAY('A,B'!C1)"),
@@ -5938,6 +5996,38 @@ mod tests {
     }
 
     #[test]
+    fn external_rels_target_transposition_is_caught() {
+        // REGRESSION (round-60 defect 5, security): two same-type external targets in one rels part,
+        // pooled into a flat (type,target) multiset, were permutation-invariant — TRANSPOSING the
+        // targets of two chart hyperlinks (or two linked-image blips) left the multiset unchanged and
+        // CERTIFIED. Binding each target to its relationship Id makes the transposition differ.
+        let rels = |ta: &str, tb: &str| {
+            format!(
+                r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdA" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="{ta}" TargetMode="External"/><Relationship Id="rIdB" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="{tb}" TargetMode="External"/></Relationships>"#
+            )
+        };
+        let chart = r#"<c:chartSpace xmlns:c="urn:c" xmlns:a="urn:a" xmlns:r="urn:r"><c:title><a:hlinkClick r:id="rIdA"/></c:title><c:ser><a:hlinkClick r:id="rIdB"/></c:ser></c:chartSpace>"#;
+        let mk = |ta: &str, tb: &str| {
+            wb(
+                "",
+                &[
+                    ("xl/charts/chart1.xml", chart),
+                    ("xl/charts/_rels/chart1.xml.rels", &rels(ta, tb)),
+                ],
+            )
+        };
+        let good = mk("https://corp.example/report", "https://terms.example/tos");
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // TRANSPOSE: rIdA now -> terms, rIdB -> report. Same URL multiset, different rId bindings.
+        let swapped = mk("https://terms.example/tos", "https://corp.example/report");
+        assert_eq!(
+            verify_noncell_refs(&good, &swapped)
+                .expect("a transposition of two external targets must refuse")["reason"],
+            "external_relationship_mismatch"
+        );
+    }
+
+    #[test]
     fn external_rels_parser_is_namespace_and_whitespace_robust() {
         // REGRESSION (round-55 defect 6, HIGH security): the `.rels` parsers used a `<Relationship `
         // substring scan that a namespace-PREFIXED `<pr:Relationship>` (bound to the packaging
@@ -6219,6 +6309,44 @@ mod tests {
             verify_noncell_refs(&plain, &entity)
                 .expect("an entity-encoded customXml value tamper must refuse")["reason"],
             "external_target_mismatch"
+        );
+    }
+
+    #[test]
+    fn opaque_part_namespace_prefix_rename_is_not_refused() {
+        // REGRESSION (round-60 defect 8, over-refusal): element_attr_signatures is meant to be
+        // namespace-prefix-agnostic, but a namespace DECLARATION (`xmlns:foo`) was enumerated as an
+        // ordinary attribute and local_of leaked the prefix ("foo=uri"), so a foreign tool that
+        // re-serialized an opaque part under a different prefix binding the SAME URI was refused.
+        let foo = wb(
+            "",
+            &[(
+                "customXml/item1.xml",
+                r#"<c xmlns:foo="uri" foo:attr="v"/>"#,
+            )],
+        );
+        let bar = wb(
+            "",
+            &[(
+                "customXml/item1.xml",
+                r#"<c xmlns:bar="uri" bar:attr="v"/>"#,
+            )],
+        );
+        assert!(
+            verify_noncell_refs(&foo, &bar).is_none(),
+            "a pure namespace-prefix rename (same URI, same local names) must still certify"
+        );
+        // A genuine value tamper is still caught (the fix did not blind the comparison).
+        let evil = wb(
+            "",
+            &[(
+                "customXml/item1.xml",
+                r#"<c xmlns:bar="uri" bar:attr="TAMPERED"/>"#,
+            )],
+        );
+        assert!(
+            verify_noncell_refs(&foo, &evil).is_some(),
+            "a customXml attribute-value tamper must still refuse"
         );
     }
 

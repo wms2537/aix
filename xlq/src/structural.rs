@@ -1422,6 +1422,11 @@ fn edited_sheet_body_unshifted_ref(
                     buf.clear();
                     continue;
                 }
+                // A `<dataRef ref sheet>` (CT_DataRef) scopes its BARE `ref` to a SEPARATE `sheet`
+                // attribute; treating that ref as edited-sheet-local over-refuses a consolidation
+                // whose source is a DIFFERENT, unaffected sheet (round-60 defect 6). Read the sibling
+                // `sheet` once so a bare ref/sqref can be qualified before the affect test.
+                let sheet_attr = attr_by_local(&e, b"sheet");
                 let flagged = e.attributes().flatten().any(|a| {
                     let k = local_of(a.key.as_ref());
                     let val = a
@@ -1433,6 +1438,18 @@ fn edited_sheet_body_unshifted_ref(
                     // refuse here because resolving whether its prefix is spreadsheetML (shift) or a
                     // foreign namespace (must not shift the attribute) needs namespace resolution.
                     if (k == b"ref" || k == b"sqref") && !has_ref_attr(full) {
+                        // A bare ref (no `!`) with a sibling `sheet` names its source sheet there;
+                        // qualify each token by it so a ref on a non-edited sheet is not flagged
+                        // (mirrors foreign_sheet_ref_attr_crosses). When `sheet` is absent or names
+                        // the edited sheet, the edited-sheet-local reading is correct and preserved.
+                        if let Some(s) = &sheet_attr {
+                            if !val.contains('!') {
+                                return split_sqref_tokens(&val).into_iter().any(|tok| {
+                                    let q = format!("'{}'!{}", s.replace('\'', "''"), tok);
+                                    formula_would_shift(&q, edit)
+                                });
+                            }
+                        }
                         return would_shift(&val);
                     }
                     // Other cell-range attributes the shift never rewrites: form-control / OLE
@@ -7703,6 +7720,17 @@ mod tests {
         );
         assert_eq!(
             f(br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="A5:A9"/></dataRefs></dataConsolidate></worksheet>"#).as_deref(),
+            Some("dataRef")
+        );
+        // REGRESSION (round-60 defect 6, over-refusal): a <dataRef> whose BARE ref is scoped to a
+        // sibling `sheet` naming a DIFFERENT, unaffected sheet is genuinely not moved by a Sheet1
+        // edit — it must NOT be flagged. A `sheet` naming the edited sheet keeps the refusal.
+        assert_eq!(
+            f(br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="A5:A9" sheet="Other"/></dataRefs></dataConsolidate></worksheet>"#),
+            None
+        );
+        assert_eq!(
+            f(br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="A5:A9" sheet="Sheet1"/></dataRefs></dataConsolidate></worksheet>"#).as_deref(),
             Some("dataRef")
         );
         // <ignoredError sqref> (green-triangle suppression, e.g. number-stored-as-text) is
