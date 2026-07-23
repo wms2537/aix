@@ -1587,16 +1587,21 @@ fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
     let mut out = Vec::new();
     let mut in_pivotfields = false;
     let mut pf_idx = 0i64;
+    // The item ordinal WITHIN the current pivotField (reset at each `<pivotField>`); the owning field
+    // is `pf_idx - 1` (pf_idx is incremented at the pivotField Start, before its item children).
+    let mut item_idx = 0i64;
     // (container local name, ordered child keys)
     let mut container: Option<(&'static str, Vec<String>)> = None;
-    // Handle a leaf (pivotField / field / dataField), for both Start and Empty events.
+    // Handle a leaf (pivotField / field / dataField / item), for both Start and Empty events.
     let leaf = |e: &quick_xml::events::BytesStart,
                 in_pf: bool,
                 container: &mut Option<(&'static str, Vec<String>)>,
                 pf_idx: &mut i64,
+                item_idx: &mut i64,
                 out: &mut Vec<String>| {
         match structural::local_of(e.name().as_ref()) {
             b"pivotField" if in_pf => {
+                *item_idx = 0;
                 // Position-key the axis AND the subtotal-function config: those flags decide which
                 // subtotal rows the field materializes and with what aggregate, but they lived only
                 // in the position-BLIND pivot_refs arm — so SWAPPING two same-axis fields' subtotal
@@ -1636,16 +1641,55 @@ fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
                 // N + rankBy measure) is a re-aggregation INPUT stored as pivotField attributes; it
                 // was in NO signature, so a Top-10 -> Top-3 tamper (or a rankBy re-point) re-materialized
                 // a different pivot yet certified (round-63 defect 2). Position-keyed so a swap differs.
+                // sortType (manual vs auto ascending/descending), showAll (show no-data items), and
+                // subtotalTop are re-sort/materialization directives Excel applies on refresh — in NO
+                // signature before (round-64 defect 5).
                 out.push(format!(
-                    "pivotField[{pf_idx}]|axis={}|defaultSubtotal={}|autoShow={}|topAutoShow={}|autoShowCount={}|rankBy={}|{subs}",
+                    "pivotField[{pf_idx}]|axis={}|defaultSubtotal={}|autoShow={}|topAutoShow={}|autoShowCount={}|rankBy={}|sortType={}|showAll={}|subtotalTop={}|{subs}",
                     attr_local(e, b"axis").unwrap_or_default(),
                     sub(b"defaultSubtotal", true),
                     sub(b"autoShow", false),
                     sub(b"topAutoShow", true),
                     attr_local(e, b"autoShowCount").unwrap_or_else(|| "10".into()),
                     attr_local(e, b"rankBy").unwrap_or_default(),
+                    attr_local(e, b"sortType").unwrap_or_else(|| "manual".into()),
+                    sub(b"showAll", true),
+                    sub(b"subtotalTop", true),
                 ));
                 *pf_idx += 1;
+            }
+            // A pivotField `<item>`: `x` = the sharedItems index it displays, `h` = hidden (manual
+            // filter), `t` = type (data/grand/…), `sd` = show-detail. Its ORDER is the manual display
+            // sort, and a swap of two items re-orders the rendered rows on refresh — position-blind in
+            // pivot_refs, so a sibling swap was invisible (round-64 defect 2). Keyed by owning field +
+            // ordinal here.
+            b"item" if in_pf => {
+                let owner = pf_idx.saturating_sub(1);
+                // Fold the SAME defaults as the pivot_refs item arm (h false, sd true, t "data") so a
+                // benign explicit re-serialization is not a spurious divergence.
+                let boolish = |k: &[u8], dflt: bool| -> &'static str {
+                    match attr_local(e, k) {
+                        Some(v) if v == "1" || v.eq_ignore_ascii_case("true") => "1",
+                        Some(_) => "0",
+                        None => {
+                            if dflt {
+                                "1"
+                            } else {
+                                "0"
+                            }
+                        }
+                    }
+                };
+                let t = attr_local(e, b"t")
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| "data".into());
+                out.push(format!(
+                    "pivotField[{owner}].item[{item_idx}]|x={}|h={}|t={t}|sd={}",
+                    attr_local(e, b"x").unwrap_or_default(),
+                    boolish(b"h", false),
+                    boolish(b"sd", true),
+                ));
+                *item_idx += 1;
             }
             b"field" => {
                 if let Some((_, v)) = container {
@@ -1674,9 +1718,23 @@ fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
                 b"colFields" => container = Some(("colFields", Vec::new())),
                 b"pageFields" => container = Some(("pageFields", Vec::new())),
                 b"dataFields" => container = Some(("dataFields", Vec::new())),
-                _ => leaf(&e, in_pivotfields, &mut container, &mut pf_idx, &mut out),
+                _ => leaf(
+                    &e,
+                    in_pivotfields,
+                    &mut container,
+                    &mut pf_idx,
+                    &mut item_idx,
+                    &mut out,
+                ),
             },
-            Ok(Event::Empty(e)) => leaf(&e, in_pivotfields, &mut container, &mut pf_idx, &mut out),
+            Ok(Event::Empty(e)) => leaf(
+                &e,
+                in_pivotfields,
+                &mut container,
+                &mut pf_idx,
+                &mut item_idx,
+                &mut out,
+            ),
             Ok(Event::End(e)) => match structural::local_of(e.name().as_ref()) {
                 b"pivotFields" => in_pivotfields = false,
                 b"rowFields" | b"colFields" | b"pageFields" | b"dataFields" => {
@@ -1844,6 +1902,12 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
             let Ok(x) = crate::ooxml::read_part(bytes, n) else {
                 continue;
             };
+            // Everything this part contributes is prefixed with the OWNING PART name below, so a
+            // CROSS-PART swap — e.g. rebinding which external connection (`cacheSource connectionId`)
+            // fills which pivot cache, or transposing two structurally-identical pivots — differs
+            // instead of surviving the flat sorted multiset (round-64 defect 3). Accepts the same
+            // benign-part-renumber over-refusal already taken by external_rels_targets/opaque.
+            let part_start = out.len();
             for (tag, attrs) in structural::element_attr_semantics(
                 &x,
                 &[
@@ -2019,6 +2083,9 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
             // Cache-field grouping (fieldGroup/rangePr/discretePr/groupItems) + shared-item order —
             // re-aggregation inputs no other comparator reads (round-60 defect 2).
             out.extend(pivot_grouping_sigs(&x));
+            for s in &mut out[part_start..] {
+                *s = format!("{low}|{s}");
+            }
         }
     }
     out.sort();
@@ -2238,41 +2305,93 @@ fn normalize_filter_attrs(attrs: &str) -> String {
 fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     let mut extract = |owner: &str, x: &[u8]| {
-        for (elem, attrs) in structural::element_attr_semantics(
-            x,
-            &[
-                b"filterColumn",
-                // Container attributes that change WHICH rows are hidden: `<customFilters and>`
-                // (the AND/OR combinator over two predicates) and `<filters blank>` (show-blanks).
-                b"customFilters",
-                b"customFilter",
-                b"filters",
-                b"filter",
-                b"dynamicFilter",
-                b"top10",
-                b"dateGroupItem",
-                b"colorFilter",
-                b"iconFilter",
-            ],
-        ) {
-            // On a `<filterColumn>`, `hiddenButton`/`showButton` govern ONLY the filter DROPDOWN
-            // BUTTON's visibility (pure display), so drop them (openpyxl writes them at defaults).
-            let attrs = if elem == "filterColumn" {
-                attrs
-                    .split(structural::ATTR_SEP)
-                    .filter(|t| !t.starts_with("hiddenButton=") && !t.starts_with("showButton="))
-                    .collect::<Vec<_>>()
-                    .join(structural::ATTR_SEP)
-            } else {
-                attrs
+        use quick_xml::events::Event;
+        let is_wanted = |n: &[u8]| {
+            matches!(
+                n,
+                b"filterColumn"
+                    | b"customFilters"
+                    | b"customFilter"
+                    | b"filters"
+                    | b"filter"
+                    | b"dynamicFilter"
+                    | b"top10"
+                    | b"dateGroupItem"
+                    | b"colorFilter"
+                    | b"iconFilter"
+            )
+        };
+        // Reproduce element_attr_semantics' sorted `key=val` ATTR_SEP-joined string (so
+        // normalize_filter_attrs applies unchanged), optionally dropping the display-only button attrs.
+        let attr_str = |e: &quick_xml::events::BytesStart, drop_button: bool| -> String {
+            let mut a: Vec<String> = e
+                .attributes()
+                .flatten()
+                .filter_map(|at| {
+                    let k =
+                        String::from_utf8_lossy(structural::local_of(at.key.as_ref())).into_owned();
+                    if drop_button && (k == "hiddenButton" || k == "showButton") {
+                        return None;
+                    }
+                    let v = at
+                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                        .map(|c| c.into_owned())
+                        .unwrap_or_else(|_| String::from_utf8_lossy(&at.value).into_owned());
+                    Some(format!("{k}={v}"))
+                })
+                .collect();
+            a.sort();
+            a.join(structural::ATTR_SEP)
+        };
+        let mut reader = quick_xml::Reader::from_reader(x);
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        // The colId of the ENCLOSING <filterColumn>: every nested predicate is keyed by it so a SWAP
+        // of two filterColumns' predicates (which column filters on which value — a SUBTOTAL value
+        // input) differs instead of surviving element_attr_semantics' flat sorted multiset (round-64
+        // defect 7). On a filterColumn, hiddenButton/showButton are display-only and dropped.
+        let mut cur_col: Option<String> = None;
+        loop {
+            let ev = reader.read_event_into(&mut buf);
+            let (e, is_start) = match &ev {
+                Ok(Event::Start(e)) => (e, true),
+                Ok(Event::Empty(e)) => (e, false),
+                Ok(Event::End(e)) => {
+                    if structural::local_of(e.name().as_ref()) == b"filterColumn" {
+                        cur_col = None;
+                    }
+                    buf.clear();
+                    continue;
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {
+                    buf.clear();
+                    continue;
+                }
             };
-            // Fold ECMA-376 DEFAULT attributes and canonicalize boolean literals, so a benign
-            // cross-tool re-serialization (openpyxl omits `<top10 top percent>` / `and`; LibreOffice
-            // writes them explicitly as `top="true" percent="false"` / `and="true"`) is not refused
-            // while a genuine criterion change (top<->bottom, AND<->OR, a changed threshold/operator)
-            // still differs (round-57 defect 3).
-            let attrs = normalize_filter_attrs(&attrs);
-            out.push((owner.to_string(), elem, attrs));
+            let name = e.name();
+            let local = structural::local_of(name.as_ref());
+            if is_wanted(local) {
+                if local == b"filterColumn" {
+                    out.push((
+                        owner.to_string(),
+                        "filterColumn".to_string(),
+                        normalize_filter_attrs(&attr_str(e, true)),
+                    ));
+                    // A Start filterColumn scopes its nested predicates; an empty one has none.
+                    if is_start {
+                        cur_col = Some(attr_local(e, b"colId").unwrap_or_default());
+                    }
+                } else {
+                    let key = format!("{owner}|col={}", cur_col.as_deref().unwrap_or(""));
+                    out.push((
+                        key,
+                        String::from_utf8_lossy(local).into_owned(),
+                        normalize_filter_attrs(&attr_str(e, false)),
+                    ));
+                }
+            }
+            buf.clear();
         }
     };
     if let Ok(sheets) = crate::ooxml::all_sheets(bytes) {
@@ -4734,6 +4853,69 @@ mod tests {
             pivot_refs(&top3),
             "a Top-N AutoShow count tamper must differ"
         );
+        // sortType manual -> auto re-sorts the field on refresh (round-64 defect 5).
+        let sort = |st: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><pivotFields count="1"><pivotField axis="axisRow" sortType="{st}"/></pivotFields></pivotTableDefinition>"#
+            )
+        };
+        assert_ne!(
+            pivot_refs(&wb(
+                "",
+                &[("xl/pivotTables/pivotTable1.xml", &sort("manual"))]
+            )),
+            pivot_refs(&wb(
+                "",
+                &[("xl/pivotTables/pivotTable1.xml", &sort("descending"))]
+            )),
+            "a pivotField sortType change (manual -> auto descending) must differ"
+        );
+        // A pivotField <item> ORDER swap re-orders the rendered rows on refresh (round-64 defect 2).
+        let items = |a: &str, b: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><pivotFields count="1"><pivotField axis="axisRow"><items count="3"><item x="{a}"/><item x="{b}"/><item t="grand"/></items></pivotField></pivotFields></pivotTableDefinition>"#
+            )
+        };
+        assert_ne!(
+            pivot_refs(&wb(
+                "",
+                &[("xl/pivotTables/pivotTable1.xml", &items("0", "1"))]
+            )),
+            pivot_refs(&wb(
+                "",
+                &[("xl/pivotTables/pivotTable1.xml", &items("1", "0"))]
+            )),
+            "a pivotField item order swap must differ"
+        );
+    }
+
+    #[test]
+    fn pivot_cross_part_cache_source_connection_swap_is_caught() {
+        // REGRESSION (round-64 defect 3, security): pivot_refs pooled every pivotcache/pivottable
+        // signature into one FLAT sorted multiset, so SWAPPING which external connection fills which
+        // pivot cache (cacheSource connectionId) across two parts was invisible. Now prefixed by part.
+        let cache = |conn: &str| {
+            format!(
+                r#"<pivotCacheDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cacheSource type="external" connectionId="{conn}"/></pivotCacheDefinition>"#
+            )
+        };
+        let mk = |c1: &str, c2: &str| {
+            wb(
+                "",
+                &[
+                    ("xl/pivotCache/pivotCacheDefinition1.xml", &cache(c1)),
+                    ("xl/pivotCache/pivotCacheDefinition2.xml", &cache(c2)),
+                ],
+            )
+        };
+        let good = mk("1", "2");
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let swapped = mk("2", "1");
+        assert_eq!(
+            verify_noncell_refs(&good, &swapped)
+                .expect("a cross-part cacheSource connection swap must refuse")["reason"],
+            "pivot_reference_mismatch"
+        );
     }
 
     #[test]
@@ -5159,6 +5341,21 @@ mod tests {
         assert!(
             verify_noncell_refs(&explicit_op, &omitted_op).is_none(),
             "explicit default operator=\"equal\" must fold to the omitted form"
+        );
+        // REGRESSION (round-64 defect 7, false-certify): SWAPPING two filterColumns' predicates (col 0
+        // filters <=5, col 2 filters <=20 -> col 0 <=20, col 2 <=5) left the flat multiset unchanged.
+        // Binding each predicate to its owning colId catches it.
+        let two = |a: &str, b: &str| {
+            format!(
+                r#"<autoFilter ref="A1:C10"><filterColumn colId="0"><customFilters><customFilter operator="lessThanOrEqual" val="{a}"/></customFilters></filterColumn><filterColumn colId="2"><customFilters><customFilter operator="lessThanOrEqual" val="{b}"/></customFilters></filterColumn></autoFilter>"#
+            )
+        };
+        let g = wb(&two("5", "20"), &[]);
+        assert!(verify_noncell_refs(&g, &g).is_none());
+        assert_eq!(
+            verify_noncell_refs(&g, &wb(&two("20", "5"), &[]))
+                .expect("a predicate swap between two filterColumns must refuse")["reason"],
+            "autofilter_criteria_mismatch"
         );
     }
 
