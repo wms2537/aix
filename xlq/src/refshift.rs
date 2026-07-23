@@ -615,6 +615,7 @@ fn ref_token_covers(
     target_sheet: &str,
     target_col: u32,
     target_row: u32,
+    sheets: &[String],
 ) -> bool {
     if token.starts_with('[') {
         return false; // external-workbook reference — never our cell
@@ -623,9 +624,21 @@ fn ref_token_covers(
         let (sheet_part, rest) = token.split_at(bang);
         let target = unquote_sheet(sheet_part);
         let m = if let Some((s1, s2)) = target.split_once(':') {
-            // A 3D span references the cell on every sheet in the span; without sheet ORDER here,
-            // over-approximate to its named endpoints (the common consolidation case).
-            eq_sheet(s1, target_sheet) || eq_sheet(s2, target_sheet)
+            // A 3D span `S1:S2!ref` references the cell on EVERY sheet in the span's tab-order range,
+            // not just the two named endpoints (the vendored engine now evaluates 3D-span aggregates
+            // across the interior, so an interior-sheet consumer is a real dependency). With the
+            // ordered sheet list, resolve both endpoints to their tab indices and cover any target
+            // whose index lies within [min..=max]; fail-closed (cover) if an endpoint is unresolved.
+            let (s1, s2) = (s1.trim(), s2.trim());
+            if sheets.is_empty() {
+                eq_sheet(s1, target_sheet) || eq_sheet(s2, target_sheet)
+            } else {
+                let idx = |nm: &str| sheets.iter().position(|s| eq_sheet(s, nm));
+                match (idx(s1), idx(s2), idx(target_sheet)) {
+                    (Some(a), Some(b), Some(t)) => (a.min(b)..=a.max(b)).contains(&t),
+                    _ => true,
+                }
+            }
         } else {
             eq_sheet(&target, target_sheet)
         };
@@ -651,13 +664,15 @@ fn ref_token_covers(
 /// sheet matches) is treated as a potential reference. It therefore never UNDER-reports a dependency
 /// (it may over-report, which only over-refuses). Defined-name and structured (table) references are
 /// not resolved here — a caller relying on transitive closure through those must handle them
-/// separately (as `defined_names_reaching` does for names).
+/// separately (as `defined_names_reaching` does for names). `sheets` is the workbook's tab-ordered
+/// sheet-name list, used to resolve a 3D span's INTERIOR sheets (empty = endpoint-only, no interior).
 pub(crate) fn formula_references_cell(
     formula: &str,
     home_sheet: &str,
     target_sheet: &str,
     target_col: u32,
     target_row: u32,
+    sheets: &[String],
 ) -> bool {
     let b = formula.as_bytes();
     let mut prev: Option<char> = None;
@@ -694,7 +709,14 @@ pub(crate) fn formula_references_cell(
                 if is_ref && body_len > 0 {
                     let total = body_start + body_len;
                     let token = &s[..total];
-                    if ref_token_covers(token, home_sheet, target_sheet, target_col, target_row) {
+                    if ref_token_covers(
+                        token,
+                        home_sheet,
+                        target_sheet,
+                        target_col,
+                        target_row,
+                        sheets,
+                    ) {
                         return true;
                     }
                     prev = token.chars().last();
@@ -1390,11 +1412,12 @@ pub fn has_unverifiable_3d_span(
 }
 
 /// True if the formula contains ANY 3D (multi-sheet) span reference `SheetA:SheetB!…` with
-/// DISTINCT endpoints. IronCalc does not evaluate 3D spans — it returns `#VALUE!` — so the cache
-/// oracle cannot vouch a cell using one: the engine's spurious error would both VOUCH a forged
-/// `#VALUE!` cache (false-certify) and refuse the correct numeric cache. Unlike
-/// `has_unverifiable_3d_span` (which additionally requires the span to COVER the edited sheet — the
-/// restructure REFUSE condition), any span at all is engine-unevaluable, so this takes no edit.
+/// DISTINCT endpoints. The vendored engine now EVALUATES 3D-span aggregates (SUM/AVERAGE/COUNT/MIN/
+/// MAX/… iterate the tab-order range), so the oracle value-gates a span cell: it stays vouchable when
+/// the engine returns a number and is excluded only when the span still yields an error (see
+/// `build_cache_oracle`'s `three_d_span_cells`). The certify-side date-consumer reachability resolves
+/// a span's INTERIOR sheets (round-62). Unlike `has_unverifiable_3d_span` (which additionally requires
+/// the span to COVER the edited sheet — the restructure REFUSE condition), this takes no edit.
 pub fn formula_contains_3d_span(formula: &str) -> bool {
     let b = formula.as_bytes();
     let mut i = 0;
@@ -1450,8 +1473,8 @@ mod tests {
 
     #[test]
     fn formula_references_cell_covers_single_range_sheet_and_boundaries() {
-        // Home sheet "S", target cell B2 (col 2, row 2).
-        let refs = |f: &str| formula_references_cell(f, "S", "S", 2, 2);
+        // Home sheet "S", target cell B2 (col 2, row 2). No 3D sheet order needed here.
+        let refs = |f: &str| formula_references_cell(f, "S", "S", 2, 2, &[]);
         // Direct single-cell ref, with/without $ anchors.
         assert!(refs("=B2+1"));
         assert!(refs("=$B$2*2"));
@@ -1467,14 +1490,73 @@ mod tests {
         assert!(!refs("=ABB2")); // a name, not a ref
         assert!(!refs("=\"B2 in a string\""));
         // Sheet qualification: an unqualified ref on a DIFFERENT home sheet does not cover S!B2.
-        assert!(!formula_references_cell("=B2", "Other", "S", 2, 2));
-        assert!(formula_references_cell("=S!B2", "Other", "S", 2, 2));
-        assert!(formula_references_cell("='S'!$B$2", "Other", "S", 2, 2));
-        assert!(!formula_references_cell("=Other!B2", "Other", "S", 2, 2));
+        assert!(!formula_references_cell("=B2", "Other", "S", 2, 2, &[]));
+        assert!(formula_references_cell("=S!B2", "Other", "S", 2, 2, &[]));
+        assert!(formula_references_cell(
+            "='S'!$B$2",
+            "Other",
+            "S",
+            2,
+            2,
+            &[]
+        ));
+        assert!(!formula_references_cell(
+            "=Other!B2",
+            "Other",
+            "S",
+            2,
+            2,
+            &[]
+        ));
         // An external-workbook ref never covers our cell.
-        assert!(!formula_references_cell("=[1]S!B2", "S", "S", 2, 2));
-        // A 3D span naming S as an endpoint covers it (over-approximation).
-        assert!(formula_references_cell("=SUM(S:T!B2)", "X", "S", 2, 2));
+        assert!(!formula_references_cell("=[1]S!B2", "S", "S", 2, 2, &[]));
+        // A 3D span naming S as an endpoint covers it.
+        assert!(formula_references_cell("=SUM(S:T!B2)", "X", "S", 2, 2, &[]));
+        // A 3D span's INTERIOR sheet: with tab order [S1,S2,S3], SUM(S1:S3!B2) covers S2 (round-62).
+        let order = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let sheets = order(&["S1", "S2", "S3"]);
+        assert!(formula_references_cell(
+            "=SUM(S1:S3!B2)",
+            "X",
+            "S2",
+            2,
+            2,
+            &sheets
+        ));
+        assert!(formula_references_cell(
+            "=SUM(S1:S3!B2)",
+            "X",
+            "S1",
+            2,
+            2,
+            &sheets
+        ));
+        assert!(formula_references_cell(
+            "=SUM(S1:S3!B2)",
+            "X",
+            "S3",
+            2,
+            2,
+            &sheets
+        ));
+        // A sheet OUTSIDE the span range is not covered.
+        let sheets4 = order(&["S1", "S2", "S3", "S4"]);
+        assert!(!formula_references_cell(
+            "=SUM(S1:S2!B2)",
+            "X",
+            "S4",
+            2,
+            2,
+            &sheets4
+        ));
+        assert!(!formula_references_cell(
+            "=SUM(S1:S2!B2)",
+            "X",
+            "S3",
+            2,
+            2,
+            &sheets4
+        ));
     }
 
     fn row_edit(op: Op, at: u32, count: u32) -> StructuralEdit {

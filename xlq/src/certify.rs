@@ -3488,6 +3488,24 @@ fn build_cache_oracle(
     if date1904 {
         bad.extend(DATE_EPOCH_FUNCTIONS.iter().map(|s| s.to_string()));
     }
+    // The "DETERMINISTIC-WRONG-VALUE" divergent functions — ENGINE_DIVERGENT (TEXT/IRR/…) and, under
+    // the 1904 system, the date-epoch functions. Unlike an ERROR-valued source (UDF/RTD/unsupported),
+    // the engine produces a clean WRONG number/string here, so a boundary-discriminating dependent
+    // (`IF(src=k,100,200)`, flat under the random poison) SURVIVES poison-and-diff carrying the
+    // engine's derived value — the same class round-60 defect 1 fixed for date CONSUMERS. Cells using
+    // one need the exact REFERENCE-REACHABILITY drop, NOT value-diff (round-62 defect 6). Kept SEPARATE
+    // from `bad` so the reachability seed excludes error-valued sources (where value-diff suffices and
+    // reachability would reintroduce the round-36 workbook-wide over-refusal).
+    let deterministic_divergent: std::collections::HashSet<String> = ENGINE_DIVERGENT_FUNCTIONS
+        .iter()
+        .map(|s| s.to_string())
+        .chain(
+            date1904
+                .then(|| DATE_EPOCH_FUNCTIONS.iter().map(|s| s.to_string()))
+                .into_iter()
+                .flatten(),
+        )
+        .collect();
     // DEFINED-NAME laundering: `bad` (from the census) includes a bad function that appears inside a
     // DEFINED NAME's refers-to body, not only in a cell formula. Poison-and-diff isolates a cell's
     // dependence on a bad *cell* (it poisons the source cell and diffs) and on a bad function reached
@@ -3525,6 +3543,9 @@ fn build_cache_oracle(
     // (after the oracle is built) evaluates each consumer's actual INPUT serial and drops it — and its
     // dependents — iff that serial is in the engine's divergent pre-1900-03-01 range (< 61).
     let mut date_consumers: Vec<(u32, i32, i32)> = Vec::new();
+    // Deterministic-wrong-value SOURCE cells (see `deterministic_divergent`) + date producers < 61 —
+    // seeded into the reachability drop alongside divergent date consumers (round-62 defect 6).
+    let mut divergent_sources: Vec<(u32, i32, i32)> = Vec::new();
     for cell in model.get_all_cells() {
         let Ok(Some(f)) = model.get_cell_formula(cell.index, cell.row, cell.column) else {
             continue;
@@ -3545,6 +3566,12 @@ fn build_cache_oracle(
         let fns = crate::census::extract_function_names(&f);
         if !bad.is_empty() && fns.iter().any(|n| bad.contains(n)) {
             sources.push((cell.index, cell.row, cell.column));
+        }
+        // A cell using a deterministic-wrong divergent function is BOTH a source (poison-diff drops it
+        // + value-changing dependents) AND a reachability seed (drops boundary-discriminating ones).
+        if fns.iter().any(|n| deterministic_divergent.contains(n)) {
+            sources.push((cell.index, cell.row, cell.column));
+            divergent_sources.push((cell.index, cell.row, cell.column));
         }
         // ...or the cell references a defined name whose body reaches a bad function (laundering the
         // engine's wrong value through the name). Over-approximates via whole-word match, so at worst
@@ -3602,6 +3629,10 @@ fn build_cache_oracle(
             .and_then(|sig| sig.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok()));
         if matches!(serial, Some(v) if v < 61.0) {
             sources.push((s, r, c));
+            // Deterministic-wrong (engine omits the phantom leap day) — also a reachability seed so a
+            // boundary-discriminating dependent (`IF(producer=k,..)`) is dropped, not just a
+            // value-changing one (round-62 defect 6).
+            divergent_sources.push((s, r, c));
         }
     }
     // Exclude a 3D-span cell ONLY if the engine still returns an ERROR for it (a span used in a
@@ -3665,6 +3696,7 @@ fn build_cache_oracle(
     Some(prune_early_date_consumers(
         model,
         &date_consumers,
+        &divergent_sources,
         &formula_cells,
         &names,
         oracle,
@@ -3689,11 +3721,12 @@ type FormulaCellRef = ((u32, i32, i32), (String, String));
 fn prune_early_date_consumers(
     model: &mut ironcalc::base::Model,
     date_consumers: &[(u32, i32, i32)],
+    divergent_sources: &[(u32, i32, i32)],
     formula_cells: &[FormulaCellRef],
     names: &[String],
     mut oracle: std::collections::HashMap<(String, String), String>,
 ) -> std::collections::HashMap<(String, String), String> {
-    if date_consumers.is_empty() {
+    if date_consumers.is_empty() && divergent_sources.is_empty() {
         return oracle;
     }
     let numeric = |model: &ironcalc::base::Model, s: u32, r: i32, c: i32| -> Option<f64> {
@@ -3744,19 +3777,19 @@ fn prune_early_date_consumers(
             divergent.push((s, r, c));
         }
     }
-    if divergent.is_empty() {
+    if divergent.is_empty() && divergent_sources.is_empty() {
         return oracle;
     }
-    // Phase B — drop each divergent consumer AND its transitive dependents by REFERENCE REACHABILITY.
-    // A value-diff (poison the consumer, re-evaluate, drop what changes) is UNSOUND here: a dependent
-    // whose value is FLAT at the poison yet discriminates the exact off-by-one boundary
+    // Phase B — drop each divergent consumer/source AND its transitive dependents by REFERENCE
+    // REACHABILITY. A value-diff (poison the source, re-evaluate, drop what changes) is UNSOUND here: a
+    // dependent whose value is FLAT at the poison yet discriminates the exact off-by-one boundary
     // (`IF(C=28,1,0)` where the engine gives 27 but Excel 28) does not change under any single poison,
     // so it would be retained carrying the engine's derived value (round-60 defect 1). Reachability is
     // exact: compute the transitive-closure set of oracle formula cells whose formula REFERENCES a
-    // divergent consumer — DIRECTLY, or THROUGH A DEFINED NAME whose body reaches one (round-61: the
-    // static reachability that replaced the round-59 engine poison-diff lost the name-mediated path
-    // the engine resolved for free). Both cells and names propagate to a joint fixpoint. Runs only
-    // when a divergent consumer exists (date consumers are rare), so the closure is bounded.
+    // divergent consumer OR a divergent SOURCE (round-62 defect 6) — DIRECTLY, or THROUGH A DEFINED
+    // NAME whose body reaches one (round-61: the static reachability that replaced the round-59 engine
+    // poison-diff lost the name-mediated path the engine resolved for free). Both cells and names
+    // propagate to a joint fixpoint. Runs only when a divergent cell exists (rare), so it is bounded.
     let mut cells: Vec<((u32, i32, i32), String, String)> = Vec::new();
     for (coord, (sheet, _a1)) in formula_cells {
         if let Ok(Some(f)) = model.get_cell_formula(coord.0, coord.1, coord.2) {
@@ -3769,8 +3802,11 @@ fn prune_early_date_consumers(
         .iter()
         .map(|d| (d.name.to_lowercase(), d.formula.clone()))
         .collect();
-    let mut reached: std::collections::HashSet<(u32, i32, i32)> =
-        divergent.iter().copied().collect();
+    let mut reached: std::collections::HashSet<(u32, i32, i32)> = divergent
+        .iter()
+        .chain(divergent_sources.iter())
+        .copied()
+        .collect();
     let mut reached_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     // A formula references a reached CELL. `home` is the formula's own sheet (for unqualified refs);
     // for a defined-name body (no cell home) the target's own sheet is used, so an unqualified body
@@ -3780,7 +3816,7 @@ fn prune_early_date_consumers(
             reached.iter().any(|&(s, r, c)| {
                 names.get(s as usize).is_some_and(|ts| {
                     let h = if home.is_empty() { ts.as_str() } else { home };
-                    crate::refshift::formula_references_cell(f, h, ts, c as u32, r as u32)
+                    crate::refshift::formula_references_cell(f, h, ts, c as u32, r as u32, names)
                 })
             })
         };
@@ -5927,6 +5963,40 @@ mod tests {
         assert!(
             oracle.contains_key(&key("G1")),
             "an unrelated modern consumer stays vouchable — no over-refusal"
+        );
+    }
+
+    #[test]
+    fn boundary_discriminating_dependent_of_divergent_source_is_excluded() {
+        // REGRESSION (round-62 defect 6, HIGH false-certify): a divergent SOURCE (a date producer
+        // whose serial < 61 is engine-off-by-one from Excel) has a DETERMINISTIC WRONG value, so a
+        // boundary-discriminating dependent (IF(A1=1,100,200), FLAT under the random large poison)
+        // survived the value-diff and was vouched with the engine's derived value. Divergent sources
+        // now seed the SAME reference-reachability drop that handles divergent date consumers.
+        let rows = r#"<row r="1"><c r="A1"><f>DATE(1900,1,5)</f><v>5</v></c><c r="C1"><f>IF(A1=1,100,200)</f><v>200</v></c><c r="E1"><f>SUM(A2:A3)</f><v>3</v></c></row><row r="2"><c r="A2"><v>1</v></c></row><row r="3"><c r="A3"><v>2</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load divergent-source workbook");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("A1")),
+            "the divergent date producer (serial < 61) is excluded: {oracle:?}"
+        );
+        assert!(
+            !oracle.contains_key(&key("C1")),
+            "a boundary-discriminating dependent of a divergent source must be dropped by reachability"
+        );
+        assert!(
+            oracle.contains_key(&key("E1")),
+            "an unrelated SUM (no reference to the divergent source) stays vouchable — no over-refusal"
         );
     }
 
