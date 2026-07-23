@@ -1600,6 +1600,37 @@ fn subtotal_hidden_rows(bytes: &[u8]) -> Vec<(String, Vec<String>)> {
 /// `SUBTOTAL(1–11)` (excludes FILTER-hidden rows) / `SUBTOTAL(101–111)` / hidden-ignoring
 /// `AGGREGATE` — is caught. A TABLE carries its own `<autoFilter>`, so scanning only worksheets
 /// let a table-filter change (feeding a table `SUBTOTAL`) certify silently.
+/// Canonicalize an autofilter criterion element's `element_attr_semantics` attribute string so a
+/// benign cross-tool re-serialization of DEFAULT-valued attributes is not refused: fold each boolean
+/// literal `true`/`false` to `1`/`0`, then DROP the tokens whose value equals the ECMA-376 default
+/// (`top=1`, `percent=0` on `<top10>`; `and=0` on `<customFilters>`; `blank=0` on `<filters>`). All
+/// OTHER attributes are kept verbatim, so a genuine criterion change still differs (no false
+/// certify). Keeping the whole attribute set — rather than PICKING known keys like pivot_refs — is
+/// the safe direction here (a missed value-affecting attr would be a false-certify).
+fn normalize_filter_attrs(attrs: &str) -> String {
+    attrs
+        .split(structural::ATTR_SEP)
+        .filter_map(|tok| {
+            let (k, v) = tok.split_once('=')?;
+            let v = match v {
+                "true" => "1",
+                "false" => "0",
+                other => other,
+            };
+            let is_default = matches!(
+                (k, v),
+                ("top", "1") | ("percent", "0") | ("and", "0") | ("blank", "0")
+            );
+            if is_default {
+                None
+            } else {
+                Some(format!("{k}={v}"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(structural::ATTR_SEP)
+}
+
 fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     let mut extract = |owner: &str, x: &[u8]| {
@@ -1631,6 +1662,12 @@ fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
             } else {
                 attrs
             };
+            // Fold ECMA-376 DEFAULT attributes and canonicalize boolean literals, so a benign
+            // cross-tool re-serialization (openpyxl omits `<top10 top percent>` / `and`; LibreOffice
+            // writes them explicitly as `top="true" percent="false"` / `and="true"`) is not refused
+            // while a genuine criterion change (top<->bottom, AND<->OR, a changed threshold/operator)
+            // still differs (round-57 defect 3).
+            let attrs = normalize_filter_attrs(&attrs);
             out.push((owner.to_string(), elem, attrs));
         }
     };
@@ -2230,29 +2267,79 @@ fn formula_calls_sensitive_cell(f: &str, sensitive: &[&str]) -> bool {
     false
 }
 
-/// The first start-tag in `text` whose element LOCAL name is `local`, namespace-prefix
+/// The first REAL start-tag in `text` whose element LOCAL name is `local`, namespace-prefix
 /// agnostic — both `<calcPr …>` and `<x:calcPr …>` match — returned from its `<` up to (not
-/// including) the closing `>`. A raw `text.find("<calcPr")` missed a prefixed `<x:calcPr>`,
-/// hiding value-affecting workbook settings (date1904/fullPrecision/calcMode/iterate) from the
-/// settings compare — a false certification, since XML namespace resolution is prefix-agnostic
-/// and Excel honors the prefixed form.
+/// including) the closing `>`. A raw `text.find("<calcPr")` missed a prefixed `<x:calcPr>`, and a
+/// naive scan read INTO XML comments / CDATA / PIs and terminated at a `>` inside a quoted attribute
+/// value — letting a commented-out DECOY `<!--<workbookPr date1904="0"/>-->` (or a `>` inside a
+/// quoted attr) hide a real value-affecting setting (date1904/fullPrecision/calcMode) so certify
+/// read the default and false-certified an epoch/precision flip (round-57 defect 7). This scanner
+/// SKIPS comment/CDATA/PI/decl spans and finds the tag end with a quote-state machine.
 fn local_element_tag(text: &str, local: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut i = 0;
     while let Some(rel) = text[i..].find('<') {
         let lt = i + rel;
-        i = lt + 1;
+        // Skip non-element spans whose content is not markup.
+        if text[lt..].starts_with("<!--") {
+            i = text[lt + 4..]
+                .find("-->")
+                .map_or(bytes.len(), |p| lt + 4 + p + 3);
+            continue;
+        }
+        if text[lt..].starts_with("<![CDATA[") {
+            i = text[lt + 9..]
+                .find("]]>")
+                .map_or(bytes.len(), |p| lt + 9 + p + 3);
+            continue;
+        }
+        if text[lt..].starts_with("<?") {
+            i = text[lt + 2..]
+                .find("?>")
+                .map_or(bytes.len(), |p| lt + 2 + p + 2);
+            continue;
+        }
+        if text[lt..].starts_with("<!") {
+            i = text[lt..].find('>').map_or(bytes.len(), |p| lt + p + 1);
+            continue;
+        }
+        // A real element. Read its (possibly prefixed) name.
         let name_start = lt + 1;
+        if bytes.get(name_start) == Some(&b'/') {
+            // an end tag — not a start tag; advance past it.
+            i = text[lt..].find('>').map_or(bytes.len(), |p| lt + p + 1);
+            continue;
+        }
         let mut j = name_start;
         while j < bytes.len() && !matches!(bytes[j], b' ' | b'\t' | b'\n' | b'\r' | b'>' | b'/') {
             j += 1;
         }
-        let name = &text[name_start..j];
-        let local_name = name.rsplit(':').next().unwrap_or(name);
+        let local_name = {
+            let name = &text[name_start..j];
+            name.rsplit(':').next().unwrap_or(name)
+        };
+        // Find the tag-closing '>' with a quote-state machine so a '>' inside a quoted attribute
+        // value is not mistaken for the tag end.
+        let mut k = j;
+        let mut quote = 0u8;
+        let tag_end = loop {
+            match bytes.get(k) {
+                None => return None, // unterminated tag
+                Some(&b) if quote != 0 => {
+                    if b == quote {
+                        quote = 0;
+                    }
+                }
+                Some(&b) if b == b'"' || b == b'\'' => quote = b,
+                Some(&b'>') => break k,
+                _ => {}
+            }
+            k += 1;
+        };
         if local_name == local {
-            let gt = text[lt..].find('>')?;
-            return Some(text[lt..lt + gt].to_string());
+            return Some(text[lt..tag_end].to_string());
         }
+        i = tag_end + 1;
     }
     None
 }
@@ -2865,20 +2952,28 @@ fn prune_early_date_consumers(
     if date_consumers.is_empty() {
         return oracle;
     }
+    // The consumers themselves must NOT be poisoned — a date consumer's own value (DAY -> 1..31,
+    // etc.) lies in (0,61), so poisoning it would make every consumer "change" and be excluded
+    // (a catastrophic over-refusal). We poison only their potential INPUTS.
+    let consumer_coords: std::collections::HashSet<(u32, i32, i32)> =
+        date_consumers.iter().map(|&(coord, _)| coord).collect();
+    // Any cell (VALUE or FORMULA) whose engine value is an early serial in (0,61) is a candidate
+    // early-date input — NOT restricted to literal value cells, so an early serial PRODUCED BY A
+    // FORMULA (`A1 = 44000-43941`) is caught too (round-57 defect 1). Poisoning a formula cell
+    // replaces its body with the constant, which correctly forces any reader to re-read a modern
+    // serial; the model is discarded after, so mutating it is harmless.
     let small: Vec<(u32, i32, i32)> = model
         .get_all_cells()
         .into_iter()
-        .filter(|cell| {
-            matches!(
-                model.get_cell_formula(cell.index, cell.row, cell.column),
-                Ok(None)
-            ) && matches!(
-                cell_value_sig(model, cell.index, cell.row, cell.column)
-                    .and_then(|s| s.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok())),
-                Some(v) if v > 0.0 && v < 61.0
-            )
-        })
         .map(|cell| (cell.index, cell.row, cell.column))
+        .filter(|coord| {
+            !consumer_coords.contains(coord)
+                && matches!(
+                    cell_value_sig(model, coord.0, coord.1, coord.2)
+                        .and_then(|s| s.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok())),
+                    Some(v) if v > 0.0 && v < 61.0
+                )
+        })
         .collect();
     if small.is_empty() {
         return oracle;
@@ -3376,6 +3471,17 @@ mod tests {
         assert!(workbook_is_date1904(&wb_only(
             r#"<workbook><workbookPr date1904="&#116;rue"/></workbook>"#
         )));
+        // REGRESSION (round-57 defect 7): a commented-out DECOY workbookPr must NOT hide the real
+        // one, a CDATA span is skipped, and a '>' inside a quoted attribute must not truncate the tag.
+        assert!(workbook_is_date1904(&wb_only(
+            r#"<workbook><!--<workbookPr date1904="0"/>--><workbookPr codeName="ThisWorkbook" date1904="1"/></workbook>"#
+        )));
+        assert!(workbook_is_date1904(&wb_only(
+            r#"<workbook><![CDATA[<workbookPr date1904="0"/>]]><workbookPr date1904="1"/></workbook>"#
+        )));
+        assert!(workbook_is_date1904(&wb_only(
+            r#"<workbook><workbookPr codeName="a>b" date1904="1"/></workbook>"#
+        )));
         // The date-epoch exclusion set covers the calendar decomposition/construction functions.
         for f in ["YEAR", "DATE", "EOMONTH", "WEEKDAY", "TEXT"] {
             assert!(
@@ -3814,6 +3920,32 @@ mod tests {
         assert_eq!(
             verify_noncell_refs(&and_on, &wb(&comb("0"), &[]))
                 .expect("combinator flip must refuse")["reason"],
+            "autofilter_criteria_mismatch"
+        );
+        // REGRESSION (round-57 defect 3): a faithful cross-tool re-serialization of DEFAULT-valued
+        // criterion attributes must NOT refuse. openpyxl writes `<top10 val="2"/>`; LibreOffice
+        // writes `<top10 top="true" percent="false" val="2"/>` (explicit defaults + true/false
+        // literals) — the SAME top-2 filter.
+        let openpyxl_top10 = wb(
+            r#"<autoFilter ref="A1:A10"><filterColumn colId="0"><top10 val="2"/></filterColumn></autoFilter>"#,
+            &[],
+        );
+        let libre_top10 = wb(
+            r#"<autoFilter ref="A1:A10"><filterColumn colId="0"><top10 top="true" percent="false" val="2"/></filterColumn></autoFilter>"#,
+            &[],
+        );
+        assert!(
+            verify_noncell_refs(&openpyxl_top10, &libre_top10).is_none(),
+            "a default-attribute re-serialization of the same top10 filter must not refuse"
+        );
+        // But a GENUINE change (top -> bottom, i.e. top="false") still differs.
+        let bottom10 = wb(
+            r#"<autoFilter ref="A1:A10"><filterColumn colId="0"><top10 top="false" val="2"/></filterColumn></autoFilter>"#,
+            &[],
+        );
+        assert_eq!(
+            verify_noncell_refs(&openpyxl_top10, &bottom10).expect("top->bottom must refuse")
+                ["reason"],
             "autofilter_criteria_mismatch"
         );
     }
@@ -4437,6 +4569,35 @@ mod tests {
         assert!(
             oracle.contains_key(&key("C1")),
             "DAY of a MODERN value (A2=44000) stays vouchable — no over-refusal"
+        );
+    }
+
+    #[test]
+    fn date_consumer_reading_a_formula_produced_early_serial_is_excluded() {
+        // REGRESSION (round-57 defect 1): the early serial is PRODUCED BY A FORMULA (A1=44000-43941
+        // -> 59), so it is neither a literal value cell nor a DATE_SERIAL_PRODUCER. The prune must
+        // still poison it (any cell whose value is a serial < 61, formula or not) and exclude the
+        // consumer B1=DAY(A1); a consumer reading a MODERN formula-produced serial stays vouchable.
+        let rows = r#"<row r="1"><c r="A1"><f>44000-43941</f><v>59</v></c><c r="B1"><f>DAY(A1)</f><v>28</v></c><c r="C1"><f>DAY(A2)</f><v>13</v></c></row><row r="2"><c r="A2"><f>44000-1</f><v>43999</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load formula-serial workbook");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("B1")),
+            "DAY of a FORMULA-produced early serial must be excluded: {oracle:?}"
+        );
+        assert!(
+            oracle.contains_key(&key("C1")),
+            "DAY of a formula-produced MODERN serial stays vouchable"
         );
     }
 
@@ -5292,6 +5453,39 @@ mod tests {
                 ["reason"],
             "table_reference_mismatch"
         );
+        // REGRESSION (round-57 defect 2, HIGH false-certify): the table DATA-BODY extent
+        // (headerRowCount/totalsRowCount) re-aggregates every structured-reference formula
+        // (`Table1[Col]` resolves to rows [top+header .. bottom-totals]) but was in no signature.
+        let counted = |header: &str, totals: &str| {
+            format!(
+                r#"<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="T1" displayName="T1" ref="A1:A5" headerRowCount="{header}" totalsRowCount="{totals}"><tableColumns count="1"><tableColumn id="1" name="Amt"/></tableColumns></table>"#
+            )
+        };
+        let base = wb("", &[("xl/tables/table1.xml", &counted("1", "1"))]);
+        let totals_flip = wb("", &[("xl/tables/table1.xml", &counted("1", "0"))]);
+        assert_eq!(
+            verify_noncell_refs(&base, &totals_flip).expect("a totalsRowCount flip must refuse")
+                ["reason"],
+            "table_reference_mismatch"
+        );
+        let header_flip = wb("", &[("xl/tables/table1.xml", &counted("0", "1"))]);
+        assert_eq!(
+            verify_noncell_refs(&base, &header_flip).expect("a headerRowCount flip must refuse")
+                ["reason"],
+            "table_reference_mismatch"
+        );
+        // A foreign tool writing the DEFAULT counts explicitly is not over-refused.
+        let explicit_default = wb(
+            "",
+            &[(
+                "xl/tables/table1.xml",
+                &tbl("A1:B2", "B1*2").replace(
+                    r#"ref="A1:B2""#,
+                    r#"ref="A1:B2" headerRowCount="1" totalsRowCount="0""#,
+                ),
+            )],
+        );
+        assert!(verify_noncell_refs(&good, &explicit_default).is_none());
     }
 
     #[test]

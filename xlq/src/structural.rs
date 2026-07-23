@@ -423,10 +423,15 @@ fn prune_content_type_overrides_of_dropped(xml: &[u8]) -> Vec<u8> {
     })
 }
 
-/// True if the edited worksheet carries a NAMESPACE PREFIX on any grid element
-/// (`sheetData`/`row`/`c`/`f`/`v`) — e.g. `<x:row>` with `x` bound to the spreadsheetML main
-/// namespace. The row/insert/delete rewrite is not prefix-aware, so such a sheet is refused
-/// upfront (fail-closed) rather than committed with cells shifted but rows stale.
+/// True if the edited worksheet binds the spreadsheetML MAIN namespace to a PREFIX on the grid
+/// structure (`<x:sheetData>`/`<x:row>`/`<x:c>`) — which the non-prefix-aware row/insert/delete
+/// rewrite cannot handle, so such a sheet is refused upfront (fail-closed). The match set is
+/// restricted to `sheetData`/`row`/`c` (NOT `f`/`v`): a genuinely prefix-bound grid ALWAYS carries
+/// those, so detection stays complete, while a FOREIGN-namespace element that merely SHARES the
+/// local name `f`/`v` — notably the ubiquitous x14 `<xm:f>` (Office `.../excel/2006/main`, in
+/// sparklines / cross-sheet dropdowns / x14 CF) — no longer trips a false `namespace_prefixed_
+/// worksheet` refusal (round-57 defect 6). (`sheetData`/`row`/`c` have no foreign-namespace
+/// homograph in real workbooks, so matching them by local name is safe.)
 fn edited_sheet_has_prefixed_grid(xml: &[u8]) -> bool {
     let mut reader = Reader::from_reader(xml);
     reader.config_mut().expand_empty_elements = false;
@@ -438,7 +443,7 @@ fn edited_sheet_has_prefixed_grid(xml: &[u8]) -> bool {
                 let full = name.as_ref();
                 let local = local_of(full);
                 // A prefix is present iff the qualified name differs from its local part.
-                if full != local && matches!(local, b"sheetData" | b"row" | b"c" | b"f" | b"v") {
+                if full != local && matches!(local, b"sheetData" | b"row" | b"c") {
                     return true;
                 }
             }
@@ -2472,6 +2477,10 @@ pub(crate) fn table_semantics(xml: &[u8]) -> Vec<String> {
     let mut out = Vec::new();
     let mut in_f = false;
     let mut raw = String::new();
+    // The ORDINAL position of each `<tableColumn>` — the engine resolves a structured reference
+    // `Table1[Amount]` by the column's POSITION in the tableColumns list, so a reorder (names
+    // unchanged) remaps the reference. Position-keying the column signature makes a reorder differ.
+    let mut col_idx = 0usize;
     let is_tbl_f = |n: &[u8]| {
         tag_local_eq(n, b"calculatedColumnFormula") || tag_local_eq(n, b"totalsRowFormula")
     };
@@ -2489,15 +2498,33 @@ pub(crate) fn table_semantics(xml: &[u8]) -> Vec<String> {
                         out.push(format!("table.{}={}", String::from_utf8_lossy(key), v));
                     }
                 }
+                // The table's DATA-BODY extent: a structured reference `Table1[Col]` (`[#Data]`)
+                // resolves to rows [ref.top + headerRowCount .. ref.bottom - totalsRowCount], so a
+                // tamper of either count silently re-aggregates every structured-reference formula
+                // (headerRowCount default 1, totalsRowCount default 0) — normalized to the default so
+                // a foreign tool writing it explicitly does not over-refuse (round-57 defect 2).
+                out.push(format!(
+                    "table.headerRowCount={}",
+                    attr_by_local(&e, b"headerRowCount").unwrap_or_else(|| "1".into())
+                ));
+                out.push(format!(
+                    "table.totalsRowCount={}",
+                    attr_by_local(&e, b"totalsRowCount").unwrap_or_else(|| "0".into())
+                ));
             }
             Ok(Event::Start(e)) | Ok(Event::Empty(e))
                 if tag_local_eq(e.name().as_ref(), b"tableColumn") =>
             {
                 for key in [b"name".as_slice(), b"totalsRowFunction".as_slice()] {
                     if let Some(v) = attr_by_local(&e, key) {
-                        out.push(format!("col.{}={}", String::from_utf8_lossy(key), v));
+                        out.push(format!(
+                            "col[{col_idx}].{}={}",
+                            String::from_utf8_lossy(key),
+                            v
+                        ));
                     }
                 }
+                col_idx += 1;
             }
             Ok(Event::Start(e)) if is_tbl_f(e.name().as_ref()) => {
                 in_f = true;
@@ -4296,12 +4323,11 @@ fn rewrite_edited_sheet_move(
     Ok(main.into_inner().into_inner())
 }
 
-/// Non-row attribute transform for `Op::Move`. Cells and CONTENT-FOLLOWING
-/// references (mergeCell/hyperlink ref, conditional-formatting/data-validation
-/// sqref) relocate with their rows via σ. `dimension`/`autoFilter` describe an
-/// EXTENT (invariant under an intra-sheet permutation) and view state
-/// (selection/pane/brk) is non-semantic — both are left byte-identical, so the
-/// move never spuriously shrinks a used-range or #REF!s a page break.
+/// Non-row attribute transform for `Op::Move`. Cells and CONTENT-FOLLOWING references
+/// (mergeCell/hyperlink ref, CF/DV sqref, ignoredError sqref, autoFilter/sortState/sortCondition
+/// ref) relocate with their rows via σ — a move whose block crosses the region rigidly shifts it,
+/// and a straddling region trips the move_straddles_range net. `dimension` (advisory, Excel
+/// recomputes) and view state (selection/pane/brk) are non-semantic and left byte-identical.
 fn transform_tag_move(
     e: &BytesStart,
     sheet: &str,
@@ -4319,11 +4345,18 @@ fn transform_tag_move(
         // insert/delete. Omitting it here (round-55 defect 4) left the suppression on the wrong cell
         // — silently, since the fail-closed body scan skips it (it is in has_ref_attr). shift_sqref
         // uses move_row_sigma for Op::Move, so a straddling range trips the move_straddles_range net.
+        // `autoFilter`/`sortState`/`sortCondition` are NOT invariant under a move: a move whose block
+        // CROSSES the filter/sort region rigidly relocates its data rows, so the region's ref/sqref
+        // must follow via σ (round-57 defect 4). shift_sqref uses move_row_sigma; a straddling region
+        // returns Shift::Ref -> ref_errors > 0 -> the move_straddles_range net refuses (fail-closed).
         b"mergeCell"
         | b"hyperlink"
         | b"conditionalFormatting"
         | b"dataValidation"
-        | b"ignoredError" => shift_ref_attrs(e, sheet, edit, report),
+        | b"ignoredError"
+        | b"autoFilter"
+        | b"sortState"
+        | b"sortCondition" => shift_ref_attrs(e, sheet, edit, report),
         _ => e.to_owned(),
     }
 }
@@ -4985,6 +5018,38 @@ fn non_ascii_qualifier_affected(formula: &str, sheet: &str, edit: &StructuralEdi
 /// the two paths disagree at the boundary, emitting an out-of-grid coordinate and orphaning a
 /// datum from a range. Detected up front so the edit fails closed (Excel refuses it too).
 fn insert_overflows_grid(xml: &[u8], edit: &StructuralEdit) -> bool {
+    // A MOVE relocates rows via move_row_sigma with NO upper clamp (unlike the reference-shift
+    // path), so a row whose σ-image exceeds the grid edge is emitted as an off-grid `<row r>` —
+    // schema-invalid, and IronCalc's reopen accepts a cell-less formatted row (it bounds cell refs
+    // but parses `<row r>` unbounded), so without this guard the corrupt file COMMITS (round-57
+    // defect 5). Refuse if any PRESENT row's move image runs past the last row; the destination
+    // closed-form catches a move-down of the block itself.
+    if edit.op == Op::Move {
+        let max = refshift::grid_max(Axis::Row);
+        if edit.dest > max.saturating_add(1) {
+            return true;
+        }
+        let mut reader = Reader::from_reader(xml);
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                    if tag_local_eq(e.name().as_ref(), b"row") =>
+                {
+                    if let Some(r) = attr_u32(&e, b"r") {
+                        if refshift::move_row_sigma(r, edit.at, edit.count, edit.dest) > max {
+                            return true;
+                        }
+                    }
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+        return false;
+    }
     if edit.op != Op::Insert {
         return false;
     }
@@ -6593,6 +6658,13 @@ mod tests {
         assert!(!edited_sheet_has_prefixed_grid(
             br#"<worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData><ext:extLst xmlns:ext="urn:x"><ext:ext/></ext:extLst></worksheet>"#
         ));
+        // REGRESSION (round-57 defect 6): the x14 `<xm:f>` formula element (Office excel/2006/main
+        // namespace, prefix `xm`) shares the local name `f` but is NOT a spreadsheetML grid element —
+        // it must NOT trip a false prefixed-worksheet refusal (it appears in every sparkline / x14
+        // dropdown / x14 CF rule on an ordinary unprefixed sheet).
+        assert!(!edited_sheet_has_prefixed_grid(
+            br#"<worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData><extLst><ext xmlns:x14="urn:x14"><x14:dataValidations xmlns:xm="urn:xm"><x14:dataValidation><x14:formula1><xm:f>Sheet2!$A$1</xm:f></x14:formula1><xm:sqref>A5</xm:sqref></x14:dataValidation></x14:dataValidations></ext></extLst></worksheet>"#
+        ));
     }
 
     #[test]
@@ -6675,6 +6747,19 @@ mod tests {
         assert!(!insert_overflows_grid(
             last_row,
             &edit("Sheet1", Axis::Row, Op::Delete, 1, 1)
+        ));
+        // REGRESSION (round-57 defect 5): a MOVE that relocates a (formatted, cell-less) present row
+        // past the grid edge must be refused too — the reopen gate accepts an off-grid cell-less
+        // `<row r>`. Move row 20 -> dest 1048578 maps it to 1048577 (> 1048576).
+        let fmt_row = br#"<worksheet><sheetData><row r="20" ht="30" customHeight="1"/></sheetData></worksheet>"#;
+        assert!(insert_overflows_grid(
+            fmt_row,
+            &move_edit("Sheet1", 20, 1, 1048578)
+        ));
+        // A move that stays on the grid does not overflow.
+        assert!(!insert_overflows_grid(
+            fmt_row,
+            &move_edit("Sheet1", 20, 1, 5)
         ));
     }
 
