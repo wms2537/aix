@@ -790,7 +790,7 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                     &[b"sp", b"cxnSp", b"pic", b"graphicFrame"],
                 ) {
                     if let Some(tl) = attrs
-                        .split_whitespace()
+                        .split(structural::ATTR_SEP)
                         .find_map(|kv| kv.strip_prefix("textlink="))
                     {
                         drawings.push(format!("textlink={tl}"));
@@ -802,7 +802,7 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                 let rels = rels_targets(bytes, n);
                 for (_, attrs) in structural::element_attr_semantics(&x, &[b"hlinkClick"]) {
                     if let Some(id) = attrs
-                        .split_whitespace()
+                        .split(structural::ATTR_SEP)
                         .find_map(|kv| kv.strip_prefix("id="))
                     {
                         drawings.push(format!(
@@ -1283,7 +1283,7 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
             ) {
                 let pick = |key: &str| {
                     attrs
-                        .split_whitespace()
+                        .split(structural::ATTR_SEP)
                         .find_map(|kv| kv.strip_prefix(key))
                         .unwrap_or("")
                         .to_string()
@@ -1362,14 +1362,20 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
                         pick("hier="),
                         pick("name="),
                     ),
-                    // A label/value/date auto-filter on a pivot field.
+                    // A label/value/date auto-filter on a pivot field. `stringValue1`/`stringValue2`
+                    // hold the comparison THRESHOLD (e.g. "> 1000") — the value that decides which
+                    // rows the pivot keeps on refresh; loosening it (1000 -> 0) re-materializes a
+                    // larger aggregate. The nested `<autoFilter><customFilter operator val>`
+                    // predicate is compared by autofilter_criteria (which now also scans pivots).
                     "filter" => format!(
-                        "filter|fld={}|type={}|id={}|iMeasureFld={}|evalOrder={}",
+                        "filter|fld={}|type={}|id={}|iMeasureFld={}|evalOrder={}|sv1={}|sv2={}",
                         pick("fld="),
                         pick("type="),
                         pick("id="),
                         pick("iMeasureFld="),
                         pick("evalOrder="),
+                        pick("stringValue1="),
+                        pick("stringValue2="),
                     ),
                     _ => format!(
                         "{tag}|sheet={}|ref={}|name={}|conn={}|type={}",
@@ -1491,6 +1497,13 @@ fn hidden_tokens_all(bytes: &[u8]) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     for (sheet_name, part) in sheets {
         if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
+            // EXPAND shared formulas first: a shared group stores the body (and its hidden token)
+            // only on the MASTER cell, so scanning the raw XML sees the token on one cell in xlq's
+            // (shared-preserving) transform but on EVERY cell in a foreign edit that un-shares the
+            // group (openpyxl/LibreOffice). Expanding both sides makes the per-cell token map
+            // invariant to the shared<->expanded encoding, closing that over-refusal while a genuine
+            // token add/drop/relocation still differs.
+            let x = structural::expand_shared_in_sheet(&x).unwrap_or(x);
             for (cell, sig) in structural::formula_hidden_tokens(&x) {
                 out.push((sheet_name.clone(), cell, sig));
             }
@@ -1509,6 +1522,9 @@ fn array_formula_all(bytes: &[u8]) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     for (sheet_name, part) in sheets {
         if let Ok(x) = crate::ooxml::read_part(bytes, &part) {
+            // Expand shared formulas for symmetry with hidden_tokens_all (array formulas are never
+            // shared, so this is a no-op for them — but it keeps the scan encoding-invariant).
+            let x = structural::expand_shared_in_sheet(&x).unwrap_or(x);
             for (cell, sig) in structural::array_formula_cells(&x) {
                 out.push((sheet_name.clone(), cell, sig));
             }
@@ -1584,10 +1600,10 @@ fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
             // BUTTON's visibility (pure display), so drop them (openpyxl writes them at defaults).
             let attrs = if elem == "filterColumn" {
                 attrs
-                    .split(' ')
+                    .split(structural::ATTR_SEP)
                     .filter(|t| !t.starts_with("hiddenButton=") && !t.starts_with("showButton="))
                     .collect::<Vec<_>>()
-                    .join(" ")
+                    .join(structural::ATTR_SEP)
             } else {
                 attrs
             };
@@ -1602,12 +1618,23 @@ fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
         }
     }
     // Table autoFilters, keyed by CLASS ("table") not part name so a benign renumber does not
-    // false-refuse (a real filter change still differs within the sorted set).
+    // false-refuse (a real filter change still differs within the sorted set). Pivot filters carry
+    // the SAME nested `<autoFilter><filterColumn><customFilter operator val>` predicate under a
+    // `<filter>` (CT_PivotFilter) — the value/label THRESHOLD that decides which rows the pivot
+    // materializes on refresh — so scan pivotTable parts with the same proven comparator instead of
+    // re-implementing predicate parsing in pivot_refs.
     for n in structural::archive_names(bytes).unwrap_or_default() {
         let low = n.to_ascii_lowercase();
-        if low.starts_with("xl/tables/") && low.ends_with(".xml") {
+        if low.ends_with(".xml") {
+            let owner = if low.starts_with("xl/tables/") {
+                "table"
+            } else if low.starts_with("xl/pivottables/") {
+                "pivot"
+            } else {
+                continue;
+            };
             if let Ok(x) = crate::ooxml::read_part(bytes, &n) {
-                extract("table", &x);
+                extract(owner, &x);
             }
         }
     }
@@ -1834,6 +1861,7 @@ fn rel_id(e: &quick_xml::events::BytesStart) -> Option<String> {
 /// (relationship-Id -> Target) for the relationships part of `sheet_part`. Used to resolve
 /// an external hyperlink's `r:id` to its URL so a foreign Target repoint is detected.
 fn rels_targets(bytes: &[u8], sheet_part: &str) -> std::collections::BTreeMap<String, String> {
+    use quick_xml::events::Event;
     let mut map = std::collections::BTreeMap::new();
     let Some((dir, file)) = sheet_part.rsplit_once('/') else {
         return map;
@@ -1842,16 +1870,27 @@ fn rels_targets(bytes: &[u8], sheet_part: &str) -> std::collections::BTreeMap<St
     let Ok(part) = crate::ooxml::read_part(bytes, &rels_part) else {
         return map;
     };
-    let text = String::from_utf8_lossy(&part);
-    let mut rest: &str = &text;
-    while let Some(p) = rest.find("<Relationship ") {
-        rest = &rest[p..];
-        let Some(gt) = rest.find('>') else { break };
-        let tag = &rest[..gt];
-        if let (Some(id), Some(target)) = (attr(tag, "Id"), attr(tag, "Target")) {
-            map.insert(id, target);
+    // Namespace-aware walk (NOT a `<Relationship ` substring scan): a prefixed `<pr:Relationship>`
+    // bound to the packaging namespace, or a non-space whitespace after the element name
+    // (`<Relationship\nId=…>`), is valid XML that a literal substring misses — letting an injected
+    // external target evade resolution and CERTIFY. Matched by LOCAL name, attributes by local name.
+    let mut reader = quick_xml::Reader::from_reader(part.as_slice());
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if structural::local_of(e.name().as_ref()) == b"Relationship" =>
+            {
+                if let (Some(id), Some(target)) = (attr_local(&e, b"Id"), attr_local(&e, b"Target"))
+                {
+                    map.insert(id, target);
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
         }
-        rest = &rest[gt..];
+        buf.clear();
     }
     map
 }
@@ -1870,6 +1909,7 @@ fn rels_targets(bytes: &[u8], sheet_part: &str) -> std::collections::BTreeMap<St
 /// (or an inserted/removed external link) changes the sorted multiset. Keyed by relationship TYPE +
 /// TARGET, not by part name, so a benign part renumber does not false-refuse.
 fn external_rels_targets(bytes: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
     let names = structural::archive_names(bytes).unwrap_or_default();
     let mut out = Vec::new();
     for n in &names {
@@ -1883,32 +1923,42 @@ fn external_rels_targets(bytes: &[u8]) -> Vec<String> {
         let Ok(part) = crate::ooxml::read_part(bytes, n) else {
             continue;
         };
-        let text = String::from_utf8_lossy(&part);
-        let mut rest: &str = &text;
-        while let Some(p) = rest.find("<Relationship ") {
-            rest = &rest[p..];
-            let Some(gt) = rest.find('>') else { break };
-            let tag = &rest[..gt];
-            rest = &rest[gt..];
-            // Only externally-resolved targets are a repoint surface; internal (package) targets are
-            // parts compared by the part allowlist / their own bytes.
-            if !attr(tag, "TargetMode").is_some_and(|m| m.eq_ignore_ascii_case("External")) {
-                continue;
+        // Namespace-aware walk (see rels_targets): a prefixed / whitespace-varied `<Relationship>`
+        // must NOT evade the external-target comparison, else an injected linked-image / OLE / media
+        // / hyperlink target hides from the signature and CERTIFIES (SSRF / NTLM-UNC leak / phishing).
+        let mut reader = quick_xml::Reader::from_reader(part.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                    if structural::local_of(e.name().as_ref()) == b"Relationship" =>
+                {
+                    // Only externally-resolved targets are a repoint surface; internal (package)
+                    // targets are parts compared by the part allowlist / their own bytes.
+                    let is_external = attr_local(&e, b"TargetMode")
+                        .is_some_and(|m| m.eq_ignore_ascii_case("External"));
+                    if is_external {
+                        if let (Some(ty), Some(target)) =
+                            (attr_local(&e, b"Type"), attr_local(&e, b"Target"))
+                        {
+                            // The type's local segment (`.../relationships/image` -> `image`).
+                            let ty_local = ty.rsplit(['/', ':']).next().unwrap_or(&ty).to_string();
+                            // A WORKSHEET hyperlink is folded elsewhere — skip it here; a
+                            // chart/drawing hyperlink is folded nowhere, so compare it.
+                            if !(worksheet_owned && ty_local.eq_ignore_ascii_case("hyperlink")) {
+                                // A single trailing `/` on a bare-authority URL is a benign
+                                // renormalization; a real retarget still differs on host/path.
+                                let target = target.strip_suffix('/').unwrap_or(&target);
+                                out.push(format!("ext|{ty_local}|{target}"));
+                            }
+                        }
+                    }
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
             }
-            let (Some(ty), Some(target)) = (attr(tag, "Type"), attr(tag, "Target")) else {
-                continue;
-            };
-            // The relationship TYPE's local segment (`.../relationships/image` -> `image`).
-            let ty_local = ty.rsplit(['/', ':']).next().unwrap_or(&ty).to_string();
-            // A WORKSHEET hyperlink is folded elsewhere — skip it here (but a chart/drawing hyperlink
-            // is folded nowhere, so compare it).
-            if worksheet_owned && ty_local.eq_ignore_ascii_case("hyperlink") {
-                continue;
-            }
-            // A single trailing `/` on a bare-authority URL is a benign renormalization (mirrors the
-            // hyperlink comparator); a real retarget still differs on host/path.
-            let target = target.strip_suffix('/').unwrap_or(&target);
-            out.push(format!("ext|{ty_local}|{target}"));
+            buf.clear();
         }
     }
     out.sort();
@@ -2258,11 +2308,29 @@ fn unverified_formula_caches(
 
 /// A cell's evaluated value rendered to the `type:value` signature of [`structural::formula_cache_map`]
 /// so [`caches_equal`] compares them directly. None for an empty cell.
+/// IronCalc's NOT-IMPLEMENTED sentinel (its `en` rendering of `Error::NIMPL`). The importer loads
+/// a `t="d"` (ISO-8601 date) VALUE cell as this, and propagates it through any reading formula. It
+/// is the engine explicitly admitting it cannot reproduce Excel, so it must never vouch a cache.
+const NIMPL_SENTINEL: &str = "#N/IMPL!";
+
+/// True when the engine evaluates the cell to its NOT-IMPLEMENTED sentinel.
+fn cell_is_nimpl(model: &ironcalc::base::Model, sheet: u32, row: i32, col: i32) -> bool {
+    use ironcalc::base::cell::CellValue;
+    matches!(
+        model.get_cell_value_by_index(sheet, row, col),
+        Ok(CellValue::String(s)) if s == NIMPL_SENTINEL
+    )
+}
+
 fn cell_value_sig(model: &ironcalc::base::Model, sheet: u32, row: i32, col: i32) -> Option<String> {
     use ironcalc::base::cell::CellValue;
     match model.get_cell_value_by_index(sheet, row, col) {
         Ok(CellValue::Number(n)) => Some(format!("n:{n}")),
         Ok(CellValue::Boolean(b)) => Some(format!("b:{}", if b { "1" } else { "0" })),
+        // The engine's NOT-IMPLEMENTED sentinel is unvouchable — emit no signature so a preserved
+        // foreign cache is never matched against a value the engine could not actually compute
+        // (a `t="d"` date cell, or a formula that reads one).
+        Ok(CellValue::String(s)) if s == NIMPL_SENTINEL => None,
         Ok(CellValue::String(s)) if is_excel_error(&s) => Some(format!("e:{s}")),
         Ok(CellValue::String(s)) => Some(format!("str:{s}")),
         _ => None,
@@ -2448,6 +2516,10 @@ fn intersection_cells(bytes: &[u8]) -> std::collections::HashSet<(String, String
     if let Ok(sheets) = crate::ooxml::all_sheets(bytes) {
         for (name, part) in sheets {
             if let Ok(xml) = crate::ooxml::read_part(bytes, &part) {
+                // Expand shared formulas so a shared-group body carrying a top-level intersection is
+                // seen on EVERY follower cell (matching the expanded encoding a foreign editor writes)
+                // — the oracle then excludes the same cells regardless of shared vs expanded storage.
+                let xml = structural::expand_shared_in_sheet(&xml).unwrap_or(xml);
                 for cell in structural::cells_with_range_intersection(&xml) {
                     set.insert((name.clone(), cell));
                 }
@@ -2686,6 +2758,17 @@ fn build_cache_oracle(
     for &(s, r, c) in &three_d_span_cells {
         if cell_value_sig(model, s, r, c).is_none_or(|sig| sig.starts_with("e:")) {
             sources.push((s, r, c));
+        }
+    }
+    // Exclude every cell the engine evaluates to its NOT-IMPLEMENTED sentinel (#N/IMPL!) — notably a
+    // `t="d"` ISO-date VALUE cell the importer cannot load, and any formula that reads one. Adding it
+    // to `sources` makes poison-and-diff drop it AND its transitive dependents, so a formula reading
+    // a `t="d"` cell — even one masking the error to a clean number via `IFERROR(A1+1,0)` — is not
+    // vouched against a value the engine could not actually compute. (cell_value_sig already emits no
+    // signature for a cell that IS #N/IMPL!; poisoning closes the error-masked amplification.)
+    for cell in model.get_all_cells() {
+        if cell_is_nimpl(model, cell.index, cell.row, cell.column) {
+            sources.push((cell.index, cell.row, cell.column));
         }
     }
     // Exclude a date CONSUMER (DAY/MONTH/YEAR/WEEKDAY/…) whose INPUT serial is in the divergent
@@ -3322,6 +3405,99 @@ mod tests {
             )],
         );
         assert_eq!(pivot_refs(&normal), pivot_refs(&normal_explicit));
+    }
+
+    #[test]
+    fn hidden_tokens_invariant_to_shared_formula_expansion() {
+        // REGRESSION (round-55 defect 3, over-refusal): a shared-formula group stores the body — and
+        // its hidden token (`_xlfn.`) — only on the MASTER cell; a faithful foreign editor
+        // (openpyxl/LibreOffice) un-shares the group, putting the token on EVERY cell. Expanding both
+        // sides before scanning makes the per-cell token map invariant to shared<->expanded storage.
+        let toks = |xml: &[u8]| {
+            let x = structural::expand_shared_in_sheet(xml).unwrap_or_else(|_| xml.to_vec());
+            structural::formula_hidden_tokens(&x)
+        };
+        let shared = br#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="B1"><f t="shared" ref="B1:B3" si="0">_xlfn.CONCAT(A1,"x")</f></c></row><row r="2"><c r="B2"><f t="shared" si="0"/></c></row><row r="3"><c r="B3"><f t="shared" si="0"/></c></row></sheetData></worksheet>"#;
+        let expanded = br#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="B1"><f>_xlfn.CONCAT(A1,"x")</f></c></row><row r="2"><c r="B2"><f>_xlfn.CONCAT(A2,"x")</f></c></row><row r="3"><c r="B3"><f>_xlfn.CONCAT(A3,"x")</f></c></row></sheetData></worksheet>"#;
+        assert_eq!(
+            toks(shared),
+            toks(expanded),
+            "shared and expanded forms of the same hidden-token formula must yield equal token maps"
+        );
+        assert!(
+            !toks(shared).is_empty(),
+            "the hidden token IS captured (not a vacuous match)"
+        );
+        // A genuine token DROP (dropping the `_xlfn.` prefix) still differs.
+        let dropped = br#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="B1"><f>CONCAT(A1,"x")</f></c></row><row r="2"><c r="B2"><f>CONCAT(A2,"x")</f></c></row><row r="3"><c r="B3"><f>CONCAT(A3,"x")</f></c></row></sheetData></worksheet>"#;
+        assert_ne!(
+            toks(shared),
+            toks(dropped),
+            "a genuine hidden-token drop still differs"
+        );
+    }
+
+    #[test]
+    fn pivot_source_sheet_with_space_is_compared_whole() {
+        // REGRESSION (round-55 defect 7, HIGH false-certify): the pivot worksheetSource `sheet`
+        // attribute holds a RAW sheet name that routinely contains a space; the old `pick` re-split
+        // element_attr_semantics on whitespace, truncating `Data 2024`/`Data 2099` to `Data` so a
+        // source REPOINT between two same-prefix sheets collided to an identical signature. The
+        // ATTR_SEP-joined attrs now keep the value whole.
+        let cache = |sheet: &str| {
+            format!(
+                r#"<pivotCacheDefinition xmlns="urn:x"><cacheSource type="worksheet"><worksheetSource ref="$A$1:$D$100" sheet="{sheet}"/></cacheSource></pivotCacheDefinition>"#
+            )
+        };
+        let a = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &cache("Data 2024"),
+            )],
+        );
+        let b = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &cache("Data 2099"),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&a),
+            pivot_refs(&b),
+            "a source repoint between two space-bearing same-prefix sheets must differ"
+        );
+        // A benign re-serialization of the SAME space-bearing name still matches (no over-refusal).
+        assert_eq!(pivot_refs(&a), pivot_refs(&a));
+    }
+
+    #[test]
+    fn pivot_value_filter_threshold_is_compared() {
+        // REGRESSION (round-55 defect 2, HIGH false-certify): a pivot VALUE/LABEL filter threshold
+        // (the <filter stringValue1> and its nested <customFilter operator val>) decides which rows
+        // the pivot materializes on refresh; loosening it (1000 -> 0) corrupts the aggregate. It was
+        // in no comparator. Now the <filter> signature carries sv1/sv2 AND autofilter_criteria scans
+        // pivotTables for the nested predicate.
+        let pv = |threshold: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="urn:x"><filters><filter fld="0" type="valueGreaterThan" id="1" iMeasureFld="0" stringValue1="{threshold}"><autoFilter ref="A1:A1"><filterColumn colId="0"><customFilters><customFilter operator="greaterThan" val="{threshold}"/></customFilters></filterColumn></autoFilter></filter></filters></pivotTableDefinition>"#
+            )
+        };
+        let (good_s, loose_s) = (pv("1000"), pv("0"));
+        let good = wb("", &[("xl/pivotTables/pivotTable1.xml", good_s.as_str())]);
+        assert!(
+            verify_noncell_refs(&good, &good).is_none(),
+            "identical pivot filter certifies"
+        );
+        let loosened = wb("", &[("xl/pivotTables/pivotTable1.xml", loose_s.as_str())]);
+        assert!(
+            verify_noncell_refs(&good, &loosened).is_some(),
+            "a loosened pivot value-filter threshold must be refused"
+        );
+        // The threshold is captured both in pivot_refs (sv1) and autofilter_criteria (customFilter).
+        assert_ne!(pivot_refs(&good), pivot_refs(&loosened));
+        assert_ne!(autofilter_criteria(&good), autofilter_criteria(&loosened));
     }
 
     #[test]
@@ -4108,6 +4284,42 @@ mod tests {
     }
 
     #[test]
+    fn formula_reading_a_t_d_date_cell_is_not_vouched() {
+        // REGRESSION (round-55 defect 1, HIGH false-certify): the importer loads a `t="d"` ISO-date
+        // VALUE cell as the engine's NOT-IMPLEMENTED sentinel (#N/IMPL!). A formula that READS it
+        // (`=A1+1`) propagates that, and `IFERROR(A1+1,0)` masks it to a clean 0 — either way the
+        // engine value is NOT Excel's real date, so vouching it would false-certify a forged cache.
+        // Both the reader and the error-masked reader must be EXCLUDED; an unrelated cell stays
+        // vouchable.
+        let rows = r#"<row r="1"><c r="A1" t="d"><v>2020-01-01T00:00:00</v></c><c r="B1"><f>A1+1</f><v>43832</v></c><c r="C1"><f>IFERROR(A1+1,0)</f><v>43832</v></c><c r="D1"><f>SUM(A2:A3)</f><v>0</v></c></row><row r="2"><c r="A2"><v>5</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load t=d workbook");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("B1")),
+            "a formula reading a t=\"d\" cell must be excluded: {oracle:?}"
+        );
+        assert!(
+            !oracle.contains_key(&key("C1")),
+            "an IFERROR-masked reader of a t=\"d\" cell must be excluded (else a forged clean number \
+             would be vouched)"
+        );
+        assert!(
+            oracle.contains_key(&key("D1")),
+            "an unrelated cell independent of the t=\"d\" value stays vouchable"
+        );
+    }
+
+    #[test]
     fn early_date_consumer_excluded_but_modern_consumer_vouchable() {
         // REGRESSION (round-54 defect 1, false-certify): a date CONSUMER (DAY/MONTH/YEAR/WEEKDAY/…)
         // reading a pre-1900-03-01 serial (< 61) computes an Excel-divergent value on the engine
@@ -4527,6 +4739,49 @@ mod tests {
             )],
         );
         assert!(external_rels_targets(&embed).is_empty());
+    }
+
+    #[test]
+    fn external_rels_parser_is_namespace_and_whitespace_robust() {
+        // REGRESSION (round-55 defect 6, HIGH security): the `.rels` parsers used a `<Relationship `
+        // substring scan that a namespace-PREFIXED `<pr:Relationship>` (bound to the packaging
+        // namespace) or a non-space whitespace (`<Relationship\nId=…>`) evades — so an injected
+        // external linked-image / OLE / hyperlink target hid from the signature and CERTIFIED.
+        let prefixed = wb(
+            "",
+            &[(
+                "xl/drawings/_rels/drawing1.xml.rels",
+                "<pr:Relationships xmlns:pr=\"http://schemas.openxmlformats.org/package/2006/relationships\"><pr:Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"\\\\attacker.example\\share\\x.png\" TargetMode=\"External\"/></pr:Relationships>",
+            )],
+        );
+        assert!(
+            !external_rels_targets(&prefixed).is_empty(),
+            "a prefixed <pr:Relationship> external target must be seen"
+        );
+        let newline = wb(
+            "",
+            &[(
+                "xl/drawings/_rels/drawing1.xml.rels",
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\n<Relationship\n\tId=\"rId1\"\n\tType=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\"\n\tTarget=\"https://evil.example/x.png\"\n\tTargetMode=\"External\"/></Relationships>",
+            )],
+        );
+        assert!(
+            !external_rels_targets(&newline).is_empty(),
+            "a newline/tab-separated <Relationship> external target must be seen"
+        );
+        // End-to-end: a clean (no external target) transform vs a prefixed-rels external repoint
+        // must REFUSE, not certify.
+        let clean = wb("", &[]);
+        let refusal = verify_noncell_refs(&clean, &prefixed)
+            .expect("an injected prefixed external target must refuse");
+        assert_eq!(refusal["reason"], "external_relationship_mismatch");
+        // rels_targets (hyperlink URL resolution) is likewise robust.
+        assert_eq!(
+            rels_targets(&newline, "xl/drawings/drawing1.xml")
+                .get("rId1")
+                .map(String::as_str),
+            Some("https://evil.example/x.png")
+        );
     }
 
     #[test]

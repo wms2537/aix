@@ -492,7 +492,7 @@ fn looks_like_cell_or_range(v: &str) -> bool {
 /// formula (master body translated by the dependent's offset). Array formulas
 /// are NOT expanded (Excel forbids splitting them) — they remain and are refused
 /// upstream. Returns the input unchanged if the sheet has no shared formulas.
-fn expand_shared_in_sheet(src: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn expand_shared_in_sheet(src: &[u8]) -> Result<Vec<u8>> {
     // ---- pass 1: collect masters: si -> (col, row, body) ----
     let mut masters: BTreeMap<String, (u32, u32, String)> = BTreeMap::new();
     {
@@ -1586,12 +1586,19 @@ pub(crate) fn sheet_ref_construct_semantics(xml: &[u8]) -> Vec<(String, String)>
     out
 }
 
+/// Separator joining an element's `key=value` attribute entries in `element_attr_semantics`. A
+/// control character (ASCII Unit Separator) that XML 1.0 FORBIDS inside an attribute value — so a
+/// per-key consumer can split on it to recover each attribute WHOLE, even when a value contains
+/// spaces (a sheet name `Data 2024`, a filter threshold `North America`). A plain space separator
+/// let `split_whitespace` truncate such a value mid-attribute, colliding two distinct references.
+pub(crate) const ATTR_SEP: &str = "\u{1f}";
+
 /// For each element whose LOCAL name is in `wanted`, its sorted attributes as a stable
-/// string, paired with the local name; sorted. Certify compares this between its transform
-/// and a foreign edit for verbatim-preserved elements the cell diff never sees — e.g.
-/// `<sheetProtection>`/`<protectedRange>`/`<workbookProtection>` (stripping or weakening a
-/// password control is a SECURITY change). Attribute values are entity-normalized and the
-/// attribute order is normalized, so a cosmetic re-serialization does not false-refuse.
+/// string (entries joined by [`ATTR_SEP`]), paired with the local name; sorted. Certify compares
+/// this between its transform and a foreign edit for verbatim-preserved elements the cell diff
+/// never sees — e.g. `<sheetProtection>`/`<protectedRange>`/`<workbookProtection>` (stripping or
+/// weakening a password control is a SECURITY change). Attribute values are entity-normalized and
+/// the attribute order is normalized, so a cosmetic re-serialization does not false-refuse.
 pub(crate) fn element_attr_semantics(xml: &[u8], wanted: &[&[u8]]) -> Vec<(String, String)> {
     let mut reader = Reader::from_reader(xml);
     reader.config_mut().expand_empty_elements = false;
@@ -1616,7 +1623,7 @@ pub(crate) fn element_attr_semantics(xml: &[u8], wanted: &[&[u8]]) -> Vec<(Strin
                     })
                     .collect();
                 attrs.sort();
-                out.push((local, attrs.join(" ")));
+                out.push((local, attrs.join(ATTR_SEP)));
             }
             Ok(Event::Eof) => break,
             Err(_) => {
@@ -3310,10 +3317,7 @@ fn vml_anchor_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
 /// comment (`<threadedComment ref>`), which a verbatim copy would leave anchored to the wrong cell.
 fn comment_refs_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
     for (_, attrs) in element_attr_semantics(xml, &[b"comment", b"threadedComment"]) {
-        if let Some(r) = attrs
-            .split_whitespace()
-            .find_map(|kv| kv.strip_prefix("ref="))
-        {
+        if let Some(r) = attrs.split(ATTR_SEP).find_map(|kv| kv.strip_prefix("ref=")) {
             if let Some((col, row)) = parse_cell_rc(r) {
                 let line = if edit.axis == Axis::Row { row } else { col };
                 if shift_line(line, edit) != Some(line) {
@@ -3336,10 +3340,7 @@ fn pivot_location_affected(xml: &[u8], edit: &StructuralEdit) -> bool {
             return true;
         }
         saw_location = true;
-        let Some(r) = attrs
-            .split_whitespace()
-            .find_map(|kv| kv.strip_prefix("ref="))
-        else {
+        let Some(r) = attrs.split(ATTR_SEP).find_map(|kv| kv.strip_prefix("ref=")) else {
             return true; // a location with no ref -> fail closed
         };
         for endpoint in r.split(':') {
@@ -3914,7 +3915,88 @@ fn rewrite_edited_sheet(
     for c in ["mergeCells", "dataValidations", "hyperlinks"] {
         out = omit_empty_container(out, c);
     }
+    // A delete that drops SOME (not all) children leaves the container's `count` attribute stale
+    // (`<mergeCells count="2">` with one child) — ISO/IEC 29500 defines @count as the child count,
+    // so the file is internally inconsistent (Excel: "Repaired Records" prompt). Recompute it to the
+    // surviving child count. (`<hyperlinks>` has no count attribute, so it is not in this list.)
+    for (container, child) in [
+        ("mergeCells", "mergeCell"),
+        ("dataValidations", "dataValidation"),
+    ] {
+        out = fix_container_count(out, container, child);
+    }
     Ok(out)
+}
+
+/// Count of direct `child`-local-named elements inside the first `container`-local-named element,
+/// or None if the container is absent. Namespace-prefix aware (so `<x:mergeCell>` counts).
+fn container_child_count(xml: &[u8], container: &[u8], child: &[u8]) -> Option<u32> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut inside = false;
+    let mut present = false;
+    let mut count = 0u32;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), container) => {
+                inside = true;
+                present = true;
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), container) => inside = false,
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if inside && tag_local_eq(e.name().as_ref(), child) =>
+            {
+                count += 1;
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    present.then_some(count)
+}
+
+/// Rewrite a `<container … count="N" …>` start tag's `count` to the ACTUAL surviving child count.
+/// A targeted value splice (no re-serialization) so an unchanged container stays byte-identical; a
+/// container without a `count` attribute (valid — it is optional) is left untouched.
+fn fix_container_count(xml: Vec<u8>, container: &str, child: &str) -> Vec<u8> {
+    let Some(actual) = container_child_count(&xml, container.as_bytes(), child.as_bytes()) else {
+        return xml;
+    };
+    let Ok(s) = std::str::from_utf8(&xml) else {
+        return xml;
+    };
+    let open = format!("<{container}");
+    let Some(start) = s.find(&open) else {
+        return xml;
+    };
+    // Name boundary: the next char must not continue the element name (`<mergeCells` vs a
+    // hypothetical `<mergeCellsX`), so the child `<mergeCell ` is never mistaken for the container.
+    if s[start + open.len()..]
+        .starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return xml;
+    }
+    let Some(gt_rel) = s[start..].find('>') else {
+        return xml;
+    };
+    let tag = &s[start..start + gt_rel];
+    let Some(cpos) = tag.find("count=\"") else {
+        return xml; // no count attribute -> no mismatch possible
+    };
+    let val_start = start + cpos + "count=\"".len();
+    let Some(val_len) = s[val_start..].find('"') else {
+        return xml;
+    };
+    if s[val_start..val_start + val_len] == *actual.to_string() {
+        return xml; // already correct -> byte-identical
+    }
+    let mut out = String::with_capacity(s.len());
+    out.push_str(&s[..val_start]);
+    out.push_str(&actual.to_string());
+    out.push_str(&s[val_start + val_len..]);
+    out.into_bytes()
 }
 
 /// Remove an EMPTY `<container …></container>` (start tag immediately followed, modulo
@@ -4198,9 +4280,16 @@ fn transform_tag_move(
     match local_of(e.name().as_ref()) {
         b"c" => shift_cell_tag(e, edit),
         b"f" if is_datatable_f(e) => shift_datatable_attrs(e, sheet, edit, report),
-        b"mergeCell" | b"hyperlink" | b"conditionalFormatting" | b"dataValidation" => {
-            shift_ref_attrs(e, sheet, edit, report)
-        }
+        // `ignoredError sqref` names SPECIFIC cells (error-checking suppression), not an extent or
+        // view-state, so it must relocate with its cells under a MOVE exactly as it does under
+        // insert/delete. Omitting it here (round-55 defect 4) left the suppression on the wrong cell
+        // — silently, since the fail-closed body scan skips it (it is in has_ref_attr). shift_sqref
+        // uses move_row_sigma for Op::Move, so a straddling range trips the move_straddles_range net.
+        b"mergeCell"
+        | b"hyperlink"
+        | b"conditionalFormatting"
+        | b"dataValidation"
+        | b"ignoredError" => shift_ref_attrs(e, sheet, edit, report),
         _ => e.to_owned(),
     }
 }
@@ -6732,6 +6821,24 @@ mod tests {
         );
         // inserting a row at 2 pushes A5:A9 down to A6:A10.
         assert!(s.contains(r#"sqref="A6:A10""#), "sqref shifted: {s}");
+
+        // REGRESSION (round-55 defect 4): under a MOVE the sqref must ALSO follow its cells (it was
+        // omitted from transform_tag_move and committed stale). Move row 3 -> before row 8 relocates
+        // A3 to A7 (move_row_sigma(3,3,1,8)=7), so ignoredError sqref="A3" -> "A7".
+        let mv_xml = br#"<worksheet><sheetData><row r="3"><c r="A3"><v>3</v></c></row><row r="8"><c r="A8"><v>8</v></c></row></sheetData><ignoredErrors><ignoredError sqref="A3" numberStoredAsText="1"/></ignoredErrors></worksheet>"#;
+        let mv = move_edit("Sheet1", 3, 1, 8);
+        let mut mreport = StructuralReport::default();
+        let mout = rewrite_edited_sheet(mv_xml, &mv, "s", &mut mreport).unwrap();
+        let ms = String::from_utf8_lossy(&mout);
+        assert!(
+            mreport.residuals.is_empty(),
+            "no residual under move: {:?}",
+            mreport.residuals
+        );
+        assert!(
+            ms.contains(r#"sqref="A7""#) && !ms.contains(r#"sqref="A3""#),
+            "ignoredError sqref follows the move: {ms}"
+        );
     }
 
     #[test]
@@ -6754,12 +6861,23 @@ mod tests {
             !s.contains("<dataValidations"),
             "empty dataValidations container omitted: {s}"
         );
-        // A container that KEEPS a survivor is not omitted.
+        // A container that KEEPS a survivor is not omitted — AND its `count` is recomputed to the
+        // surviving child count (round-55 defect 5): dropping A5:B6 leaves only A1:B1, so count 2->1.
         let keep = br#"<worksheet><sheetData/><mergeCells count="2"><mergeCell ref="A5:B6"/><mergeCell ref="A1:B1"/></mergeCells></worksheet>"#;
         let out2 = rewrite_edited_sheet(keep, &e, "s", &mut report).unwrap();
+        let s2 = String::from_utf8_lossy(&out2);
+        assert!(s2.contains("<mergeCells"), "non-empty container kept");
         assert!(
-            String::from_utf8_lossy(&out2).contains("<mergeCells"),
-            "non-empty container kept"
+            s2.contains(r#"count="1""#) && !s2.contains(r#"count="2""#),
+            "count recomputed to the surviving child count: {s2}"
+        );
+        // A container whose children all SURVIVE keeps its count unchanged (byte-identical splice).
+        let e2 = edit("Sheet1", Axis::Row, Op::Insert, 50, 1);
+        let unchanged = br#"<worksheet><sheetData/><mergeCells count="2"><mergeCell ref="A1:B1"/><mergeCell ref="A3:B3"/></mergeCells></worksheet>"#;
+        let out3 = rewrite_edited_sheet(unchanged, &e2, "s", &mut report).unwrap();
+        assert!(
+            String::from_utf8_lossy(&out3).contains(r#"count="2""#),
+            "count stays correct when no child is dropped"
         );
     }
 
