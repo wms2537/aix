@@ -876,17 +876,25 @@ fn drawing_shape_links(x: &[u8], rels: &std::collections::BTreeMap<String, Strin
                     .or_else(|| attr_local(e, b"id"))
                     .unwrap_or_default();
             }
-        } else if local == b"hlinkClick" {
+        } else if local == b"hlinkClick" || local == b"hlinkHover" {
+            // Both a click hyperlink AND a mouse-over `<a:hlinkHover>` resolve through the drawing rels
+            // to an external URL (a phishing/exfil repoint) — hover was previously dropped (round-63
+            // defect 3). Tag the kind so a shape carrying BOTH cannot have them internally swapped.
+            let kind = if local == b"hlinkHover" {
+                "hlinkHover"
+            } else {
+                "hlink"
+            };
             if let Some(id) = rel_id(e) {
                 let url = rels.get(&id).cloned().unwrap_or_default();
                 if let Some(r) = run.as_mut() {
                     // A run-level hyperlink: bind it to the run's visible text (resolved at run End)
                     // rather than pooling it under the shape.
-                    r.1.push(url);
+                    r.1.push(format!("{kind}={url}"));
                 } else if let Some(top) = stack.last_mut() {
-                    top.1.push(format!("hlink={url}"));
+                    top.1.push(format!("{kind}={url}"));
                 } else {
-                    out.push(format!("shape[]|hlink={url}"));
+                    out.push(format!("shape[]|{kind}={url}"));
                 }
             }
         }
@@ -929,10 +937,10 @@ fn drawing_shape_links(x: &[u8], rels: &std::collections::BTreeMap<String, Strin
                 let name = e.name();
                 let local = structural::local_of(name.as_ref());
                 if local == b"r" {
-                    if let Some((text, urls)) = run.take() {
+                    if let Some((text, kvs)) = run.take() {
                         let text = text.trim();
-                        for url in urls {
-                            let sig = format!("run[{text}]|hlink={url}");
+                        for kv in kvs {
+                            let sig = format!("run[{text}]|{kv}");
                             if let Some(top) = stack.last_mut() {
                                 top.1.push(sig);
                             } else {
@@ -1624,10 +1632,18 @@ fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
                 .map(|f| format!("{f}={}", sub(f.as_bytes(), false)))
                 .collect::<Vec<_>>()
                 .join("|");
+                // The classic Top-N AutoShow filter (autoShow + topAutoShow direction + autoShowCount
+                // N + rankBy measure) is a re-aggregation INPUT stored as pivotField attributes; it
+                // was in NO signature, so a Top-10 -> Top-3 tamper (or a rankBy re-point) re-materialized
+                // a different pivot yet certified (round-63 defect 2). Position-keyed so a swap differs.
                 out.push(format!(
-                    "pivotField[{pf_idx}]|axis={}|defaultSubtotal={}|{subs}",
+                    "pivotField[{pf_idx}]|axis={}|defaultSubtotal={}|autoShow={}|topAutoShow={}|autoShowCount={}|rankBy={}|{subs}",
                     attr_local(e, b"axis").unwrap_or_default(),
                     sub(b"defaultSubtotal", true),
+                    sub(b"autoShow", false),
+                    sub(b"topAutoShow", true),
+                    attr_local(e, b"autoShowCount").unwrap_or_else(|| "10".into()),
+                    attr_local(e, b"rankBy").unwrap_or_default(),
                 ));
                 *pf_idx += 1;
             }
@@ -3807,6 +3823,20 @@ fn prune_early_date_consumers(
         .chain(divergent_sources.iter())
         .copied()
         .collect();
+    // Static reachability CANNOT follow a RUNTIME-resolved reference — OFFSET/INDIRECT land on an
+    // arbitrary cell computed at eval time — nor an UNQUOTED non-ASCII sheet qualifier (`売上!A1`),
+    // which the ASCII ref tokenizer skips, mis-parsing the trailing ref as a bare home-sheet one. A
+    // cell using either cannot be proven independent of a divergent seed, so fail closed and SEED it
+    // (dependents then propagate through the fixpoint) — round-63 defects 1 & 4. Only runs when a
+    // divergent seed already exists, so the over-refusal is bounded to the rare divergent case.
+    for (coord, _home, f) in &cells {
+        let fns = crate::census::extract_function_names(f);
+        if fns.iter().any(|n| n == "OFFSET" || n == "INDIRECT")
+            || crate::refshift::has_unquoted_non_ascii_qualifier(f)
+        {
+            reached.insert(*coord);
+        }
+    }
     let mut reached_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     // A formula references a reached CELL. `home` is the formula's own sheet (for unqualified refs);
     // for a defined-name body (no cell home) the target's own sheet is used, so an unqualified body
@@ -4666,6 +4696,32 @@ mod tests {
             pivot_refs(&s_ab),
             pivot_refs(&s_ba),
             "a subtotal-function swap between two same-axis fields must differ"
+        );
+        // A Top-N AutoShow tamper (Top-10 -> Top-3, or a rankBy re-point) re-aggregates the pivot yet
+        // was in no signature (round-63 defect 2) — now position-keyed in pivot_ordered_sigs.
+        let auto = |attrs: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><pivotFields count="1"><pivotField axis="axisRow" autoShow="1" topAutoShow="1" {attrs}/></pivotFields></pivotTableDefinition>"#
+            )
+        };
+        let top10 = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &auto(r#"autoShowCount="10""#),
+            )],
+        );
+        let top3 = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &auto(r#"autoShowCount="3""#),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&top10),
+            pivot_refs(&top3),
+            "a Top-N AutoShow count tamper must differ"
         );
     }
 
@@ -6001,6 +6057,51 @@ mod tests {
     }
 
     #[test]
+    fn runtime_ref_cells_are_dropped_when_a_divergent_seed_exists() {
+        // REGRESSION (round-63 defects 1&4, HIGH false-certify): static reachability cannot follow
+        // OFFSET/INDIRECT (runtime-resolved to an arbitrary cell) — a dependent reaching a divergent
+        // early-date consumer through one was vouched with the engine's off-by-one value. When a
+        // divergent seed exists, such cells are dropped fail-closed.
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        let load = |rows: &str| {
+            let bytes = oracle_wb(rows);
+            let mut model = load_from_bytes(
+                &bytes,
+                concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/fixtures/structural/refs.xlsx"
+                ),
+            )
+            .expect("load");
+            build_cache_oracle(&mut model, false, &Default::default()).expect("oracle")
+        };
+        // A divergent consumer B1=DAY(59) exists -> OFFSET/INDIRECT cells are dropped fail-closed.
+        let with_seed = load(
+            r#"<row r="1"><c r="A1"><v>59</v></c><c r="B1"><f>DAY(A1)</f><v>28</v></c><c r="C1"><f>OFFSET(A2,0,0)</f><v>5</v></c><c r="D1"><f>INDIRECT("A2")</f><v>5</v></c><c r="E1"><f>SUM(A2:A3)</f><v>11</v></c></row><row r="2"><c r="A2"><v>5</v></c></row><row r="3"><c r="A3"><v>6</v></c></row>"#,
+        );
+        assert!(
+            !with_seed.contains_key(&key("C1")),
+            "an OFFSET cell is dropped fail-closed when a divergent seed exists: {with_seed:?}"
+        );
+        assert!(
+            !with_seed.contains_key(&key("D1")),
+            "an INDIRECT cell is dropped fail-closed when a divergent seed exists"
+        );
+        assert!(
+            with_seed.contains_key(&key("E1")),
+            "a plain SUM (no runtime ref) stays vouchable"
+        );
+        // No divergent seed -> the SAME OFFSET/INDIRECT cells are NOT dropped (no over-refusal).
+        let no_seed = load(
+            r#"<row r="1"><c r="C1"><f>OFFSET(A2,0,0)</f><v>5</v></c><c r="D1"><f>INDIRECT("A2")</f><v>5</v></c></row><row r="2"><c r="A2"><v>5</v></c></row>"#,
+        );
+        assert!(
+            no_seed.contains_key(&key("C1")) && no_seed.contains_key(&key("D1")),
+            "with NO divergent seed, OFFSET/INDIRECT cells stay vouchable — the fail-close is gated: {no_seed:?}"
+        );
+    }
+
+    #[test]
     fn date_producer_consuming_an_early_serial_is_excluded() {
         // REGRESSION (round-60 defect 4, HIGH false-certify): EDATE/EOMONTH/WORKDAY also CONSUME a
         // serial in arg 0. Reading a pre-1900-03-01 input (< 61) lands the engine up to a month off
@@ -6634,6 +6735,39 @@ mod tests {
                 || refusal["reason"] == "external_relationship_mismatch",
             "reason: {}",
             refusal["reason"]
+        );
+    }
+
+    #[test]
+    fn drawing_hover_hyperlink_swap_between_shapes_is_caught() {
+        // REGRESSION (round-63 defect 3, security): drawing_shape_links handled <a:hlinkClick> but
+        // DROPPED <a:hlinkHover>, so swapping two shapes' mouse-over hyperlink targets was invisible.
+        let two = |r1: &str, r2: &str| {
+            format!(
+                r#"<xdr:wsDr xmlns:xdr="urn:xdr" xmlns:a="urn:a"><xdr:sp><xdr:nvSpPr><xdr:cNvPr id="1" name="A"><a:hlinkHover xmlns:r="urn:r" r:id="{r1}"/></xdr:cNvPr></xdr:nvSpPr></xdr:sp><xdr:sp><xdr:nvSpPr><xdr:cNvPr id="2" name="B"><a:hlinkHover xmlns:r="urn:r" r:id="{r2}"/></xdr:cNvPr></xdr:nvSpPr></xdr:sp></xdr:wsDr>"#
+            )
+        };
+        let drels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdX" Type="x/hyperlink" Target="https://corp.example/help" TargetMode="External"/><Relationship Id="rIdY" Type="x/hyperlink" Target="https://evil.example/x" TargetMode="External"/></Relationships>"#;
+        let good = wb(
+            "",
+            &[
+                ("xl/drawings/drawing1.xml", two("rIdX", "rIdY").as_str()),
+                ("xl/drawings/_rels/drawing1.xml.rels", drels),
+            ],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // SWAP hover targets between shape A and shape B (the .rels is byte-identical).
+        let swapped = wb(
+            "",
+            &[
+                ("xl/drawings/drawing1.xml", two("rIdY", "rIdX").as_str()),
+                ("xl/drawings/_rels/drawing1.xml.rels", drels),
+            ],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &swapped)
+                .expect("a hover-hyperlink swap between shapes must refuse")["reason"],
+            "chart_drawing_mismatch"
         );
     }
 
