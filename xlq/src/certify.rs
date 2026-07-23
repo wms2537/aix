@@ -1186,11 +1186,16 @@ fn cellxfs_numfmt_codes(styles: &[u8]) -> Vec<String> {
     let mut custom: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
     let mut ids: Vec<u32> = Vec::new(); // cellXf index -> numFmtId
     let mut in_cellxfs = false;
+    let mut in_numfmts = false;
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
                 match structural::local_of(e.name().as_ref()) {
-                    b"numFmt" => {
+                    // Only a `<numFmts>` child defines the workbook's custom numFmtId->code map. A
+                    // `<dxf><numFmt>` is a CONDITIONAL-FORMAT differential — ingesting it let a dxf
+                    // numFmt (same numFmtId) OVERWRITE the real cell format in the map and MASK a
+                    // genuine cell number-format change from the CELL("format") comparison (round-61).
+                    b"numFmt" if in_numfmts => {
                         if let (Some(id), Some(code)) = (
                             attr_local(&e, b"numFmtId").and_then(|v| v.parse::<u32>().ok()),
                             attr_local(&e, b"formatCode"),
@@ -1198,6 +1203,7 @@ fn cellxfs_numfmt_codes(styles: &[u8]) -> Vec<String> {
                             custom.insert(id, code);
                         }
                     }
+                    b"numFmts" => in_numfmts = true,
                     b"cellXfs" => in_cellxfs = true,
                     b"xf" if in_cellxfs => {
                         ids.push(
@@ -1211,6 +1217,9 @@ fn cellxfs_numfmt_codes(styles: &[u8]) -> Vec<String> {
             }
             Ok(Event::End(e)) if structural::local_of(e.name().as_ref()) == b"cellXfs" => {
                 in_cellxfs = false;
+            }
+            Ok(Event::End(e)) if structural::local_of(e.name().as_ref()) == b"numFmts" => {
+                in_numfmts = false;
             }
             Ok(Event::Eof) | Err(_) => break,
             _ => {}
@@ -1585,6 +1594,17 @@ fn pivot_grouping_sigs(xml: &[u8]) -> Vec<String> {
             g(b"maxDate"),
         )
     };
+    // A `<fieldGroup>`'s OWN binding attributes (round-61): `base` = the cache-field index the
+    // grouping DERIVES FROM (re-pointing it re-buckets a different source column on refresh), `par` =
+    // the parent group index in a date hierarchy. The round-60 scan compared fieldGroup's CHILDREN
+    // (rangePr/discretePr/groupItems) but not this binding.
+    let fieldgroup = |e: &quick_xml::events::BytesStart, cf: i64| -> String {
+        format!(
+            "cf[{cf}].fieldGroup|base={}|par={}",
+            attr_local(e, b"base").unwrap_or_default(),
+            attr_local(e, b"par").unwrap_or_default(),
+        )
+    };
     let is_item = |n: &[u8]| matches!(n, b"s" | b"n" | b"d" | b"b" | b"e" | b"m" | b"x");
     loop {
         match reader.read_event_into(&mut buf) {
@@ -1594,6 +1614,7 @@ fn pivot_grouping_sigs(xml: &[u8]) -> Vec<String> {
                 match local {
                     b"cacheField" => cf_idx += 1,
                     b"rangePr" => out.push(rangepr(&e, cf_idx)),
+                    b"fieldGroup" => out.push(fieldgroup(&e, cf_idx)),
                     b"sharedItems" => {
                         out.push(shared_attrs(&e, cf_idx));
                         container = Some(("shared", 0));
@@ -1619,6 +1640,7 @@ fn pivot_grouping_sigs(xml: &[u8]) -> Vec<String> {
                 match local {
                     b"cacheField" => cf_idx += 1,
                     b"rangePr" => out.push(rangepr(&e, cf_idx)),
+                    b"fieldGroup" => out.push(fieldgroup(&e, cf_idx)),
                     // An empty <sharedItems/> has attrs but no item children -> no container to open.
                     b"sharedItems" => out.push(shared_attrs(&e, cf_idx)),
                     l if is_item(l) => {
@@ -2429,6 +2451,17 @@ fn external_rels_targets(bytes: &[u8]) -> Vec<String> {
         // A worksheet's own rels (`xl/worksheets/_rels/sheetN.xml.rels`) — its hyperlinks are folded
         // by structural_ref_attrs and must not be double-compared here.
         let worksheet_owned = low.starts_with("xl/worksheets/_rels/");
+        // The part these rels belong to (`xl/drawings/_rels/drawing1.xml.rels` -> `xl/drawings/
+        // drawing1.xml`). Bind each target to its OWNING part so a CROSS-PART transposition — two
+        // drawings each using rId1, their .rels targets swapped — differs (round-61 defect 6); the
+        // intra-part rId keying (round-60) only disambiguated within one part. xlq copies rels
+        // verbatim, so a faithful edit keys identically; a foreign PART RENUMBER may over-refuse
+        // here (the fail-closed price).
+        let owning_part = low
+            .replacen("_rels/", "", 1)
+            .strip_suffix(".rels")
+            .unwrap_or(&low)
+            .to_string();
         let Ok(part) = crate::ooxml::read_part(bytes, n) else {
             continue;
         };
@@ -2466,7 +2499,7 @@ fn external_rels_targets(bytes: &[u8]) -> Vec<String> {
                                 // intra-part (xlq copies rels verbatim; a referencing element resolves
                                 // it), so a benign part renumber still keys identically.
                                 let rid = attr_local(&e, b"Id").unwrap_or_default();
-                                out.push(format!("ext|{ty_local}|{rid}|{target}"));
+                                out.push(format!("ext|{owning_part}|{ty_local}|{rid}|{target}"));
                             }
                         }
                     }
@@ -4443,6 +4476,27 @@ mod tests {
             pivot_refs(&ba),
             "a sharedItems reorder must differ (an item hide indexes into it positionally)"
         );
+        // A <fieldGroup base=> re-point derives the grouping from a DIFFERENT source cache field
+        // (round-61 defect 2) — re-aggregates on refresh; base was fieldGroup's own binding attr,
+        // uncompared by the round-60 child scan.
+        let grouped = |base: &str| {
+            format!(
+                r#"<pivotCacheDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cacheFields count="2"><cacheField name="Amount"><sharedItems containsNumber="1" minValue="0" maxValue="900"/></cacheField><cacheField name="Grouped"><fieldGroup base="{base}"><rangePr groupInterval="100"/><groupItems count="1"><s v="0-100"/></groupItems></fieldGroup></cacheField></cacheFields></pivotCacheDefinition>"#
+            )
+        };
+        let base0 = wb(
+            "",
+            &[("xl/pivotCache/pivotCacheDefinition1.xml", &grouped("0"))],
+        );
+        let base1 = wb(
+            "",
+            &[("xl/pivotCache/pivotCacheDefinition1.xml", &grouped("1"))],
+        );
+        assert_ne!(
+            pivot_refs(&base0),
+            pivot_refs(&base1),
+            "a fieldGroup base re-point (group derived from a different source field) must differ"
+        );
     }
 
     #[test]
@@ -5989,6 +6043,20 @@ mod tests {
     }
 
     #[test]
+    fn dxf_numfmt_does_not_mask_the_cell_number_format() {
+        // REGRESSION (round-61 defect 7, false-certify): a `<dxf><numFmt>` (a conditional-format
+        // DIFFERENTIAL) sharing a numFmtId with a real cell numFmt was ingested into the cellXf
+        // id->code map, OVERWRITING the true code and masking a genuine cell-format change from the
+        // CELL("format") comparison. Only a `<numFmts>` child defines the cellXf format map.
+        let styles = br#"<styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="General"/></numFmts><cellXfs count="1"><xf numFmtId="164"/></cellXfs><dxfs count="1"><dxf><numFmt numFmtId="164" formatCode="0"/></dxf></dxfs></styleSheet>"#;
+        let codes = cellxfs_numfmt_codes(styles);
+        assert_eq!(
+            codes[0], "General",
+            "the cell's numFmt 164 is General; the dxf numFmt 164=\"0\" must NOT overwrite it"
+        );
+    }
+
+    #[test]
     fn volatile_taint_is_transitive() {
         // REGRESSION (round-43): the volatile-recompute skip must be TRANSITIVE. A1=NOW() is
         // volatile; A2=A1 is a non-volatile DEPENDENT Excel also recomputes on load — both caches
@@ -6346,6 +6414,46 @@ mod tests {
         assert_eq!(
             verify_noncell_refs(&good, &swapped)
                 .expect("a transposition of two external targets must refuse")["reason"],
+            "external_relationship_mismatch"
+        );
+    }
+
+    #[test]
+    fn external_rels_cross_part_transposition_is_caught() {
+        // REGRESSION (round-61 defect 6, false-certify): two SEPARATE rels parts each use rId1 (per-
+        // part numbering), so the intra-part rId keying (round-60) did not disambiguate them — a flat
+        // global multiset made a CROSS-PART swap of their targets invisible. Binding each target to
+        // its owning part catches it.
+        let blip = r#"<xdr:wsDr xmlns:xdr="urn:xdr" xmlns:a="urn:a"><xdr:pic><xdr:blipFill><a:blip xmlns:r="urn:r" r:link="rId1"/></xdr:blipFill></xdr:pic></xdr:wsDr>"#;
+        let rels = |t: &str| {
+            format!(
+                r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{t}" TargetMode="External"/></Relationships>"#
+            )
+        };
+        let mk = |ta: &str, tb: &str| {
+            wb(
+                "",
+                &[
+                    ("xl/drawings/drawing1.xml", blip),
+                    ("xl/drawings/_rels/drawing1.xml.rels", &rels(ta)),
+                    ("xl/drawings/drawing2.xml", blip),
+                    ("xl/drawings/_rels/drawing2.xml.rels", &rels(tb)),
+                ],
+            )
+        };
+        let good = mk(
+            "https://cdn-a.example/logo.png",
+            "https://cdn-b.example/logo.png",
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // TRANSPOSE across parts: drawing1 now -> cdn-b, drawing2 -> cdn-a. Same global URL multiset.
+        let swapped = mk(
+            "https://cdn-b.example/logo.png",
+            "https://cdn-a.example/logo.png",
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &swapped)
+                .expect("a cross-part external-target transposition must refuse")["reason"],
             "external_relationship_mismatch"
         );
     }
