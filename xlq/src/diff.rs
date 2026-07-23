@@ -175,7 +175,7 @@ fn snap_json(snap: &CellSnap) -> serde_json::Value {
 /// change. Only a whole `TRUE` or `FALSE` token immediately followed by `()` is rewritten; string
 /// literals and quoted sheet names are copied verbatim, and a token that merely starts with those
 /// letters is left untouched.
-fn normalize_bool_literals(f: &str) -> String {
+pub(crate) fn normalize_bool_literals(f: &str) -> String {
     let b = f.as_bytes();
     let n = b.len();
     let mut out = String::with_capacity(n);
@@ -231,7 +231,7 @@ fn normalize_bool_literals(f: &str) -> String {
 /// all the SAME `#REF!` error value (Excel formula references are case-insensitive outside string
 /// literals, and the qualifier on an error is inert). Comparing the raw strings otherwise refuses a
 /// value-faithful edit. String literals are copied verbatim so a `"#REF!"` text is untouched.
-fn canonicalize_ref_errors(f: &str) -> String {
+pub(crate) fn canonicalize_ref_errors(f: &str) -> String {
     let b = f.as_bytes();
     let n = b.len();
     let mut out = String::with_capacity(n);

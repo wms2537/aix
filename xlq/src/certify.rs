@@ -706,56 +706,188 @@ fn opaque_target_signature(bytes: &[u8]) -> Vec<String> {
     out
 }
 
-/// Every element in `xml` rendered as `local(attr=val;attr=val;…)` with attributes SORTED,
-/// plus each non-empty trimmed text run as `#text(…)` — an element/attribute-order- and
-/// whitespace-independent view of the part's content. A byte comparison would spuriously
-/// refuse a foreign tool's benign reserialization; this catches any attribute-value or
-/// text change (a repointed URL/command/connectionId/callback) while tolerating formatting.
-/// Namespace-prefix-agnostic (local names only).
+/// Every element in `xml` rendered as `elem:<ancestor-path>local[attr=val;…]` (attributes SORTED),
+/// plus, per element, its FULL reassembled text as `text:<ancestor-path>local[…]=<content>`. Both
+/// carry the element's ROOT-TO-NODE ancestor path (each ancestor's `local[attrs]`), so a child moved
+/// under a DIFFERENT parent — a `<dbPr>`/`<webPr>` data-source relocated to another `<connection
+/// id>` — changes its signature and is refused (round-59 defect 4); the flat sorted multiset lost
+/// that binding. The text is accumulated across Text + GeneralRef + CData events (an entity/char-ref
+/// like `&#57;` arrives as a separate GeneralRef, previously DROPPED — round-59 defect 6 — and CDATA
+/// as CData) so an entity/CDATA-encoded tamper of a customXml/connections value differs. A byte
+/// comparison would spuriously refuse a benign reserialization; this tolerates attribute/whitespace
+/// order while catching any value/target/binding change. Namespace-prefix-agnostic (local names).
 fn element_attr_signatures(xml: &[u8]) -> Vec<String> {
     use quick_xml::events::Event;
     let mut reader = quick_xml::Reader::from_reader(xml);
     reader.config_mut().expand_empty_elements = false;
     let mut buf = Vec::new();
     let mut out = Vec::new();
+    // Stack of (element signature `local[attrs]`, accumulated raw text of that element).
+    let mut stack: Vec<(String, String)> = Vec::new();
+    let elem_sig = |e: &quick_xml::events::BytesStart| -> String {
+        let local = String::from_utf8_lossy(structural::local_of(e.name().as_ref())).into_owned();
+        let mut attrs: Vec<String> = e
+            .attributes()
+            .filter_map(|a| a.ok())
+            .map(|a| {
+                let key =
+                    String::from_utf8_lossy(structural::local_of(a.key.as_ref())).into_owned();
+                let val = a
+                    .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                    .map(|v| v.into_owned())
+                    .unwrap_or_else(|_| String::from_utf8_lossy(&a.value).into_owned());
+                format!("{key}={val}")
+            })
+            .collect();
+        attrs.sort();
+        format!("{local}[{}]", attrs.join(";"))
+    };
+    let path_prefix = |stack: &[(String, String)], sig: &str| -> String {
+        if stack.is_empty() {
+            sig.to_string()
+        } else {
+            let mut p: String = stack
+                .iter()
+                .map(|(s, _)| s.as_str())
+                .collect::<Vec<_>>()
+                .join(">");
+            p.push('>');
+            p.push_str(sig);
+            p
+        }
+    };
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
-                let local =
-                    String::from_utf8_lossy(structural::local_of(e.name().as_ref())).into_owned();
-                let mut attrs: Vec<String> = e
-                    .attributes()
-                    .filter_map(|a| a.ok())
-                    .map(|a| {
-                        let key = String::from_utf8_lossy(structural::local_of(a.key.as_ref()))
-                            .into_owned();
-                        let val = a
-                            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
-                            .map(|v| v.into_owned())
-                            .unwrap_or_else(|_| String::from_utf8_lossy(&a.value).into_owned());
-                        format!("{key}={val}")
-                    })
-                    .collect();
-                attrs.sort();
-                out.push(format!("{local}({})", attrs.join(";")));
+            Ok(Event::Start(e)) => {
+                let sig = elem_sig(&e);
+                out.push(format!("elem:{}", path_prefix(&stack, &sig)));
+                stack.push((sig, String::new()));
+            }
+            Ok(Event::Empty(e)) => {
+                let sig = elem_sig(&e);
+                out.push(format!("elem:{}", path_prefix(&stack, &sig)));
             }
             Ok(Event::Text(t)) => {
-                let text = String::from_utf8_lossy(t.as_ref());
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
-                    out.push(format!("#text({trimmed})"));
+                if let Some(top) = stack.last_mut() {
+                    top.1.push_str(&String::from_utf8_lossy(t.as_ref()));
                 }
             }
-            // A `<![CDATA[…]]>` body arrives as a DISTINCT event, dropped by the catch-all — so a
-            // repointed Power Query `<DataMashup>` external source URL wrapped in CDATA evaded the
-            // opaque-target comparison and CERTIFIED (round-58 defect 6). Capture it like Text (CDATA
-            // is never entity-encoded, so append raw), matching the CData handling already in
-            // rich_data_values / element_text_semantics.
+            // An entity / numeric char-reference (`&#57;`, `&amp;`) inside text arrives as a SEPARATE
+            // GeneralRef event; reassemble it raw so an entity insert/delete/substitution differs.
+            Ok(Event::GeneralRef(r)) => {
+                if let Some(top) = stack.last_mut() {
+                    top.1.push('&');
+                    top.1.push_str(&r.decode().unwrap_or_default());
+                    top.1.push(';');
+                }
+            }
             Ok(Event::CData(c)) => {
-                let text = String::from_utf8_lossy(c.as_ref());
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
-                    out.push(format!("#text({trimmed})"));
+                if let Some(top) = stack.last_mut() {
+                    top.1.push_str(&String::from_utf8_lossy(c.as_ref()));
+                }
+            }
+            Ok(Event::End(_)) => {
+                if let Some((sig, text)) = stack.pop() {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        out.push(format!("text:{}={trimmed}", path_prefix(&stack, &sig)));
+                    }
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
+/// Per-SHAPE value/security bindings in a drawing part — a linked-cell `textlink`, an "Assign Macro"
+/// `macro`, and a resolved `<a:hlinkClick r:id>` external URL — each KEYED BY the owning shape's
+/// STABLE identity (its cNvPr `name`, else `id`). A flat multiset lost the shape<->target binding, so
+/// SWAPPING two shapes' hyperlink targets (the "Download report" button now points at the attacker
+/// URL) certified; keying by the shape identity makes a swap differ (round-59 defect 5). The final
+/// sort keeps benign shape reordering tolerant.
+fn drawing_shape_links(x: &[u8], rels: &std::collections::BTreeMap<String, String>) -> Vec<String> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(x);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    // Stack of (shape identity, buffered `kind=value` links) for (possibly nested) shapes.
+    let mut stack: Vec<(String, Vec<String>)> = Vec::new();
+    let is_shape = |n: &[u8]| matches!(n, b"sp" | b"cxnSp" | b"pic" | b"graphicFrame");
+    let flush = |out: &mut Vec<String>, id: &str, links: Vec<String>| {
+        for l in links {
+            out.push(format!("shape[{id}]|{l}"));
+        }
+    };
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let name = e.name();
+                let local = structural::local_of(name.as_ref());
+                if is_shape(local) {
+                    let mut links = Vec::new();
+                    if let Some(tl) = attr_local(&e, b"textlink").filter(|v| !v.is_empty()) {
+                        links.push(format!("textlink={tl}"));
+                    }
+                    if let Some(m) = attr_local(&e, b"macro").filter(|v| !v.is_empty()) {
+                        links.push(format!("macro={m}"));
+                    }
+                    stack.push((String::new(), links));
+                } else if local == b"cNvPr" {
+                    if let Some(top) = stack.last_mut() {
+                        top.0 = attr_local(&e, b"name")
+                            .filter(|v| !v.is_empty())
+                            .or_else(|| attr_local(&e, b"id"))
+                            .unwrap_or_default();
+                    }
+                } else if local == b"hlinkClick" {
+                    if let Some(id) = rel_id(&e) {
+                        let url = rels.get(&id).cloned().unwrap_or_default();
+                        if let Some(top) = stack.last_mut() {
+                            top.1.push(format!("hlink={url}"));
+                        } else {
+                            out.push(format!("shape[]|hlink={url}"));
+                        }
+                    }
+                }
+            }
+            Ok(Event::Empty(e)) => {
+                let name = e.name();
+                let local = structural::local_of(name.as_ref());
+                if is_shape(local) {
+                    // A childless shape can still carry textlink/macro attributes.
+                    let mut links = Vec::new();
+                    if let Some(tl) = attr_local(&e, b"textlink").filter(|v| !v.is_empty()) {
+                        links.push(format!("textlink={tl}"));
+                    }
+                    if let Some(m) = attr_local(&e, b"macro").filter(|v| !v.is_empty()) {
+                        links.push(format!("macro={m}"));
+                    }
+                    flush(&mut out, "", links);
+                } else if local == b"cNvPr" {
+                    if let Some(top) = stack.last_mut() {
+                        top.0 = attr_local(&e, b"name")
+                            .filter(|v| !v.is_empty())
+                            .or_else(|| attr_local(&e, b"id"))
+                            .unwrap_or_default();
+                    }
+                } else if local == b"hlinkClick" {
+                    if let Some(id) = rel_id(&e) {
+                        let url = rels.get(&id).cloned().unwrap_or_default();
+                        if let Some(top) = stack.last_mut() {
+                            top.1.push(format!("hlink={url}"));
+                        } else {
+                            out.push(format!("shape[]|hlink={url}"));
+                        }
+                    }
+                }
+            }
+            Ok(Event::End(e)) if is_shape(structural::local_of(e.name().as_ref())) => {
+                if let Some((id, links)) = stack.pop() {
+                    flush(&mut out, &id, links);
                 }
             }
             Ok(Event::Eof) | Err(_) => break,
@@ -807,46 +939,12 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                         .iter()
                         .map(|s| structural::canonicalize_sheet_quotes(s)),
                 );
-                for (_, attrs) in structural::element_attr_semantics(
-                    &x,
-                    &[b"sp", b"cxnSp", b"pic", b"graphicFrame"],
-                ) {
-                    if let Some(tl) = attrs
-                        .split(structural::ATTR_SEP)
-                        .find_map(|kv| kv.strip_prefix("textlink="))
-                    {
-                        drawings.push(format!("textlink={tl}"));
-                    }
-                    // A DrawingML shape's `macro=` is its "Assign Macro" click binding (Excel runs
-                    // it on click) — the modern analog of the VML `<x:FmlaMacro>` that
-                    // control_bindings already compares. A re-point (SubmitReport -> Exfiltrate) is
-                    // a behavior/security change no cell diff or vba_parts byte-compare sees. Only a
-                    // NON-empty value is emitted, so the ubiquitous `macro=""` default on a
-                    // non-macro shape does not over-refuse.
-                    if let Some(m) = attrs
-                        .split(structural::ATTR_SEP)
-                        .find_map(|kv| kv.strip_prefix("macro="))
-                    {
-                        if !m.is_empty() {
-                            drawings.push(format!("macro={m}"));
-                        }
-                    }
-                }
-                // A shape/image hyperlink (`<a:hlinkClick r:id>`) resolves through the
-                // drawing's own rels to an external URL — a phishing-swap target the cell
-                // diff and the worksheet hyperlink scan never see.
+                // A linked-shape `textlink`, an "Assign Macro" `macro`, and a shape hyperlink
+                // (`<a:hlinkClick r:id>` resolved through the drawing rels to an external URL) — each
+                // keyed by the owning shape's stable identity so a SWAP of two shapes' targets differs
+                // (a phishing retarget the cell diff / worksheet hyperlink scan never see).
                 let rels = rels_targets(bytes, n);
-                for (_, attrs) in structural::element_attr_semantics(&x, &[b"hlinkClick"]) {
-                    if let Some(id) = attrs
-                        .split(structural::ATTR_SEP)
-                        .find_map(|kv| kv.strip_prefix("id="))
-                    {
-                        drawings.push(format!(
-                            "hlink={}",
-                            rels.get(id).cloned().unwrap_or_default()
-                        ));
-                    }
-                }
+                drawings.extend(drawing_shape_links(&x, &rels));
             }
         }
     }
@@ -1295,6 +1393,85 @@ fn metadata_index_chain(bytes: &[u8]) -> Vec<String> {
     out
 }
 
+/// ORDER-faithful pivot signatures that `element_attr_semantics` (position-blind, sorted) cannot
+/// produce: the AXIS-MEMBERSHIP lists — the ORDERED `<field x="N"/>` sequence of
+/// `<rowFields>`/`<colFields>`/`<pageFields>` and the ordered `<dataField fld>` sequence of
+/// `<dataFields>` — which authoritatively name WHICH cache field sits on WHICH axis and in what
+/// order, PLUS each `<pivotField>`'s POSITION-keyed axis. A coherent axis/measure reassignment (group
+/// by Product instead of Region; transpose two value-area measure columns) re-aggregates the pivot on
+/// refresh but leaves the pooled/sorted pivotField multiset unchanged — this makes it differ
+/// (round-59 defect 1), mirroring table_semantics' col[idx] positional keying.
+fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut in_pivotfields = false;
+    let mut pf_idx = 0i64;
+    // (container local name, ordered child keys)
+    let mut container: Option<(&'static str, Vec<String>)> = None;
+    // Handle a leaf (pivotField / field / dataField), for both Start and Empty events.
+    let leaf = |e: &quick_xml::events::BytesStart,
+                in_pf: bool,
+                container: &mut Option<(&'static str, Vec<String>)>,
+                pf_idx: &mut i64,
+                out: &mut Vec<String>| {
+        match structural::local_of(e.name().as_ref()) {
+            b"pivotField" if in_pf => {
+                out.push(format!(
+                    "pivotField[{pf_idx}]|axis={}",
+                    attr_local(e, b"axis").unwrap_or_default()
+                ));
+                *pf_idx += 1;
+            }
+            b"field" => {
+                if let Some((_, v)) = container {
+                    v.push(attr_local(e, b"x").unwrap_or_default());
+                }
+            }
+            b"dataField" => {
+                if let Some((name, v)) = container {
+                    if *name == "dataFields" {
+                        v.push(format!(
+                            "fld={}|name={}",
+                            attr_local(e, b"fld").unwrap_or_default(),
+                            attr_local(e, b"name").unwrap_or_default()
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    };
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => match structural::local_of(e.name().as_ref()) {
+                b"pivotFields" => in_pivotfields = true,
+                b"rowFields" => container = Some(("rowFields", Vec::new())),
+                b"colFields" => container = Some(("colFields", Vec::new())),
+                b"pageFields" => container = Some(("pageFields", Vec::new())),
+                b"dataFields" => container = Some(("dataFields", Vec::new())),
+                _ => leaf(&e, in_pivotfields, &mut container, &mut pf_idx, &mut out),
+            },
+            Ok(Event::Empty(e)) => leaf(&e, in_pivotfields, &mut container, &mut pf_idx, &mut out),
+            Ok(Event::End(e)) => match structural::local_of(e.name().as_ref()) {
+                b"pivotFields" => in_pivotfields = false,
+                b"rowFields" | b"colFields" | b"pageFields" | b"dataFields" => {
+                    if let Some((name, v)) = container.take() {
+                        out.push(format!("{name}=[{}]", v.join(",")));
+                    }
+                }
+                _ => {}
+            },
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
 fn pivot_refs(bytes: &[u8]) -> Vec<String> {
     let names = structural::archive_names(bytes).unwrap_or_default();
     let mut out = Vec::new();
@@ -1475,6 +1652,9 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
             // space-joins its attribute string, which truncates a formula containing spaces, so read
             // these formula attributes DIRECTLY (full value) instead.
             out.extend(pivot_calc_formula_sigs(&x));
+            // ORDER-faithful axis-membership + position-keyed pivotField axis (element_attr_semantics
+            // is position-blind and sorted, so a coherent axis/measure swap is invisible to it).
+            out.extend(pivot_ordered_sigs(&x));
         }
     }
     out.sort();
@@ -2634,35 +2814,143 @@ const DATE_CONSUMER_FUNCTIONS: &[&str] = &[
     "DATEDIF",
 ];
 
-/// True if `formula` contains a bare integer LITERAL in the divergent early-date range [1, 60]
-/// (e.g. the `59` in `=DAY(59)`) — bounded by non-identifier characters so it is not a fragment of a
-/// cell ref (`A60`), a larger number, or a decimal. Used to gate a date consumer reading a hard-coded
-/// early serial when the workbook has no early date VALUE.
-fn formula_has_early_serial_literal(formula: &str) -> bool {
-    let b = formula.as_bytes();
-    let mut i = 0usize;
-    while i < b.len() {
-        if b[i].is_ascii_digit() {
-            let start = i;
-            while i < b.len() && b[i].is_ascii_digit() {
-                i += 1;
+/// The serial-valued ARGUMENT positions (0-based) of a date-consumer function — the arguments whose
+/// value determines whether the engine's phantom-leap-day omission makes the result diverge from
+/// Excel (divergent only for an INPUT serial < 61). `WEEKDAY`/`WEEKNUM`'s 2nd argument is a
+/// return-type code, NOT a serial, so it is deliberately excluded; the day-difference functions take
+/// two serials.
+fn date_consumer_serial_arg_indices(fname: &str) -> &'static [usize] {
+    match fname {
+        "NETWORKDAYS" | "NETWORKDAYS.INTL" | "DAYS" | "YEARFRAC" | "DATEDIF" => &[0, 1],
+        _ => &[0],
+    }
+}
+
+/// Split a function call's argument list — `inner` is the formula text AFTER the opening `(` — into
+/// its top-level comma-separated argument expressions, stopping at the matching `)`. Depth- and
+/// quote-aware: a comma nested in inner parens/brackets/braces, inside a `"string literal"`, or
+/// inside a `'Sheet Name'!` qualifier does NOT split an argument.
+fn split_top_level_args(inner: &str) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut depth = 0i32;
+    let mut in_dquote = false;
+    let mut in_squote = false;
+    let mut chars = inner.chars().peekable();
+    while let Some(c) = chars.next() {
+        if in_dquote {
+            cur.push(c);
+            if c == '"' {
+                if chars.peek() == Some(&'"') {
+                    cur.push(chars.next().unwrap()); // an escaped "" inside the string
+                } else {
+                    in_dquote = false;
+                }
             }
-            // Reject if glued to a letter/`$`/`.`/`_` on either side (a cell ref / decimal / name).
-            let prev = if start == 0 { None } else { Some(b[start - 1]) };
-            let next = b.get(i).copied();
-            let glued = |x: Option<u8>| matches!(x, Some(c) if c.is_ascii_alphabetic() || c == b'$' || c == b'.' || c == b'_');
-            if !glued(prev) && !glued(next) {
-                if let Ok(v) = formula[start..i].parse::<u32>() {
-                    if (1..=60).contains(&v) {
-                        return true;
+            continue;
+        }
+        if in_squote {
+            cur.push(c);
+            if c == '\'' {
+                if chars.peek() == Some(&'\'') {
+                    cur.push(chars.next().unwrap()); // an escaped '' inside a sheet name
+                } else {
+                    in_squote = false;
+                }
+            }
+            continue;
+        }
+        match c {
+            '"' => {
+                in_dquote = true;
+                cur.push(c);
+            }
+            '\'' => {
+                in_squote = true;
+                cur.push(c);
+            }
+            '(' | '[' | '{' => {
+                depth += 1;
+                cur.push(c);
+            }
+            ')' | ']' | '}' => {
+                if c == ')' && depth == 0 {
+                    args.push(cur.trim().to_string());
+                    return args;
+                }
+                depth -= 1;
+                cur.push(c);
+            }
+            ',' if depth == 0 => {
+                args.push(cur.trim().to_string());
+                cur.clear();
+            }
+            _ => cur.push(c),
+        }
+    }
+    // Unterminated (malformed) — return what was parsed; the caller fails closed on a bad probe.
+    let last = cur.trim();
+    if !last.is_empty() {
+        args.push(last.to_string());
+    }
+    args
+}
+
+/// Every serial-valued ARGUMENT EXPRESSION of every date-consumer function call in `formula`, plus a
+/// flag reporting whether at least one consumer call was recognized. Evaluating these expressions
+/// yields the consumer's actual INPUT serial, which detects a divergent early-date input no matter
+/// HOW it arrives — a literal `DAY(59)`, a cell ref `DAY(A1)`, a formula-produced serial, or an
+/// INLINE expression `DAY(700-645)` that no value-cell poison can reach. The function-name match is
+/// bounded by non-identifier characters (so `MYDAY(`/`DAYS360(` do not match `DAY`) and case-folded.
+fn date_consumer_serial_args(formula: &str) -> (Vec<String>, bool) {
+    let hay = formula.as_bytes();
+    // Treat non-ASCII bytes as identifier bytes (conservative — a non-ASCII sheet-name char adjacent
+    // to a name is not a word boundary), plus the ASCII identifier set used in Excel function names.
+    let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || b >= 0x80;
+    let mut out = Vec::new();
+    let mut found = false;
+    for fname in DATE_CONSUMER_FUNCTIONS {
+        let nb = fname.as_bytes();
+        let mut from = 0usize;
+        while from + nb.len() <= hay.len() {
+            // Case-insensitive occurrence of the function name.
+            let Some(rel) = (from..=hay.len() - nb.len())
+                .find(|&i| hay[i..i + nb.len()].eq_ignore_ascii_case(nb))
+            else {
+                break;
+            };
+            let start = rel;
+            let end = start + nb.len();
+            from = start + 1;
+            // Word boundary: not glued to an identifier byte before, nor continued by one after (so a
+            // longer name — `DAYS` when matching `DAY`, `NETWORKDAYS.INTL` when matching `NETWORKDAYS`
+            // — is not mistaken for this one).
+            if start > 0 && is_ident(hay[start - 1]) {
+                continue;
+            }
+            if hay.get(end).is_some_and(|&b| is_ident(b)) {
+                continue;
+            }
+            // The next non-whitespace byte must open the argument list.
+            let mut p = end;
+            while p < hay.len() && hay[p].is_ascii_whitespace() {
+                p += 1;
+            }
+            if hay.get(p) != Some(&b'(') {
+                continue;
+            }
+            found = true;
+            let args = split_top_level_args(&formula[p + 1..]);
+            for &i in date_consumer_serial_arg_indices(fname) {
+                if let Some(a) = args.get(i) {
+                    if !a.is_empty() {
+                        out.push(a.clone());
                     }
                 }
             }
-        } else {
-            i += 1;
         }
     }
-    false
+    (out, found)
 }
 
 /// A per-run UNPREDICTABLE numeric probe (as a decimal string) for poison-and-diff. The value MUST
@@ -2859,10 +3147,10 @@ fn build_cache_oracle(
     // Cells whose formula uses a 3D span — value-gated into `sources` below (excluded only if the
     // engine still cannot evaluate the span, i.e. its value is an error).
     let mut three_d_span_cells: Vec<(u32, i32, i32)> = Vec::new();
-    // Cells whose formula CONSUMES a date serial (DAY/MONTH/YEAR/WEEKDAY/…). Excluded below iff the
-    // workbook has an early date value OR the consumer hard-codes an early-serial literal (`DAY(59)`)
-    // — the engine's off-by-one for a pre-1900-03-01 input would otherwise be vouched.
-    let mut date_consumers: Vec<((u32, i32, i32), bool)> = Vec::new();
+    // Cells whose formula CONSUMES a date serial (DAY/MONTH/YEAR/WEEKDAY/…). `prune_early_date_consumers`
+    // (after the oracle is built) evaluates each consumer's actual INPUT serial and drops it — and its
+    // dependents — iff that serial is in the engine's divergent pre-1900-03-01 range (< 61).
+    let mut date_consumers: Vec<(u32, i32, i32)> = Vec::new();
     for cell in model.get_all_cells() {
         let Ok(Some(f)) = model.get_cell_formula(cell.index, cell.row, cell.column) else {
             continue;
@@ -2915,10 +3203,7 @@ fn build_cache_oracle(
             .iter()
             .any(|n| DATE_CONSUMER_FUNCTIONS.contains(&n.as_str()))
         {
-            date_consumers.push((
-                (cell.index, cell.row, cell.column),
-                formula_has_early_serial_literal(&f),
-            ));
+            date_consumers.push((cell.index, cell.row, cell.column));
         }
     }
     let snap =
@@ -2964,22 +3249,6 @@ fn build_cache_oracle(
             sources.push((cell.index, cell.row, cell.column));
         }
     }
-    // Exclude a date CONSUMER (DAY/MONTH/YEAR/WEEKDAY/…) whose INPUT serial is in the divergent
-    // early-date range [1, 60], where the engine's phantom-leap-day omission makes its result off by
-    // one from Excel. Two reachable inputs: (a) a hard-coded early-serial LITERAL in the consumer's
-    // own body (`DAY(59)`); (b) an early serial reached through a cell REFERENCE (`DAY(A1)`, A1 in
-    // [1,60] — date-formatted OR a plain number). Case (b) is detected PRECISELY by poisoning every
-    // small numeric VALUE cell to a modern serial and diffing the consumers: one whose value changes
-    // read an early serial and diverges, so it is excluded — while a modern-date consumer (input >=
-    // 61) is unaffected and stays vouchable. Restored before the main poison-diff so the oracle
-    // values stay clean.
-    if !date_consumers.is_empty() {
-        for &((s, r, c), has_early_literal) in &date_consumers {
-            if has_early_literal {
-                sources.push((s, r, c));
-            }
-        }
-    }
     sources.sort();
     sources.dedup();
     // Fast path: no unsupported/policy/UDF function -> every formula cell is trustworthy. (Still
@@ -3015,71 +3284,118 @@ fn build_cache_oracle(
         }
         out
     };
-    // Prune date CONSUMERS that read an early serial through a cell REFERENCE (round-56 defect 2):
-    // poison every small numeric VALUE cell (in (0,61)) to a modern serial, re-evaluate, and drop any
-    // consumer whose value changes — it read an early serial the engine computes off by one from
-    // Excel. Runs LAST (the model is discarded after), so no restore is needed; a modern-date
-    // consumer (input >= 61) is unaffected and stays vouchable.
+    // Prune date CONSUMERS whose INPUT serial is in the engine's divergent pre-1900-03-01 range: it
+    // evaluates each consumer's actual serial ARGUMENT (covering a literal, a cell ref, a formula-
+    // produced serial, and an INLINE `DAY(700-645)`), then drops each divergent consumer AND its
+    // transitive dependents. Runs LAST (the model is discarded after), so mutating it is harmless.
     Some(prune_early_date_consumers(
         model,
         &date_consumers,
+        &formula_cells,
         &names,
         oracle,
     ))
 }
 
-/// See the call site in `build_cache_oracle`. Drops from `oracle` every date-consumer cell whose
-/// value depends on a small numeric VALUE cell (an early serial the engine renders off-by-one).
+/// A formula cell's engine coordinate `(sheet, row, col)` paired with its `(sheet-name, A1)` oracle key.
+type FormulaCellRef = ((u32, i32, i32), (String, String));
+
+/// See the call site in `build_cache_oracle`. A date CONSUMER (DAY/MONTH/YEAR/WEEKDAY/…) whose INPUT
+/// serial is in the engine's divergent pre-1900-03-01 range (< 61) computes a value the engine
+/// renders off-by-one from Excel (it omits Excel's phantom 1900-02-29). Vouching that value would
+/// either false-certify a forged cache carrying the engine's wrong value or — for a cell whose
+/// formula the transform shifts/blanks (so `by_stored` cannot vouch it) — refuse the correct one, so
+/// this drops every divergent consumer AND its transitive dependents from the oracle (fail-closed):
+/// those caches are then unverified and refused.
+///
+/// Detection EVALUATES each consumer's actual serial ARGUMENT in place — subsuming all four ways an
+/// early serial reaches a consumer: a literal `DAY(59)`, a cell ref `DAY(A1)`, a formula-produced
+/// serial, and an INLINE `DAY(700-645)` that no value-cell poison can reach. A poison-diff then drops
+/// dependents, so `D = C+1` reading a divergent `C` is refused too (closing the dependent gap).
 fn prune_early_date_consumers(
     model: &mut ironcalc::base::Model,
-    date_consumers: &[((u32, i32, i32), bool)],
+    date_consumers: &[(u32, i32, i32)],
+    formula_cells: &[FormulaCellRef],
     names: &[String],
     mut oracle: std::collections::HashMap<(String, String), String>,
 ) -> std::collections::HashMap<(String, String), String> {
     if date_consumers.is_empty() {
         return oracle;
     }
-    // The consumers themselves must NOT be poisoned — a date consumer's own value (DAY -> 1..31,
-    // etc.) lies in (0,61), so poisoning it would make every consumer "change" and be excluded
-    // (a catastrophic over-refusal). We poison only their potential INPUTS.
-    let consumer_coords: std::collections::HashSet<(u32, i32, i32)> =
-        date_consumers.iter().map(|&(coord, _)| coord).collect();
-    // Any cell (VALUE or FORMULA) whose engine value is an early serial in (0,61) is a candidate
-    // early-date input — NOT restricted to literal value cells, so an early serial PRODUCED BY A
-    // FORMULA (`A1 = 44000-43941`) is caught too (round-57 defect 1). Poisoning a formula cell
-    // replaces its body with the constant, which correctly forces any reader to re-read a modern
-    // serial; the model is discarded after, so mutating it is harmless.
-    let small: Vec<(u32, i32, i32)> = model
-        .get_all_cells()
-        .into_iter()
-        .map(|cell| (cell.index, cell.row, cell.column))
-        .filter(|coord| {
-            !consumer_coords.contains(coord)
-                && matches!(
-                    cell_value_sig(model, coord.0, coord.1, coord.2)
-                        .and_then(|s| s.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok())),
-                    Some(v) if v > 0.0 && v < 61.0
-                )
-        })
-        .collect();
-    if small.is_empty() {
+    let numeric = |model: &ironcalc::base::Model, s: u32, r: i32, c: i32| -> Option<f64> {
+        cell_value_sig(model, s, r, c)
+            .and_then(|sig| sig.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok()))
+    };
+    // Phase A — identify the divergent consumers by evaluating each serial ARGUMENT expression in the
+    // consumer's OWN cell (so relative references resolve at the correct position), then restoring the
+    // original formula. Only consumers still IN the oracle are probed: one already excluded (it reads a
+    // `source`) needs no check, and its args may read a poisoned source.
+    let mut divergent: Vec<(u32, i32, i32)> = Vec::new();
+    for &(s, r, c) in date_consumers {
+        let key = match (names.get(s as usize), diff::a1(r, c)) {
+            (Some(n), Ok(a1)) => (n.clone(), a1),
+            _ => continue,
+        };
+        if !oracle.contains_key(&key) {
+            continue;
+        }
+        let Ok(Some(orig)) = model.get_cell_formula(s, r, c) else {
+            continue;
+        };
+        let (args, found) = date_consumer_serial_args(&orig);
+        // A recognized consumer whose serial argument(s) cannot be extracted is dropped (fail-closed):
+        // we cannot prove it reads only modern (>= 61) serials.
+        let mut is_divergent = !found || args.is_empty();
+        for arg in &args {
+            let _ = model.set_user_input(s, r, c, format!("=({arg})"));
+            model.evaluate();
+            match numeric(model, s, r, c) {
+                Some(v) if v < 61.0 => {
+                    is_divergent = true;
+                    break;
+                }
+                Some(_) => {} // a modern serial -> this argument is fine
+                None => {
+                    is_divergent = true; // non-numeric (error / range) -> cannot prove modern -> drop
+                    break;
+                }
+            }
+        }
+        // Restore the original formula so the dependent poison-diff below — and any later consumer
+        // that references THIS cell (an adversary-crafted `DAY(other_consumer)`) — sees its true value.
+        if found && !args.is_empty() {
+            let _ = model.set_user_input(s, r, c, orig);
+        }
+        if is_divergent {
+            divergent.push((s, r, c));
+        }
+    }
+    if divergent.is_empty() {
         return oracle;
     }
-    let before: Vec<Option<String>> = date_consumers
-        .iter()
-        .map(|&((s, r, c), _)| cell_value_sig(model, s, r, c))
-        .collect();
-    for &(s, r, c) in &small {
+    // Settle the restored formulas before snapshotting the dependent-diff baseline.
+    model.evaluate();
+    // Phase B — drop each divergent consumer AND its transitive dependents. Poison every divergent
+    // consumer to a modern serial constant and re-evaluate: any oracle cell whose value CHANGES reads
+    // a divergent consumer (directly or through a chain) and so carries the engine's off-by-one value
+    // too; it is refused rather than vouched.
+    let snap = |model: &ironcalc::base::Model| -> std::collections::HashMap<(String, String), Option<String>> {
+        formula_cells
+            .iter()
+            .map(|(coord, k)| (k.clone(), cell_value_sig(model, coord.0, coord.1, coord.2)))
+            .collect()
+    };
+    let baseline = snap(model);
+    for &(s, r, c) in &divergent {
         let _ = model.set_user_input(s, r, c, "44000".to_string());
     }
     model.evaluate();
-    for (i, &((s, r, c), _)) in date_consumers.iter().enumerate() {
-        if cell_value_sig(model, s, r, c) != before[i] {
-            if let (Some(name), Ok(a1)) = (names.get(s as usize), diff::a1(r, c)) {
-                oracle.remove(&(name.clone(), a1));
-            }
-        }
-    }
+    let after = snap(model);
+    let divergent_keys: std::collections::HashSet<(String, String)> = divergent
+        .iter()
+        .filter_map(|&(s, r, c)| Some((names.get(s as usize)?.clone(), diff::a1(r, c).ok()?)))
+        .collect();
+    oracle.retain(|key, _| !divergent_keys.contains(key) && baseline.get(key) == after.get(key));
     oracle
 }
 
@@ -3813,6 +4129,54 @@ mod tests {
             pivot_refs(&avg_sub),
             "adding an avg subtotal must differ"
         );
+    }
+
+    #[test]
+    fn pivot_axis_membership_and_measure_order_are_compared() {
+        // REGRESSION (round-59 defect 1, HIGH false-certify): a coherent RE-PIVOT (group by a
+        // different field; transpose value-area measures) leaves the pooled+sorted pivotField
+        // multiset unchanged, so it certified. The ordered axis-membership lists + position-keyed
+        // pivotField axis now catch it.
+        // (i) rowFields <field x> membership change (row axis now field 1 not field 0) — a full re-pivot.
+        let repivot = |rowx: &str, pf: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="urn:x"><location ref="A1"/><rowFields count="1"><field x="{rowx}"/></rowFields><pivotFields>{pf}</pivotFields></pivotTableDefinition>"#
+            )
+        };
+        let region = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &repivot("0", r#"<pivotField axis="axisRow"/><pivotField/>"#),
+            )],
+        );
+        let product = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &repivot("1", r#"<pivotField/><pivotField axis="axisRow"/>"#),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&region),
+            pivot_refs(&product),
+            "a coherent axis reassignment (group by field 1 not 0) must differ"
+        );
+        // (ii) dataField (value-area measure) REORDER — output columns transpose on refresh.
+        let df = |a: &str, b: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="urn:x"><dataFields count="2"><dataField name="{a}" fld="{a}"/><dataField name="{b}" fld="{b}"/></dataFields></pivotTableDefinition>"#
+            )
+        };
+        let ab = wb("", &[("xl/pivotTables/pivotTable1.xml", &df("0", "1"))]);
+        let ba = wb("", &[("xl/pivotTables/pivotTable1.xml", &df("1", "0"))]);
+        assert_ne!(
+            pivot_refs(&ab),
+            pivot_refs(&ba),
+            "a dataField (measure) reorder must differ"
+        );
+        // A benign identical re-serialization still matches (no over-refusal).
+        assert_eq!(pivot_refs(&region), pivot_refs(&region));
     }
 
     #[test]
@@ -4894,15 +5258,233 @@ mod tests {
     }
 
     #[test]
-    fn date_consumer_literal_and_format_gates() {
-        // The early-serial literal detector is bounded (a cell ref / decimal / larger number is not
-        // mistaken for an early serial).
-        assert!(formula_has_early_serial_literal("=DAY(59)"));
-        assert!(formula_has_early_serial_literal("=WEEKDAY(1)"));
-        assert!(!formula_has_early_serial_literal("=DAY(A59)")); // cell ref, not a literal
-        assert!(!formula_has_early_serial_literal("=DAY(590)")); // 590 not in [1,60]
-        assert!(!formula_has_early_serial_literal("=DAY(1.5)")); // decimal
-        assert!(!formula_has_early_serial_literal("=DAY(A1)+61")); // 61 excluded (>= 61)
+    fn inline_early_date_consumer_and_dependent_are_excluded() {
+        // REGRESSION (round-59, MEDIUM false-certify): the early serial is computed INLINE inside the
+        // consumer (`DAY(700-645)` -> DAY(55), engine 23 vs Excel 24) — no value cell to poison, and
+        // no bare literal in [1,60], so both prior gates missed it. The argument-evaluation prune
+        // catches it, AND its transitive dependent (`C1 = B1+0`) is dropped too (the dependent gap:
+        // otherwise a forged cache on C1 carrying the engine's off-by-one value would be vouched). A
+        // modern inline consumer and a two-serial difference over a modern span stay vouchable.
+        let rows = r#"<row r="1"><c r="B1"><f>DAY(700-645)</f><v>24</v></c><c r="C1"><f>B1+0</f><v>24</v></c><c r="D1"><f>DAY(50000-1000)</f><v>10</v></c><c r="E1"><f>DAYS(50000,49000)</f><v>1000</v></c><c r="F1"><f>SUM(A1:A1)</f><v>0</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load inline-date workbook");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("B1")),
+            "DAY(700-645) reads an inline early serial (55) -> excluded: {oracle:?}"
+        );
+        assert!(
+            !oracle.contains_key(&key("C1")),
+            "a dependent (C1=B1+0) of the inline early-date consumer must be dropped transitively"
+        );
+        assert!(
+            oracle.contains_key(&key("D1")),
+            "DAY(50000-1000) is a MODERN inline serial (49000) -> stays vouchable: {oracle:?}"
+        );
+        assert!(
+            oracle.contains_key(&key("E1")),
+            "DAYS over a modern span (both >= 61) stays vouchable — no over-refusal"
+        );
+        assert!(
+            oracle.contains_key(&key("F1")),
+            "a pure SUM stays vouchable"
+        );
+    }
+
+    /// Build a workbook from `rows` with `fullCalcOnLoad` stripped, so a preserved cache is actually
+    /// verified (rather than short-circuited by the recalc-on-load path).
+    fn e2e_wb_no_recalc(rows: &str) -> Vec<u8> {
+        use std::io::Read;
+        let base = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/structural/refs.xlsx"
+        ))
+        .unwrap();
+        let mut ar = zip::ZipArchive::new(Cursor::new(base.as_slice())).unwrap();
+        let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default();
+        for i in 0..ar.len() {
+            let mut f = ar.by_index(i).unwrap();
+            let name = f.name().to_string();
+            let mut b = Vec::new();
+            f.read_to_end(&mut b).unwrap();
+            out.start_file(&name, opts).unwrap();
+            if name == "xl/worksheets/sheet1.xml" {
+                let s = format!(
+                    r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:E10"/><sheetData>{rows}</sheetData></worksheet>"#
+                );
+                out.write_all(s.as_bytes()).unwrap();
+            } else if name == "xl/workbook.xml" {
+                let s = String::from_utf8(b)
+                    .unwrap()
+                    .replace(" fullCalcOnLoad=\"1\"", "");
+                out.write_all(s.as_bytes()).unwrap();
+            } else {
+                out.write_all(&b).unwrap();
+            }
+        }
+        out.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn e2e_false_certify_computed_early_serial() {
+        use std::io::Read;
+        // REGRESSION (round-59, end-to-end): B1 = DAY(700-645) = DAY(55) — Excel renders 24, the engine
+        // 23 (phantom-leap-day off-by-one). xlq's transform force-recomputes B1 (it cannot vouch the
+        // cache), so the faithful transform carries NO B1 cache. A FORGED foreign edit injects a
+        // preserved B1 cache = 23 (the engine's wrong value); because B1 is excluded from the oracle,
+        // `by_eval` cannot vouch it and it is REFUSED. Were B1 NOT excluded, the oracle would hold 23
+        // and vouch the forgery — the false-certify this guards against.
+        let orig = e2e_wb_no_recalc(
+            r#"<row r="1"><c r="B1"><f>DAY(700-645)</f><v>24</v></c></row><row r="8"><c r="A8"><v>9</v></c></row>"#,
+        );
+        let edit = StructuralEdit {
+            axis: crate::refshift::Axis::Row,
+            at: 5,
+            count: 1,
+            op: crate::refshift::Op::Insert,
+            sheet: "Sheet1".to_string(),
+            dest: 0,
+        };
+        let (expected, _r) = structural::structural_edit(&orig, &edit).unwrap();
+        let forge = |bytes: &[u8], from: &str, to: &str| -> Vec<u8> {
+            let mut ar = zip::ZipArchive::new(Cursor::new(bytes.to_vec())).unwrap();
+            let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let opts = zip::write::SimpleFileOptions::default();
+            for i in 0..ar.len() {
+                let mut f = ar.by_index(i).unwrap();
+                let name = f.name().to_string();
+                let mut b = Vec::new();
+                f.read_to_end(&mut b).unwrap();
+                out.start_file(&name, opts).unwrap();
+                if name == "xl/worksheets/sheet1.xml" {
+                    let s = String::from_utf8(b).unwrap().replace(from, to);
+                    out.write_all(s.as_bytes()).unwrap();
+                } else {
+                    out.write_all(&b).unwrap();
+                }
+            }
+            out.finish().unwrap().into_inner()
+        };
+        let expected_blanks_b1 = {
+            let mut ar = zip::ZipArchive::new(Cursor::new(expected.clone())).unwrap();
+            let mut s = String::new();
+            for i in 0..ar.len() {
+                let mut f = ar.by_index(i).unwrap();
+                if f.name() == "xl/worksheets/sheet1.xml" {
+                    f.read_to_string(&mut s).unwrap();
+                }
+            }
+            s.contains(r#"<c r="B1"><f>DAY(700-645)</f></c>"#)
+        };
+        // Inject a preserved cache carrying the engine's off-by-one value 23 (a forged foreign edit).
+        let forged = forge(
+            &expected,
+            r#"<c r="B1"><f>DAY(700-645)</f></c>"#,
+            r#"<c r="B1"><f>DAY(700-645)</f><v>23</v></c>"#,
+        );
+        let dir = std::env::temp_dir();
+        let tag = format!("xlqe2e_{}", std::process::id());
+        let op = dir.join(format!("{tag}_o.xlsx"));
+        let fp = dir.join(format!("{tag}_f.xlsx"));
+        let hp = dir.join(format!("{tag}_h.xlsx"));
+        std::fs::write(&op, &orig).unwrap();
+        std::fs::write(&fp, &forged).unwrap();
+        std::fs::write(&hp, &expected).unwrap();
+        let rf = run(
+            op.to_str().unwrap(),
+            fp.to_str().unwrap(),
+            "Sheet1",
+            "insert-rows",
+            5,
+            1,
+            0,
+        )
+        .unwrap();
+        let rh = run(
+            op.to_str().unwrap(),
+            hp.to_str().unwrap(),
+            "Sheet1",
+            "insert-rows",
+            5,
+            1,
+            0,
+        )
+        .unwrap();
+        let _ = std::fs::remove_file(&op);
+        let _ = std::fs::remove_file(&fp);
+        let _ = std::fs::remove_file(&hp);
+        assert!(
+            expected_blanks_b1,
+            "the transform force-recomputes the unvouchable inline-date consumer (blanks its cache)"
+        );
+        assert_eq!(
+            rf["status"], "REFUSED",
+            "an injected cache carrying the engine's off-by-one DAY(700-645)=23 must be REFUSED \
+             end-to-end (B1 is oracle-excluded, so the engine value cannot vouch it): {rf}"
+        );
+        assert_eq!(
+            rh["status"], "CERTIFIED",
+            "the faithful transform (B1's cache blanked, nothing to verify) must CERTIFY: {rh}"
+        );
+    }
+
+    #[test]
+    fn date_consumer_serial_argument_extraction() {
+        // The serial-argument extractor recognizes each consumer call (bounded by non-identifier
+        // characters so a longer name is not mistaken for a shorter one) and returns the correct
+        // serial-valued argument expressions — whatever their form.
+        assert_eq!(
+            date_consumer_serial_args("=DAY(59)"),
+            (vec!["59".into()], true)
+        );
+        assert_eq!(
+            date_consumer_serial_args("=DAY(700-645)"),
+            (vec!["700-645".into()], true)
+        );
+        assert_eq!(
+            date_consumer_serial_args("=DAY(A1)"),
+            (vec!["A1".into()], true)
+        );
+        // WEEKDAY's 2nd argument is a return-type code, NOT a serial -> only arg 0 is probed.
+        assert_eq!(
+            date_consumer_serial_args("=WEEKDAY(A1,2)"),
+            (vec!["A1".into()], true)
+        );
+        // The day-difference functions take TWO serials.
+        assert_eq!(
+            date_consumer_serial_args("=NETWORKDAYS(A1,B2,Holidays)"),
+            (vec!["A1".into(), "B2".into()], true)
+        );
+        assert_eq!(
+            date_consumer_serial_args("=DATEDIF(A1,A2,\"D\")"),
+            (vec!["A1".into(), "A2".into()], true)
+        );
+        // A longer name is not mistaken for a shorter one; a non-consumer formula finds nothing.
+        assert_eq!(
+            date_consumer_serial_args("=DAYS360(A1,A2)"),
+            (vec![], false)
+        );
+        assert_eq!(date_consumer_serial_args("=MYDAY(1)"), (vec![], false));
+        assert_eq!(date_consumer_serial_args("=SUM(A1:A9)"), (vec![], false));
+        // Nested calls and quoted sheet names with commas do not tear the argument.
+        assert_eq!(
+            date_consumer_serial_args("=MONTH(EOMONTH(A1,1))"),
+            (vec!["EOMONTH(A1,1)".into()], true)
+        );
+        assert_eq!(
+            date_consumer_serial_args("=DAY('A,B'!C1)"),
+            (vec!["'A,B'!C1".into()], true)
+        );
     }
 
     #[test]
@@ -5268,6 +5850,45 @@ mod tests {
     }
 
     #[test]
+    fn drawing_hyperlink_swap_between_shapes_is_caught() {
+        // REGRESSION (round-59 defect 5, security): two shapes' hyperlink targets, keyed by a flat
+        // multiset, were permutation-invariant — swapping the r:ids so the "Download" button points
+        // at the attacker URL CERTIFIED. Keying each hlink by the owning shape's identity (cNvPr
+        // name) catches the swap.
+        let two = |r1: &str, r2: &str| {
+            format!(
+                r#"<xdr:wsDr xmlns:xdr="urn:xdr" xmlns:a="urn:a"><xdr:sp><xdr:nvSpPr><xdr:cNvPr id="1" name="DownloadBtn"><a:hlinkClick xmlns:r="urn:r" r:id="{r1}"/></xdr:cNvPr></xdr:nvSpPr></xdr:sp><xdr:sp><xdr:nvSpPr><xdr:cNvPr id="2" name="UnsubBtn"><a:hlinkClick xmlns:r="urn:r" r:id="{r2}"/></xdr:cNvPr></xdr:nvSpPr></xdr:sp></xdr:wsDr>"#
+            )
+        };
+        let drels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdRep" Type="x/hyperlink" Target="https://reports.corp.example/q3" TargetMode="External"/><Relationship Id="rIdTrk" Type="x/hyperlink" Target="https://track.example/unsub" TargetMode="External"/></Relationships>"#;
+        // Download->reports, Unsub->track.
+        let good = wb(
+            "",
+            &[
+                ("xl/drawings/drawing1.xml", two("rIdRep", "rIdTrk").as_str()),
+                ("xl/drawings/_rels/drawing1.xml.rels", drels),
+            ],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // SWAP: Download now -> track (attacker/other), Unsub -> reports. Same URL multiset.
+        let swapped = wb(
+            "",
+            &[
+                ("xl/drawings/drawing1.xml", two("rIdTrk", "rIdRep").as_str()),
+                ("xl/drawings/_rels/drawing1.xml.rels", drels),
+            ],
+        );
+        let refusal = verify_noncell_refs(&good, &swapped)
+            .expect("a hyperlink swap between shapes must be caught");
+        assert!(
+            refusal["reason"] == "chart_drawing_mismatch"
+                || refusal["reason"] == "external_relationship_mismatch",
+            "reason: {}",
+            refusal["reason"]
+        );
+    }
+
+    #[test]
     fn drawing_linked_image_external_target_repoint_is_caught() {
         // REGRESSION (round-53 defect 7, HIGH security): a drawing LINKED image (`<a:blip r:link>`)
         // resolves through the drawing's `.rels` to a `TargetMode="External"` URL that Excel
@@ -5574,6 +6195,64 @@ mod tests {
         assert_eq!(
             verify_noncell_refs(&cgood, &cevil)
                 .expect("a CDATA-wrapped DataMashup repoint must refuse")["reason"],
+            "external_target_mismatch"
+        );
+        // REGRESSION (round-59 defect 6): an ENTITY/char-reference tamper (`420.5` -> `&#57;420.5`
+        // = "9420.5") in a customXml value must refuse — element_attr_signatures previously dropped
+        // the GeneralRef event and the two bodies signed identically.
+        let plain = wb(
+            "",
+            &[(
+                "customXml/item1.xml",
+                "<props><amount>420.5</amount></props>",
+            )],
+        );
+        assert!(verify_noncell_refs(&plain, &plain).is_none());
+        let entity = wb(
+            "",
+            &[(
+                "customXml/item1.xml",
+                "<props><amount>&#57;420.5</amount></props>",
+            )],
+        );
+        assert_eq!(
+            verify_noncell_refs(&plain, &entity)
+                .expect("an entity-encoded customXml value tamper must refuse")["reason"],
+            "external_target_mismatch"
+        );
+    }
+
+    #[test]
+    fn connections_datasource_child_swap_is_caught() {
+        // REGRESSION (round-59 defect 4, HIGH security): the security-critical data source (dbPr
+        // connection/command) lives in a CHILD of <connection>, while the stable handle `id` is on
+        // the parent. A flat sorted multiset lost the parent<->child binding, so SWAPPING the <dbPr>
+        // source between two <connection id> elements (each keeping its id) certified. The
+        // ancestor-path-qualified signature now catches it.
+        let conns = |src1: &str, src2: &str| {
+            format!(
+                r#"<connections><connection id="1" name="A"><dbPr connection="{src1}" command="q1"/></connection><connection id="2" name="B"><dbPr connection="{src2}" command="q2"/></connection></connections>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[(
+                "xl/connections.xml",
+                conns("Data Source=public", "Data Source=salaries").as_str(),
+            )],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // SWAP the two dbPr sources (connectionId=1 now resolves to the salaries source).
+        let swapped = wb(
+            "",
+            &[(
+                "xl/connections.xml",
+                conns("Data Source=salaries", "Data Source=public").as_str(),
+            )],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &swapped)
+                .expect("a data-source child swap between connections must refuse")["reason"],
             "external_target_mismatch"
         );
     }

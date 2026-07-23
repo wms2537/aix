@@ -146,6 +146,28 @@ pub fn structural_edit(input: &[u8], edit: &StructuralEdit) -> Result<(Vec<u8>, 
                         .into(),
                 });
             }
+            // FAIL-CLOSED (round-59): the `r` attribute on `<row>` is OPTIONAL in OOXML (the index is
+            // implied by position). The row insert/delete surgery keys entirely on `attr_u32(row, r)`
+            // — a row without `r` is neither renumbered, injected-around, nor dropped — while the
+            // per-cell `r` shift still fires, so a DELETE leaves the target row's data in place while
+            // cells below shift onto it (duplicate coordinates), and an INSERT mixes positional rows
+            // with explicit-`r` blanks. IronCalc's reopen silently overwrites the duplicate, so the
+            // corrupt file commits. Refuse rather than renumber (which would change the surgical
+            // writer's contract). Row-axis Insert/Delete only — a column edit / move does not renumber
+            // rows. (An empty sheetData has no such row, so a data-free workbook is unaffected.)
+            if edit.axis == Axis::Row
+                && matches!(edit.op, Op::Insert | Op::Delete)
+                && edited_sheet_has_row_without_r(&bytes)
+            {
+                report.residuals.push(Residual {
+                    part: name.clone(),
+                    reason: "row_without_r_ref".into(),
+                    detail: "the edited worksheet has a <row> with no `r` (row-index) attribute \
+                             (positionally implied); the streaming row insert/delete surgery cannot \
+                             express the edit against implicit rows — edit refused (fail-closed)"
+                        .into(),
+                });
+            }
             // Materialize shared formulas so σ shifts them uniformly, then run
             // the row/cell coordinate + formula surgery on the explicit sheet.
             let expanded = expand_shared_in_sheet(&bytes)?;
@@ -450,6 +472,36 @@ fn edited_sheet_has_prefixed_grid(xml: &[u8]) -> bool {
             // A parse error here is not our concern — the row/cell path handles malformed input
             // elsewhere; report no prefix so we do not mask a different failure mode.
             Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    false
+}
+
+/// True if any `<row>` element inside `<sheetData>` lacks an `r` (row-index) attribute. The index
+/// is OOXML-optional (implied by position), but the streaming insert/delete surgery keys entirely on
+/// `r`, so a row without it is silently mishandled — refused up front.
+fn edited_sheet_has_row_without_r(xml: &[u8]) -> bool {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut in_sheetdata = false;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), b"sheetData") => {
+                in_sheetdata = true;
+            }
+            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), b"sheetData") => break,
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if in_sheetdata && tag_local_eq(e.name().as_ref(), b"row") =>
+            {
+                if attr_u32(&e, b"r").is_none() {
+                    return true;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => return true, // unparseable -> fail closed
             _ => {}
         }
         buf.clear();
@@ -2382,17 +2434,26 @@ pub(crate) fn formula_hidden_tokens(xml: &[u8]) -> std::collections::BTreeMap<St
                 let body = logical_formula(&raw).unwrap_or_else(|| raw.clone());
                 let at = implicit_at_positions(&body);
                 let xlfn = xlfn_tokens_in(&body);
+                // The isect/coerce signatures sign the RAW body, but must apply the SAME
+                // value-neutral canonicalizations the cell diff and every other raw-body comparator
+                // use, or a purely cosmetic re-encoding (a foreign editor unquoting a safe sheet name
+                // `'Data'!A1`->`Data!A1`, folding `TRUE()`->`TRUE`, or dropping a `Data!#REF!`
+                // qualifier) over-refuses (round-59 defect 2). These folds never change an operand's
+                // VALUE, so a genuine intersection-operand / coercion change still differs.
+                let canon = crate::diff::canonicalize_ref_errors(
+                    &crate::diff::normalize_bool_literals(&canonicalize_sheet_quotes(&body)),
+                );
                 // A top-level range-intersection is signed by its canonical raw body, because
                 // ironcalc drops its 2nd operand and the loaded diff cannot see an operand change.
                 let isect = if has_top_level_intersection(&body) {
-                    collapse_ws(&body)
+                    collapse_ws(&canon)
                 } else {
                     String::new()
                 };
                 // A unary `+`/`-` coercion (`--A1`/`+A1`) IronCalc folds away is invisible to the
                 // loaded diff — sign the canonical body so an add/remove of the coercion is caught.
                 let coerce = if has_unary_coercion(&body) {
-                    collapse_ws(&body)
+                    collapse_ws(&canon)
                 } else {
                     String::new()
                 };
@@ -2622,6 +2683,13 @@ fn foreign_sheet_ref_attr_crosses(xml: &[u8], edit: &StructuralEdit) -> bool {
                 // left stale (the foreign shift path never rewrites it); the σ oracle's null
                 // context sheet means an UNQUALIFIED binding to the control's own sheet is
                 // correctly not flagged.
+                // A `<dataRef ref="$A$1:$A$10" sheet="Data"/>` (CT_DataRef) names its source sheet
+                // in a SEPARATE `sheet` attribute, with a BARE `ref` — the σ oracle evaluated against
+                // the phantom host never sees the qualifier, so a dataRef targeting the edited sheet
+                // was committed STALE (round-59 defect 3). When a `sheet` sibling attribute is
+                // present, qualify a bare ref/sqref with it (mirroring rewrite_pivot's worksheetSource
+                // handling) so the σ oracle recognizes the cross-reference.
+                let sheet_attr = attr_by_local(&e, b"sheet");
                 for key in [
                     b"ref".as_slice(),
                     b"sqref".as_slice(),
@@ -2636,6 +2704,7 @@ fn foreign_sheet_ref_attr_crosses(xml: &[u8], edit: &StructuralEdit) -> bool {
                     b"fmlaTxbx".as_slice(),
                 ] {
                     if let Some(v) = attr_by_local(&e, key) {
+                        let is_ref = key == b"ref" || key == b"sqref";
                         // ref/sqref may be space-separated; test each token via the oracle. Use the
                         // QUOTE-AWARE tokenizer (round-52) so a space-containing quoted sheet
                         // qualifier (`'My Sheet'!$A$8`) stays ONE token — a raw split_whitespace tore
@@ -2643,10 +2712,18 @@ fn foreign_sheet_ref_attr_crosses(xml: &[u8], edit: &StructuralEdit) -> bool {
                         // a foreign binding to the edited sheet was committed STALE (silent
                         // mis-binding). The shift path already fixed this; the DETECTION path had
                         // drifted.
-                        if split_sqref_tokens(&v)
-                            .into_iter()
-                            .any(|tok| formula_would_shift(tok, edit))
-                        {
+                        let crosses = split_sqref_tokens(&v).into_iter().any(|tok| {
+                            if is_ref && !tok.contains('!') {
+                                if let Some(s) = &sheet_attr {
+                                    // A bare ref scoped to the sibling `sheet` — qualify it so the
+                                    // oracle can tell whether the named sheet is the edited one.
+                                    let q = format!("'{}'!{}", s.replace('\'', "''"), tok);
+                                    return formula_would_shift(&q, edit);
+                                }
+                            }
+                            formula_would_shift(tok, edit)
+                        });
+                        if crosses {
                             return true;
                         }
                     }
@@ -6541,6 +6618,25 @@ mod tests {
             pb.get("C1"),
             "parenthesized-operand change must differ"
         );
+        // REGRESSION (round-59 defect 2): the isect/coerce signature must apply the SAME
+        // value-neutral canonicalizations as the cell diff, so a cosmetic re-encoding (sheet-quote
+        // fold / TRUE()->TRUE) of a coercion or intersection formula is NOT over-refused.
+        let coerce_quoted = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="C1"><f>SUMPRODUCT(--('Data'!A1:A10&gt;5))</f></c></row></sheetData></worksheet>"#,
+        );
+        let coerce_bare = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="C1"><f>SUMPRODUCT(--(Data!A1:A10&gt;5))</f></c></row></sheetData></worksheet>"#,
+        );
+        assert_eq!(
+            coerce_quoted.get("C1"),
+            coerce_bare.get("C1"),
+            "a sheet-quote fold of a coercion body must not over-refuse: {coerce_quoted:?} vs {coerce_bare:?}"
+        );
+        // But a genuine coercion-operand change still differs.
+        let coerce_changed = formula_hidden_tokens(
+            br#"<worksheet><sheetData><row r="1"><c r="C1"><f>SUMPRODUCT(--(Data!A1:A10&gt;9))</f></c></row></sheetData></worksheet>"#,
+        );
+        assert_ne!(coerce_bare.get("C1"), coerce_changed.get("C1"));
         // But a plain arithmetic formula with spaces around an operator is NOT an intersection.
         let arith = formula_hidden_tokens(
             br#"<worksheet><sheetData><row r="1"><c r="C1"><f>A1 + A2</f></c></row></sheetData></worksheet>"#,
@@ -6714,6 +6810,27 @@ mod tests {
         assert!(!edited_sheet_has_prefixed_grid(
             br#"<worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData><extLst><ext xmlns:x14="urn:x14"><x14:dataValidations xmlns:xm="urn:xm"><x14:dataValidation><x14:formula1><xm:f>Sheet2!$A$1</xm:f></x14:formula1><xm:sqref>A5</xm:sqref></x14:dataValidation></x14:dataValidations></ext></extLst></worksheet>"#
         ));
+    }
+
+    #[test]
+    fn row_without_r_attribute_is_detected() {
+        // REGRESSION (round-59): a <row> without the OOXML-optional `r` attribute breaks the
+        // r-keyed insert/delete surgery (no-op delete + duplicate cell coordinates), so it must be
+        // refused up front. Rows that all carry `r` are fine.
+        assert!(edited_sheet_has_row_without_r(
+            br#"<worksheet><sheetData><row><c r="A1"><v>10</v></c></row><row r="2"><c r="A2"/></row></sheetData></worksheet>"#
+        ));
+        assert!(!edited_sheet_has_row_without_r(
+            br#"<worksheet><sheetData><row r="1"><c r="A1"/></row><row r="2"><c r="A2"/></row></sheetData></worksheet>"#
+        ));
+        // An empty sheetData (data-free workbook) has no offending row.
+        assert!(!edited_sheet_has_row_without_r(
+            br#"<worksheet><sheetData/></worksheet>"#
+        ));
+        // End-to-end: a row-axis delete on such a sheet must produce the residual, not a corrupt file.
+        let xml = br#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row><c r="A1"><v>10</v></c></row><row><c r="A2"><v>20</v></c></row><row><c r="A3"><v>30</v></c></row></sheetData></worksheet>"#;
+        // (edited_sheet_has_row_without_r is what the structural_edit pre-flight consults.)
+        assert!(edited_sheet_has_row_without_r(xml));
     }
 
     #[test]
@@ -7452,7 +7569,24 @@ mod tests {
             br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="Sheet1!$A$1:$A$10" sheet="Sheet1"/></dataRefs></dataConsolidate></worksheet>"#,
             &e
         ));
-        // an UNqualified ref (local to the foreign sheet) does NOT cross (no over-refusal)
+        // REGRESSION (round-59 defect 3): the SCHEMA-CONFORMANT CT_DataRef form has a BARE `ref` and
+        // names the source sheet in a separate `sheet` attribute — this must ALSO cross (it was
+        // committed stale because the phantom-host oracle never saw the qualifier).
+        assert!(foreign_sheet_ref_attr_crosses(
+            br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="$A$1:$A$10" sheet="Sheet1"/></dataRefs></dataConsolidate></worksheet>"#,
+            &e
+        ));
+        // a bare dataRef whose `sheet` is a DIFFERENT (space-named) sheet does not cross.
+        let e2 = edit("My Data", Axis::Row, Op::Insert, 2, 1);
+        assert!(foreign_sheet_ref_attr_crosses(
+            br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="$A$1:$A$10" sheet="My Data"/></dataRefs></dataConsolidate></worksheet>"#,
+            &e2
+        ));
+        assert!(!foreign_sheet_ref_attr_crosses(
+            br#"<worksheet><dataConsolidate><dataRefs><dataRef ref="$A$1:$A$10" sheet="Other"/></dataRefs></dataConsolidate></worksheet>"#,
+            &e2
+        ));
+        // an UNqualified ref (local to the foreign sheet, no `sheet` attr) does NOT cross.
         assert!(!foreign_sheet_ref_attr_crosses(
             br#"<worksheet><mergeCells><mergeCell ref="A1:B2"/></mergeCells></worksheet>"#,
             &e
