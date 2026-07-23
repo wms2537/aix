@@ -2554,13 +2554,21 @@ pub(crate) fn table_semantics(xml: &[u8]) -> Vec<String> {
     let mut buf = Vec::new();
     let mut out = Vec::new();
     let mut in_f = false;
+    // "calcf" (calculatedColumnFormula) or "totalsf" (totalsRowFormula) of the currently-open body.
+    let mut f_kind = "";
     let mut raw = String::new();
     // The ORDINAL position of each `<tableColumn>` — the engine resolves a structured reference
     // `Table1[Amount]` by the column's POSITION in the tableColumns list, so a reorder (names
     // unchanged) remaps the reference. Position-keying the column signature makes a reorder differ.
     let mut col_idx = 0usize;
-    let is_tbl_f = |n: &[u8]| {
-        tag_local_eq(n, b"calculatedColumnFormula") || tag_local_eq(n, b"totalsRowFormula")
+    let tbl_f_kind = |n: &[u8]| -> Option<&'static str> {
+        if tag_local_eq(n, b"calculatedColumnFormula") {
+            Some("calcf")
+        } else if tag_local_eq(n, b"totalsRowFormula") {
+            Some("totalsf")
+        } else {
+            None
+        }
     };
     loop {
         match reader.read_event_into(&mut buf) {
@@ -2604,15 +2612,21 @@ pub(crate) fn table_semantics(xml: &[u8]) -> Vec<String> {
                 }
                 col_idx += 1;
             }
-            Ok(Event::Start(e)) if is_tbl_f(e.name().as_ref()) => {
+            Ok(Event::Start(e)) if tbl_f_kind(e.name().as_ref()).is_some() => {
                 in_f = true;
+                f_kind = tbl_f_kind(e.name().as_ref()).unwrap();
                 raw.clear();
             }
             Ok(Event::Text(t)) if in_f => push_text_raw(&mut raw, &t),
             Ok(Event::GeneralRef(r)) if in_f => push_ref_raw(&mut raw, &r),
-            Ok(Event::End(e)) if in_f && is_tbl_f(e.name().as_ref()) => {
+            Ok(Event::End(e)) if in_f && tbl_f_kind(e.name().as_ref()).is_some() => {
+                // A calculatedColumnFormula/totalsRowFormula is the MASTER definition Excel refills
+                // the whole column from; keyed by its OWNING column ordinal (col_idx was already
+                // incremented past it at the tableColumn Start) so SWAPPING two computed columns'
+                // formulas differs (round-60 defect 7) — a bare `f=` pooled them position-blind.
                 out.push(format!(
-                    "f={}",
+                    "col[{}].{f_kind}={}",
+                    col_idx.saturating_sub(1),
                     logical_formula(&raw).unwrap_or_else(|| raw.clone())
                 ));
                 in_f = false;
