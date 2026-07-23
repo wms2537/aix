@@ -710,7 +710,11 @@ fn opaque_target_signature(bytes: &[u8]) -> Vec<String> {
             continue;
         };
         for sig in element_attr_signatures(&part) {
-            out.push(format!("{class}|{sig}"));
+            // Bind each signature to its OWNING PART so a CROSS-PART content SWAP — rebinding which
+            // external data source (queryTable connectionId, customXml DataMashup URL) fills which
+            // range, across two same-class parts — differs (round-62 defect 3, the twin of the
+            // round-61 external_rels_targets fix). Accepts a rare foreign part-renumber over-refusal.
+            out.push(format!("{class}|{low}|{sig}"));
         }
     }
     out.sort();
@@ -950,6 +954,10 @@ fn drawing_shape_links(x: &[u8], rels: &std::collections::BTreeMap<String, Strin
     out
 }
 
+/// (ancestor path at run start, accumulated `<a:t>` text, buffered `(kind, url)` hyperlinks) of an
+/// open `<a:r>` run in a chart.
+type ChartRun = (Vec<String>, String, Vec<(String, String)>);
+
 /// Chart-part hyperlink bindings: every `<a:hlinkClick r:id>` / `<a:hlinkHover r:id>` in a chart XML
 /// resolved through the chart's own rels to its target, KEYED BY the referencing element's ancestor
 /// path (so a chart title's hyperlink is distinguished from a series' one). A chart's `.rels` is
@@ -967,24 +975,45 @@ fn chart_hyperlink_sigs(
     let mut buf = Vec::new();
     let mut out = Vec::new();
     let mut path: Vec<String> = Vec::new();
-    let emit =
-        |kind: &[u8], e: &quick_xml::events::BytesStart, path: &[String], out: &mut Vec<String>| {
-            if let Some(id) = rel_id(e) {
-                let url = rels.get(&id).cloned().unwrap_or_default();
-                out.push(format!(
-                    "chartlink|{}|{}={url}",
-                    path.join(">"),
-                    String::from_utf8_lossy(kind),
-                ));
+    // Two hyperlinks at the SAME ancestor path (two runs in one paragraph, two data-label links)
+    // would collide and a swap of their targets be permutation-invariant (round-62 defect 8, the twin
+    // of the round-60 drawing_shape_links run-text binding). A run-level hyperlink is DEFERRED to its
+    // `<a:r>` End and keyed by the run's accumulated visible text (the meaningful label<->URL
+    // binding — its `<a:t>` follows the `<a:rPr><a:hlinkClick>`); a non-run same-path link gets a
+    // fail-closed per-path occurrence index.
+    // (ancestor path at run start, accumulated <a:t> text, buffered (kind,url) hyperlinks) of the
+    // currently-open `<a:r>` run.
+    let mut run: Option<ChartRun> = None;
+    let mut occ: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    // Resolve an hlink element to (kind, url) and either buffer it on the open run or emit it now.
+    let handle_link = |local: &[u8],
+                       e: &quick_xml::events::BytesStart,
+                       path: &[String],
+                       run: &mut Option<ChartRun>,
+                       occ: &mut std::collections::HashMap<String, usize>,
+                       out: &mut Vec<String>| {
+        if let Some(id) = rel_id(e) {
+            let url = rels.get(&id).cloned().unwrap_or_default();
+            let kind = String::from_utf8_lossy(local).into_owned();
+            if let Some((_, _, links)) = run.as_mut() {
+                links.push((kind, url));
+            } else {
+                let p = path.join(">");
+                let c = occ.entry(p.clone()).or_insert(0);
+                out.push(format!("chartlink|{p}|#{c}|{kind}={url}"));
+                *c += 1;
             }
-        };
+        }
+    };
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) => {
                 let name = e.name();
                 let local = structural::local_of(name.as_ref());
-                if local == b"hlinkClick" || local == b"hlinkHover" {
-                    emit(local, &e, &path, &mut out);
+                if local == b"r" {
+                    run = Some((path.clone(), String::new(), Vec::new()));
+                } else if local == b"hlinkClick" || local == b"hlinkHover" {
+                    handle_link(local, &e, &path, &mut run, &mut occ, &mut out);
                 }
                 path.push(String::from_utf8_lossy(local).into_owned());
             }
@@ -992,11 +1021,30 @@ fn chart_hyperlink_sigs(
                 let name = e.name();
                 let local = structural::local_of(name.as_ref());
                 if local == b"hlinkClick" || local == b"hlinkHover" {
-                    emit(local, &e, &path, &mut out);
+                    handle_link(local, &e, &path, &mut run, &mut occ, &mut out);
                 }
             }
-            Ok(Event::End(_)) => {
+            Ok(Event::Text(t)) if run.is_some() => {
+                if let Some((_, txt, _)) = run.as_mut() {
+                    txt.push_str(&String::from_utf8_lossy(t.as_ref()));
+                }
+            }
+            Ok(Event::GeneralRef(g)) if run.is_some() => {
+                if let Some((_, txt, _)) = run.as_mut() {
+                    txt.push_str(&String::from_utf8_lossy(g.as_ref()));
+                }
+            }
+            Ok(Event::End(e)) => {
                 path.pop();
+                if structural::local_of(e.name().as_ref()) == b"r" {
+                    if let Some((rpath, txt, links)) = run.take() {
+                        let base = rpath.join(">");
+                        let t = txt.trim();
+                        for (kind, url) in links {
+                            out.push(format!("chartlink|{base}|run[{t}]|{kind}={url}"));
+                        }
+                    }
+                }
             }
             Ok(Event::Eof) | Err(_) => break,
             _ => {}
@@ -1541,9 +1589,45 @@ fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
                 out: &mut Vec<String>| {
         match structural::local_of(e.name().as_ref()) {
             b"pivotField" if in_pf => {
+                // Position-key the axis AND the subtotal-function config: those flags decide which
+                // subtotal rows the field materializes and with what aggregate, but they lived only
+                // in the position-BLIND pivot_refs arm — so SWAPPING two same-axis fields' subtotal
+                // flags was invisible to the sorted multiset (round-62 defect 2). Keyed by ordinal
+                // here (pivotField[i] is bound to cacheField[i]), a swap now differs.
+                let sub = |k: &[u8], dflt: bool| -> &'static str {
+                    match attr_local(e, k) {
+                        Some(v) if v == "1" || v.eq_ignore_ascii_case("true") => "1",
+                        Some(_) => "0",
+                        None => {
+                            if dflt {
+                                "1"
+                            } else {
+                                "0"
+                            }
+                        }
+                    }
+                };
+                let subs = [
+                    "sumSubtotal",
+                    "countASubtotal",
+                    "avgSubtotal",
+                    "maxSubtotal",
+                    "minSubtotal",
+                    "productSubtotal",
+                    "countSubtotal",
+                    "stdDevSubtotal",
+                    "stdDevPSubtotal",
+                    "varSubtotal",
+                    "varPSubtotal",
+                ]
+                .iter()
+                .map(|f| format!("{f}={}", sub(f.as_bytes(), false)))
+                .collect::<Vec<_>>()
+                .join("|");
                 out.push(format!(
-                    "pivotField[{pf_idx}]|axis={}",
-                    attr_local(e, b"axis").unwrap_or_default()
+                    "pivotField[{pf_idx}]|axis={}|defaultSubtotal={}|{subs}",
+                    attr_local(e, b"axis").unwrap_or_default(),
+                    sub(b"defaultSubtotal", true),
                 ));
                 *pf_idx += 1;
             }
@@ -4520,6 +4604,33 @@ mod tests {
         );
         // A benign identical re-serialization still matches (no over-refusal).
         assert_eq!(pivot_refs(&region), pivot_refs(&region));
+        // SWAPPING the subtotal-function config between two same-axis fields (field0 Average,
+        // field1 Max -> field0 Max, field1 Average) re-aggregates yet left the position-BLIND
+        // pivotField multiset unchanged (round-62 defect 2) — now position-keyed in pivot_ordered_sigs.
+        let subs = |f0: &str, f1: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><rowFields count="2"><field x="0"/><field x="1"/></rowFields><pivotFields count="2"><pivotField axis="axisRow" {f0}/><pivotField axis="axisRow" {f1}/></pivotFields></pivotTableDefinition>"#
+            )
+        };
+        let s_ab = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &subs(r#"avgSubtotal="1""#, r#"maxSubtotal="1""#),
+            )],
+        );
+        let s_ba = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &subs(r#"maxSubtotal="1""#, r#"avgSubtotal="1""#),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&s_ab),
+            pivot_refs(&s_ba),
+            "a subtotal-function swap between two same-axis fields must differ"
+        );
     }
 
     #[test]
@@ -5277,6 +5388,35 @@ mod tests {
         let refusal = verify_noncell_refs(&inert, &autorun)
             .expect("an injected customUI autorun callback must be refused");
         assert_eq!(refusal["reason"], "external_target_mismatch");
+    }
+
+    #[test]
+    fn opaque_part_cross_part_content_swap_is_caught() {
+        // REGRESSION (round-62 defect 3, security): opaque_target_signature pooled queryTable /
+        // customXml / customUI parts by CLASS only, so SWAPPING content across two same-class parts
+        // (rebinding which external data source fills which range) survived the sorted multiset.
+        // Binding each signature to its owning part catches it (twin of round-61's external_rels fix).
+        let qt =
+            |conn: &str| format!(r#"<queryTable xmlns="urn:x" name="Q" connectionId="{conn}"/>"#);
+        let mk = |c1: &str, c2: &str| {
+            wb(
+                "",
+                &[
+                    ("xl/queryTables/queryTable1.xml", &qt(c1)),
+                    ("xl/queryTables/queryTable2.xml", &qt(c2)),
+                ],
+            )
+        };
+        // queryTable1 -> connection 1 (public), queryTable2 -> connection 2 (salary).
+        let good = mk("1", "2");
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // SWAP across parts: queryTable1 now binds connection 2. Same global connectionId multiset.
+        let swapped = mk("2", "1");
+        assert_eq!(
+            verify_noncell_refs(&good, &swapped)
+                .expect("a cross-part queryTable connection swap must refuse")["reason"],
+            "external_target_mismatch"
+        );
     }
 
     #[test]
@@ -6716,6 +6856,39 @@ mod tests {
         assert_eq!(
             verify_noncell_refs(&good, &evil).expect("a chart-XML hyperlink repoint must refuse")
                 ["reason"],
+            "chart_drawing_mismatch"
+        );
+    }
+
+    #[test]
+    fn chart_same_path_hyperlink_run_swap_is_caught() {
+        // REGRESSION (round-62 defect 8, false-certify): two hyperlinked RUNS in ONE chart-title
+        // paragraph share the same ancestor path, so keying by path alone collided and a SWAP of
+        // which visible run text carries which URL was permutation-invariant. Binding a run hyperlink
+        // to its visible run text (mirroring drawing_shape_links) catches it.
+        let title = |r1: &str, r2: &str| {
+            format!(
+                r#"<c:chartSpace xmlns:c="urn:c" xmlns:a="urn:a" xmlns:r="urn:r"><c:title><c:tx><c:rich><a:p><a:r><a:rPr><a:hlinkClick r:id="{r1}"/></a:rPr><a:t>Report</a:t></a:r><a:r><a:rPr><a:hlinkClick r:id="{r2}"/></a:rPr><a:t>Terms</a:t></a:r></a:p></c:rich></c:tx></c:title></c:chartSpace>"#
+            )
+        };
+        let rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdA" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://corp.example/report" TargetMode="External"/><Relationship Id="rIdB" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://evil.example/phish" TargetMode="External"/></Relationships>"#;
+        let mk = |r1: &str, r2: &str| {
+            wb(
+                "",
+                &[
+                    ("xl/charts/chart1.xml", &title(r1, r2)),
+                    ("xl/charts/_rels/chart1.xml.rels", rels),
+                ],
+            )
+        };
+        // "Report" run -> rIdA (report), "Terms" run -> rIdB (phish).
+        let good = mk("rIdA", "rIdB");
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // SWAP the two runs' r:ids: "Report" now opens the phish URL. Same path, same URL multiset.
+        let evil = mk("rIdB", "rIdA");
+        assert_eq!(
+            verify_noncell_refs(&good, &evil)
+                .expect("a same-path chart run hyperlink swap must refuse")["reason"],
             "chart_drawing_mismatch"
         );
     }

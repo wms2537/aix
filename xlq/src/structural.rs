@@ -4100,14 +4100,22 @@ fn container_child_count(xml: &[u8], container: &[u8], child: &[u8]) -> Option<u
     let mut buf = Vec::new();
     let mut inside = false;
     let mut present = false;
+    // Count only the FIRST container instance's children. `tag_local_eq` is prefix-blind, so a later
+    // `<x14:dataValidations>` extLst TWIN would otherwise re-arm `inside` and its children would
+    // inflate the count spliced into the LEGACY `<dataValidations count>` — a schema-invalid file
+    // (round-62 defect 5). `done` freezes counting after the first container closes.
+    let mut done = false;
     let mut count = 0u32;
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) if tag_local_eq(e.name().as_ref(), container) => {
+            Ok(Event::Start(e)) if !done && tag_local_eq(e.name().as_ref(), container) => {
                 inside = true;
                 present = true;
             }
-            Ok(Event::End(e)) if tag_local_eq(e.name().as_ref(), container) => inside = false,
+            Ok(Event::End(e)) if inside && tag_local_eq(e.name().as_ref(), container) => {
+                inside = false;
+                done = true;
+            }
             Ok(Event::Start(e)) | Ok(Event::Empty(e))
                 if inside && tag_local_eq(e.name().as_ref(), child) =>
             {
@@ -8420,6 +8428,20 @@ mod tests {
         assert!(
             structural_edit(&input, &e).is_err(),
             "col move must be rejected"
+        );
+    }
+
+    #[test]
+    fn container_child_count_ignores_prefixed_x14_twin() {
+        // REGRESSION (round-62 defect 5, invalid-output): a worksheet's legacy <dataValidations>
+        // (2 children) plus its x14 extLst TWIN <x14:dataValidations> (1 child) must count as 2 for
+        // the legacy container's @count — tag_local_eq is prefix-blind, so the twin re-armed the
+        // counter and produced 3, splicing a schema-invalid count into the legacy start tag.
+        let xml = br#"<worksheet><dataValidations count="2"><dataValidation sqref="A1"/><dataValidation sqref="A2"/></dataValidations><extLst><ext><x14:dataValidations xmlns:x14="urn:x14" count="1"><x14:dataValidation><x14:sqref>B1</x14:sqref></x14:dataValidation></x14:dataValidations></ext></extLst></worksheet>"#;
+        assert_eq!(
+            container_child_count(xml, b"dataValidations", b"dataValidation"),
+            Some(2),
+            "the x14 twin's child must not inflate the legacy count"
         );
     }
 }
