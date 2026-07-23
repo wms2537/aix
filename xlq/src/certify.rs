@@ -620,8 +620,11 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
                                                      // source refs compared via pivot_refs
         || low.starts_with("xl/theme/")              // colors/fonts
         || low.starts_with("docprops/")              // document metadata
-        || low.starts_with("customxml/")             // inert custom-XML data island: Excel
-                                                     // formulas cannot read it, no coordinate
+        || low.starts_with("customxml/")             // custom-XML data island: no worksheet
+                                                     // coordinate, but its CONTENT (Power Query
+                                                     // DataMashup source URLs) is compared by
+                                                     // opaque_target_signature, not security-inert
+
         || low.starts_with("xl/media/")              // embedded images
         || low.starts_with("xl/printersettings/")    // opaque binary print settings
         || low.starts_with("xl/charts/")             // chart data refs — compared semantically
@@ -682,6 +685,13 @@ fn opaque_target_signature(bytes: &[u8]) -> Vec<String> {
             "querytable"
         } else if low.starts_with("customui/") && low.ends_with(".xml") {
             "customui"
+        } else if low.starts_with("customxml/") && low.ends_with(".xml") {
+            // A custom-XML data island is NOT security-inert: Power Query stores its M queries and
+            // their EXTERNAL data-source URLs (Web.Contents/OData/SQL, executed on refresh) inline
+            // as a `<DataMashup>base64…</DataMashup>` blob here, while `connections.xml` only names
+            // the query. A repoint rewrites only this part; xlq copies it verbatim, so a faithful
+            // edit keeps it identical and a source repoint differs (round-56 defect 10).
+            "customxml"
         } else {
             continue;
         };
@@ -794,6 +804,20 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                         .find_map(|kv| kv.strip_prefix("textlink="))
                     {
                         drawings.push(format!("textlink={tl}"));
+                    }
+                    // A DrawingML shape's `macro=` is its "Assign Macro" click binding (Excel runs
+                    // it on click) — the modern analog of the VML `<x:FmlaMacro>` that
+                    // control_bindings already compares. A re-point (SubmitReport -> Exfiltrate) is
+                    // a behavior/security change no cell diff or vba_parts byte-compare sees. Only a
+                    // NON-empty value is emitted, so the ubiquitous `macro=""` default on a
+                    // non-macro shape does not over-refuse.
+                    if let Some(m) = attrs
+                        .split(structural::ATTR_SEP)
+                        .find_map(|kv| kv.strip_prefix("macro="))
+                    {
+                        if !m.is_empty() {
+                            drawings.push(format!("macro={m}"));
+                        }
                     }
                 }
                 // A shape/image hyperlink (`<a:hlinkClick r:id>`) resolves through the
@@ -2467,27 +2491,20 @@ fn formula_has_early_serial_literal(formula: &str) -> bool {
     false
 }
 
-/// True if the model holds a DATE-formatted numeric value in the divergent early-date range (a
-/// serial in `(0, 61)`), meaning a date consumer that reads it would compute an Excel-divergent
-/// result. Uses the engine's own date-format classifier so a plain small number (a count/index) is
-/// NOT mistaken for a date — which keeps the consumer gate from over-refusing the common workbook.
-fn model_has_early_date_value(model: &ironcalc::base::Model) -> bool {
-    for cell in model.get_all_cells() {
-        let is_early = matches!(
-            cell_value_sig(model, cell.index, cell.row, cell.column)
-                .and_then(|sig| sig.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok())),
-            Some(v) if v > 0.0 && v < 61.0
-        );
-        if !is_early {
-            continue;
-        }
-        if let Ok(style) = model.get_style_for_cell(cell.index, cell.row, cell.column) {
-            if ironcalc::base::formatter::lexer::is_likely_date_number_format(&style.num_fmt) {
-                return true;
-            }
-        }
-    }
-    false
+/// A per-run UNPREDICTABLE numeric probe (as a decimal string) for poison-and-diff. The value MUST
+/// NOT be knowable to an adversary crafting the workbook: a fixed public constant could be encoded
+/// into a source-dependent formula invariant under exactly that probe, laundering the engine's wrong
+/// value into the oracle (round-56 defect 1). Seeded from the OS RNG via std's `RandomState` (each
+/// `new()` reseeds), which is unpredictable at file-craft time regardless of the RNG's strength.
+fn random_probe() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let n = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish();
+    // A large value with a fractional part, unlikely to collide with a real cell value.
+    let int = 1_000_000_000u64 + (n % 8_000_000_000);
+    let frac = (n >> 21) % 1_000_000;
+    format!("{int}.{frac:06}")
 }
 
 /// An oracle mapping (sheet name, A1 cell) -> the `type:value` cache signature of the TRUE computed
@@ -2503,11 +2520,13 @@ fn model_has_early_date_value(model: &ironcalc::base::Model) -> bool {
 /// clean-but-WRONG value a fabricated cache could match), it isolates the trustworthy cells by
 /// POISON-AND-DIFF: overwrite every "source" cell (whose formula calls such a function) with a
 /// constant and re-evaluate; a cell whose value CHANGES depends on a source cell and is EXCLUDED.
-/// Two distinct constants plus the normal (error-valued) evaluation are used, so a false
-/// "unchanged" requires a formula coincidentally constant on all three probes yet dependent —
-/// effectively unconstructable, and such a cell's value is a genuine constant anyway. A cell that
-/// survives is provably independent of every unsupported result, so the engine's value for it
-/// equals Excel's and vouching a matching cache is sound.
+/// Two PER-RUN RANDOM constants plus the normal (error-valued) evaluation are used. The randomness
+/// is load-bearing for SOUNDNESS: with a fixed public probe an adversary could craft a
+/// source-dependent formula invariant under exactly that value yet different for the source's true
+/// value; because the workbook is crafted before certify runs, it cannot pre-encode the run-time
+/// random probes, so such a formula is no longer invariant under them and is correctly excluded. A
+/// cell that survives all probes is independent of every unsupported result (a genuine constant like
+/// `=A1*0`), so the engine's value for it equals Excel's and vouching a matching cache is sound.
 /// The (sheet-name, A1) of every cell whose `<f>` body carries a top-level range-intersection —
 /// excluded from the cache oracle (the engine cannot evaluate the operator). Read from the raw XML
 /// because the engine's reparse drops it.
@@ -2773,52 +2792,113 @@ fn build_cache_oracle(
     }
     // Exclude a date CONSUMER (DAY/MONTH/YEAR/WEEKDAY/…) whose INPUT serial is in the divergent
     // early-date range [1, 60], where the engine's phantom-leap-day omission makes its result off by
-    // one from Excel. Gate on a REACHABLE early input: an early date VALUE in the workbook (any
-    // consumer could read it) OR an early-serial LITERAL in the consumer's own formula (`DAY(59)`).
-    // Value/format-gated so the ubiquitous MODERN-date consumer (input >= 61, engine == Excel) stays
-    // vouchable — no blanket over-refusal. (A NON-date-formatted plain number < 61 fed directly to a
-    // date function — a semantically meaningless construct — is the one input this cannot see; it is
-    // a documented bounded limitation, consistent with the engine's deliberate pre-1900 divergence.)
+    // one from Excel. Two reachable inputs: (a) a hard-coded early-serial LITERAL in the consumer's
+    // own body (`DAY(59)`); (b) an early serial reached through a cell REFERENCE (`DAY(A1)`, A1 in
+    // [1,60] — date-formatted OR a plain number). Case (b) is detected PRECISELY by poisoning every
+    // small numeric VALUE cell to a modern serial and diffing the consumers: one whose value changes
+    // read an early serial and diverges, so it is excluded — while a modern-date consumer (input >=
+    // 61) is unaffected and stays vouchable. Restored before the main poison-diff so the oracle
+    // values stay clean.
     if !date_consumers.is_empty() {
-        let workbook_has_early_date = date_producers.iter().any(|&(s, r, c)| {
-            matches!(
-                cell_value_sig(model, s, r, c)
-                    .and_then(|sig| sig.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok())),
-                Some(v) if v < 61.0
-            )
-        }) || model_has_early_date_value(model);
         for &((s, r, c), has_early_literal) in &date_consumers {
-            if workbook_has_early_date || has_early_literal {
+            if has_early_literal {
                 sources.push((s, r, c));
             }
         }
     }
     sources.sort();
     sources.dedup();
-    // Fast path: no unsupported/policy/UDF function -> every formula cell is trustworthy.
-    if sources.is_empty() {
-        return Some(snap(model));
+    // Fast path: no unsupported/policy/UDF function -> every formula cell is trustworthy. (Still
+    // subject to the early-date-consumer prune below.)
+    let oracle = if sources.is_empty() {
+        snap(model)
+    } else {
+        // Poison-and-diff taint isolation, with PER-RUN RANDOM probe values (round-56 defect 1). A
+        // FIXED, publicly-known probe let an adversary craft a source-dependent formula invariant
+        // under exactly those constants (`IF(OR(A1=1234567,A1=-98765.4321),…)`) yet different for the
+        // source's true value — laundering the engine's error-masked value into the oracle. The
+        // workbook is crafted BEFORE certify runs, so unpredictable run-time probes cannot be
+        // pre-encoded: the crafted formula is no longer invariant under the (now random) poisons and
+        // is correctly tainted.
+        let (p1, p2) = (random_probe(), random_probe());
+        let v_err = snap(model); // normal eval: source cells are their (error-valued) formulas
+        for &(s, r, c) in &sources {
+            let _ = model.set_user_input(s, r, c, p1.clone());
+        }
+        model.evaluate();
+        let v_k1 = snap(model);
+        for &(s, r, c) in &sources {
+            let _ = model.set_user_input(s, r, c, p2.clone());
+        }
+        model.evaluate();
+        let v_k2 = snap(model);
+        // Untainted iff the value is IDENTICAL across the normal eval and both poisonings.
+        let mut out = std::collections::HashMap::new();
+        for (key, sig) in &v_err {
+            if v_k1.get(key) == Some(sig) && v_k2.get(key) == Some(sig) {
+                out.insert(key.clone(), sig.clone());
+            }
+        }
+        out
+    };
+    // Prune date CONSUMERS that read an early serial through a cell REFERENCE (round-56 defect 2):
+    // poison every small numeric VALUE cell (in (0,61)) to a modern serial, re-evaluate, and drop any
+    // consumer whose value changes — it read an early serial the engine computes off by one from
+    // Excel. Runs LAST (the model is discarded after), so no restore is needed; a modern-date
+    // consumer (input >= 61) is unaffected and stays vouchable.
+    Some(prune_early_date_consumers(
+        model,
+        &date_consumers,
+        &names,
+        oracle,
+    ))
+}
+
+/// See the call site in `build_cache_oracle`. Drops from `oracle` every date-consumer cell whose
+/// value depends on a small numeric VALUE cell (an early serial the engine renders off-by-one).
+fn prune_early_date_consumers(
+    model: &mut ironcalc::base::Model,
+    date_consumers: &[((u32, i32, i32), bool)],
+    names: &[String],
+    mut oracle: std::collections::HashMap<(String, String), String>,
+) -> std::collections::HashMap<(String, String), String> {
+    if date_consumers.is_empty() {
+        return oracle;
     }
-    // Poison-and-diff taint isolation.
-    let v_err = snap(model); // normal eval: source cells are their (error-valued) formulas
-    for &(s, r, c) in &sources {
-        let _ = model.set_user_input(s, r, c, "1234567".to_string());
+    let small: Vec<(u32, i32, i32)> = model
+        .get_all_cells()
+        .into_iter()
+        .filter(|cell| {
+            matches!(
+                model.get_cell_formula(cell.index, cell.row, cell.column),
+                Ok(None)
+            ) && matches!(
+                cell_value_sig(model, cell.index, cell.row, cell.column)
+                    .and_then(|s| s.strip_prefix("n:").and_then(|x| x.parse::<f64>().ok())),
+                Some(v) if v > 0.0 && v < 61.0
+            )
+        })
+        .map(|cell| (cell.index, cell.row, cell.column))
+        .collect();
+    if small.is_empty() {
+        return oracle;
+    }
+    let before: Vec<Option<String>> = date_consumers
+        .iter()
+        .map(|&((s, r, c), _)| cell_value_sig(model, s, r, c))
+        .collect();
+    for &(s, r, c) in &small {
+        let _ = model.set_user_input(s, r, c, "44000".to_string());
     }
     model.evaluate();
-    let v_k1 = snap(model);
-    for &(s, r, c) in &sources {
-        let _ = model.set_user_input(s, r, c, "-98765.4321".to_string());
-    }
-    model.evaluate();
-    let v_k2 = snap(model);
-    // Untainted iff the value is IDENTICAL across the normal eval and both poisonings.
-    let mut out = std::collections::HashMap::new();
-    for (key, sig) in &v_err {
-        if v_k1.get(key) == Some(sig) && v_k2.get(key) == Some(sig) {
-            out.insert(key.clone(), sig.clone());
+    for (i, &((s, r, c), _)) in date_consumers.iter().enumerate() {
+        if cell_value_sig(model, s, r, c) != before[i] {
+            if let (Some(name), Ok(a1)) = (names.get(s as usize), diff::a1(r, c)) {
+                oracle.remove(&(name.clone(), a1));
+            }
         }
     }
-    Some(out)
+    oracle
 }
 
 /// The set of (sheet-name, A1) cells whose value TRANSITIVELY depends on a VOLATILE function
@@ -3012,7 +3092,16 @@ fn attr_value_at(tag: &str, name_end: usize) -> Option<String> {
     };
     let rest = &tag[j + 1..];
     let end = rest.find(q as char)?;
-    Some(rest[..end].to_string())
+    let raw = &rest[..end];
+    // RESOLVE XML entity / character references, so an entity-encoded value is compared as its
+    // real content — `date1904="&#49;"` is spec-equivalent to `date1904="1"` and Excel honors it,
+    // but a raw read saw the literal `&#49;`, bucketed it as the 1900 DEFAULT, and CERTIFIED a
+    // silent epoch flip (round-56 defect 11). A malformed entity falls back to the raw text.
+    Some(
+        quick_xml::escape::unescape(raw)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| raw.to_string()),
+    )
 }
 
 /// Value of attribute `key` in a start tag (quote-agnostic). `key` is matched only as a
@@ -3278,6 +3367,15 @@ mod tests {
             r#"<workbook><workbookPr/></workbook>"#
         )));
         assert!(!workbook_is_date1904(&wb_only(r#"<workbook/>"#)));
+        // REGRESSION (round-56 defect 11): an ENTITY-encoded value is spec-equivalent and Excel
+        // honors it, so it must resolve to true — a raw read saw `&#49;`, bucketed it as the 1900
+        // default, and CERTIFIED a silent epoch flip.
+        assert!(workbook_is_date1904(&wb_only(
+            r#"<workbook><workbookPr date1904="&#49;"/></workbook>"#
+        )));
+        assert!(workbook_is_date1904(&wb_only(
+            r#"<workbook><workbookPr date1904="&#116;rue"/></workbook>"#
+        )));
         // The date-epoch exclusion set covers the calendar decomposition/construction functions.
         for f in ["YEAR", "DATE", "EOMONTH", "WEEKDAY", "TEXT"] {
             assert!(
@@ -4284,6 +4382,65 @@ mod tests {
     }
 
     #[test]
+    fn poison_diff_excludes_a_probe_crafted_source_dependent() {
+        // REGRESSION (round-56 defect 1, HIGH false-certify): a formula crafted to be invariant
+        // under the OLD fixed poison constants (1234567 / -98765.4321) but different for the source's
+        // true value must NOT be vouched. A1 t="d" loads as #N/IMPL! (a source); B1 launders it.
+        // With PER-RUN RANDOM probes B1 is no longer invariant and is correctly excluded.
+        let rows = r#"<row r="1"><c r="A1" t="d"><v>2020-01-01T00:00:00</v></c><c r="B1"><f>IF(ISERROR(A1),111,IF(OR(A1=1234567,A1=-98765.4321),111,222))</f><v>111</v></c><c r="D1"><f>SUM(A2:A3)</f><v>0</v></c></row><row r="2"><c r="A2"><v>7</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load probe-craft workbook");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("B1")),
+            "a probe-crafted laundering formula (invariant under the OLD fixed constants) must be \
+             excluded now that the probes are random: {oracle:?}"
+        );
+        assert!(
+            oracle.contains_key(&key("D1")),
+            "an unrelated pure SUM stays vouchable"
+        );
+    }
+
+    #[test]
+    fn date_consumer_reading_a_plain_early_value_is_excluded() {
+        // REGRESSION (round-56 defect 2, false-certify): DAY(A1) where A1=59 is a PLAIN (non-date-
+        // formatted) number, so the round-54 format/literal gates miss it, yet the engine computes
+        // DAY(59)=27 (Excel 28). The value-cell poison-diff detects that B1 reads an early serial and
+        // excludes it, while a consumer reading a MODERN value (C1=DAY(A2), A2=44000) stays vouchable.
+        let rows = r#"<row r="1"><c r="A1"><v>59</v></c><c r="B1"><f>DAY(A1)</f><v>28</v></c><c r="C1"><f>DAY(A2)</f><v>15</v></c></row><row r="2"><c r="A2"><v>44000</v></c></row>"#;
+        let bytes = oracle_wb(rows);
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load early-value workbook");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("B1")),
+            "DAY of a plain early value (A1=59) must be excluded (engine off-by-one): {oracle:?}"
+        );
+        assert!(
+            oracle.contains_key(&key("C1")),
+            "DAY of a MODERN value (A2=44000) stays vouchable — no over-refusal"
+        );
+    }
+
+    #[test]
     fn formula_reading_a_t_d_date_cell_is_not_vouched() {
         // REGRESSION (round-55 defect 1, HIGH false-certify): the importer loads a `t="d"` ISO-date
         // VALUE cell as the engine's NOT-IMPLEMENTED sentinel (#N/IMPL!). A formula that READS it
@@ -4693,6 +4850,45 @@ mod tests {
     }
 
     #[test]
+    fn drawing_shape_macro_repoint_is_caught() {
+        // REGRESSION (round-56 defect 3, HIGH security): a DrawingML shape's `macro=` click binding
+        // (the modern analog of VML FmlaMacro) was scanned but never compared, so re-pointing a
+        // button from a benign macro to a destructive one CERTIFIED. Now compared in chart_drawing_refs.
+        let shape = |mac: &str| {
+            format!(
+                r#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:sp macro="{mac}"><xdr:nvSpPr/></xdr:sp></xdr:wsDr>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[(
+                "xl/drawings/drawing1.xml",
+                shape("Module1.SubmitReport").as_str(),
+            )],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let evil = wb(
+            "",
+            &[(
+                "xl/drawings/drawing1.xml",
+                shape("Module1.WipeAndExfiltrate").as_str(),
+            )],
+        );
+        let refusal =
+            verify_noncell_refs(&good, &evil).expect("a drawing macro re-point must be caught");
+        assert_eq!(refusal["reason"], "chart_drawing_mismatch");
+        // A non-macro shape (macro="" / absent) is not spuriously refused.
+        let plain = wb(
+            "",
+            &[(
+                "xl/drawings/drawing1.xml",
+                r#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:sp macro=""><xdr:nvSpPr/></xdr:sp></xdr:wsDr>"#,
+            )],
+        );
+        assert!(verify_noncell_refs(&plain, &plain).is_none());
+    }
+
+    #[test]
     fn drawing_linked_image_external_target_repoint_is_caught() {
         // REGRESSION (round-53 defect 7, HIGH security): a drawing LINKED image (`<a:blip r:link>`)
         // resolves through the drawing's `.rels` to a `TargetMode="External"` URL that Excel
@@ -4949,13 +5145,37 @@ mod tests {
 
     #[test]
     fn custom_xml_part_is_certify_safe() {
-        // An inert custom-XML data island carries no worksheet coordinate; certify must not
-        // refuse xlq's own transform of a workbook containing one.
+        // A custom-XML data island carries no worksheet coordinate; certify must not refuse xlq's
+        // own transform of a workbook containing one (identical content -> no refusal).
         let bytes = wb(
             "",
             &[("customXml/item1.xml", "<root><tag>hello</tag></root>")],
         );
         assert!(verify_noncell_refs(&bytes, &bytes).is_none());
+    }
+
+    #[test]
+    fn custom_xml_datamashup_repoint_is_caught() {
+        // REGRESSION (round-56 defect 10, HIGH security): a Power Query DataMashup source URL lives
+        // inline in customXml (base64), which was allowlisted as inert and never compared — a repoint
+        // (good -> evil) CERTIFIED. Its CONTENT is now compared via opaque_target_signature.
+        let mashup = |host: &str| {
+            format!(
+                r#"<root><DataMashup>M-source Web.Contents("https://{host}/api")</DataMashup></root>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[("customXml/item1.xml", mashup("good.example").as_str())],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let evil = wb(
+            "",
+            &[("customXml/item1.xml", mashup("evil.example").as_str())],
+        );
+        let refusal = verify_noncell_refs(&good, &evil)
+            .expect("a repointed DataMashup query source must refuse");
+        assert_eq!(refusal["reason"], "external_target_mismatch");
     }
 
     #[test]

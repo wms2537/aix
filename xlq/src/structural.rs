@@ -1201,6 +1201,19 @@ fn shift_textlink_in_tag(
         _ => return (e.to_owned(), 0, 0, false),
     };
     if refshift::has_unquoted_non_ascii_qualifier(&tl) {
+        // On an ASCII host (edited) sheet a non-ASCII qualifier necessarily names a DIFFERENT sheet
+        // the edit cannot move, so — like the main `<f>` path — neutralize those refs and refuse
+        // ONLY if the remaining host-sheet portion actually shifts (or the span is non-neutralizable,
+        // or the host sheet is itself non-ASCII). A textlink to only a non-ASCII sheet is copied
+        // verbatim, not refused (round-56 defect 7).
+        if host.is_ascii() {
+            match refshift::neutralize_non_ascii_quals(&tl) {
+                Some(resid) if refshift::shift_formula(&resid, host, edit).0 == resid => {
+                    return (e.to_owned(), 0, 0, false);
+                }
+                _ => return (e.to_owned(), 0, 0, true),
+            }
+        }
         return (e.to_owned(), 0, 0, true);
     }
     let before_ref = tl.matches("#REF!").count();
@@ -1872,7 +1885,18 @@ pub(crate) fn formula_cache_map(xml: &[u8]) -> std::collections::BTreeMap<String
                 let v_val = logical_formula(&v_text).unwrap_or_else(|| v_text.clone());
                 if has_f && !v_val.trim().is_empty() {
                     if let Some(r) = cell_ref.take() {
-                        out.insert(r, format!("{cell_type}:{}", v_val.trim()));
+                        // A STRING result's leading/trailing whitespace is SIGNIFICANT — a
+                        // `=A1&" "` label or fixed-width padding — and the engine oracle
+                        // (`cell_value_sig`) does not trim it, so trimming here refused a faithful
+                        // padded-string cache (round-56 defect 4). Preserve str: verbatim; a
+                        // numeric/bool/error value carries no significant surrounding whitespace, so
+                        // trim those (f64::parse rejects surrounding whitespace anyway).
+                        let stored = if cell_type == "str" {
+                            v_val.as_str()
+                        } else {
+                            v_val.trim()
+                        };
+                        out.insert(r, format!("{cell_type}:{stored}"));
                     }
                 }
                 cell_ref = None;
@@ -3912,7 +3936,17 @@ fn rewrite_edited_sheet(
     // opens with a repair prompt. Omit an emptied container (the `<cols>` path already does this for
     // its children). `<hyperlinks` cannot collide with the child `<hyperlink ` — it is the longer
     // name and omit_empty_container requires a name boundary.
-    for c in ["mergeCells", "dataValidations", "hyperlinks"] {
+    // `<ignoredErrors>` (child `<ignoredError>` minOccurs=1) and `<sortState>` (child
+    // `<sortCondition>` minOccurs=1) can also be emptied when a delete consumes their only child's
+    // ref via ref_fully_consumed (both are has_ref_attr elements) — an empty container is
+    // schema-invalid the same way, so omit it too (round-56 defect 8).
+    for c in [
+        "mergeCells",
+        "dataValidations",
+        "hyperlinks",
+        "ignoredErrors",
+        "sortState",
+    ] {
         out = omit_empty_container(out, c);
     }
     // A delete that drops SOME (not all) children leaves the container's `count` attribute stale
@@ -4722,7 +4756,23 @@ fn shift_datatable_attrs(
             let (nv, n, c, _all) = shift_sqref(&val, sheet, edit);
             report.refs_shifted += n;
             report.ref_errors += c;
-            if nv != val {
+            // A what-if data table carries its input cells (r1/r2) and output extent (ref) as LIVE
+            // coordinates. When a DELETE consumes one (c > 0, or the value collapses to empty), it
+            // cannot be expressed as a coordinate shift — writing `r1=""` is a malformed ST_CellRef
+            // Excel treats as corrupt (round-56 defects 5/9). Fail closed: emit a residual so
+            // restructure REFUSES, rather than committing an empty/invalid reference.
+            if c > 0 || (!val.is_empty() && nv.trim().is_empty()) {
+                report.residuals.push(Residual {
+                    part: format!("worksheet ({sheet})"),
+                    reason: "datatable_input_consumed".into(),
+                    detail: "a what-if data table's input cell / output extent (ref/r1/r2) is \
+                             consumed by the delete — not coordinate-shiftable, edit refused \
+                             (fail-closed)"
+                        .into(),
+                });
+                // The edit is refused; leave the ORIGINAL attribute value rather than splice in a
+                // malformed empty ST_CellRef.
+            } else if nv != val {
                 repl.push((sk, nv));
             }
         }
@@ -4859,12 +4909,26 @@ fn array_formula_affected(
     let body_moved = if body_raw.is_empty() {
         false
     } else {
-        logical_formula(body_raw)
-            .map(|l| {
-                refshift::has_unquoted_non_ascii_qualifier(&l)
-                    || refshift::shift_formula(&l, sheet, edit).0 != l
-            })
-            .unwrap_or(true) // unparseable body -> fail closed
+        match logical_formula(body_raw) {
+            None => true, // unparseable body -> fail closed
+            Some(l) if refshift::has_unquoted_non_ascii_qualifier(&l) => {
+                // A non-ASCII sheet qualifier on an ASCII edited sheet necessarily names a DIFFERENT
+                // sheet the edit cannot move, so — mirroring the main `<f>` path (rewrite_edited_sheet)
+                // and scan_extra_residuals's `!edit.sheet.is_ascii()` gate — neutralize those refs and
+                // flag only if the remaining (edited-sheet) portion shifts. A non-ASCII 3D span that
+                // could enclose the edited sheet (neutralize -> None) fails closed, as does a non-ASCII
+                // EDITED sheet (the qualifier could be an unparseable self-reference).
+                if sheet.is_ascii() {
+                    match refshift::neutralize_non_ascii_quals(&l) {
+                        Some(resid) => refshift::shift_formula(&resid, sheet, edit).0 != resid,
+                        None => true,
+                    }
+                } else {
+                    true
+                }
+            }
+            Some(l) => refshift::shift_formula(&l, sheet, edit).0 != l,
+        }
     };
     ref_moved || body_moved
 }
@@ -6200,6 +6264,18 @@ mod tests {
         // a graphic-frame formula referencing a moved cell -> `<xdr:f>` body shifts to A9
         let gf = r#"<xdr:wsDr xmlns:xdr="u"><xdr:graphicFrame><xdr:f>Sheet1!$A$8</xdr:f></xdr:graphicFrame></xdr:wsDr>"#;
         assert!(shifted(gf).contains("<xdr:f>Sheet1!$A$9</xdr:f>"));
+
+        // REGRESSION (round-56 defect 7): a textlink to a NON-ASCII-named sheet on an ASCII host is
+        // copied verbatim (NOT refused) — the edit on Sheet1 cannot move a cell on 集計.
+        let (out, _n, _e, q) =
+            shift_drawing_refs(tl("集計!$A$8").as_bytes(), "Sheet1", &ins5).unwrap();
+        assert!(
+            !q,
+            "non-ASCII textlink to another sheet must not raise qualifier_risk"
+        );
+        assert!(String::from_utf8(out)
+            .unwrap()
+            .contains(r#"textlink="集計!$A$8""#));
     }
 
     #[test]
@@ -6433,6 +6509,14 @@ mod tests {
         );
         assert_eq!(ent.get("C1").map(String::as_str), Some("str:Sales & Costs"));
         assert_eq!(ent.get("D1").map(String::as_str), Some("str:a < b"));
+        // REGRESSION (round-56 defect 4): a STRING result's leading/trailing whitespace is
+        // SIGNIFICANT (a `=A1&" "` label); it must NOT be trimmed (the engine oracle does not trim
+        // it), else a faithful padded-string cache is refused. A numeric cache stays trimmed.
+        let padded = formula_cache_map(
+            br#"<worksheet><sheetData><row r="1"><c r="C1" t="str"><f>x</f><v xml:space="preserve"> x </v></c><c r="C2" t="n"><f>y</f><v> 5 </v></c></row></sheetData></worksheet>"#,
+        );
+        assert_eq!(padded.get("C1").map(String::as_str), Some("str: x "));
+        assert_eq!(padded.get("C2").map(String::as_str), Some("n:5"));
     }
 
     #[test]
@@ -6695,6 +6779,25 @@ mod tests {
         );
         assert!(s.contains(r#"ref="C3:C6""#), "output extent shifted: {s}");
         assert!(s.contains(r#"r1="A2""#), "input cell shifted: {s}");
+
+        // REGRESSION (round-56 defects 5/9): a DELETE that CONSUMES an input cell must fail closed
+        // (a data table with r1="" is malformed OOXML), not silently commit an empty attribute.
+        let dt = br#"<worksheet><sheetData><row r="1"><c r="A1"><v>2</v></c><c r="B1"><v>3</v></c></row><row r="2"><c r="C2"><f t="dataTable" ref="C2:C5" dt2D="0" dtr="0" r1="B1" r2="A1" ca="1"/><v>6</v></c></row></sheetData></worksheet>"#;
+        let del = edit("Sheet1", Axis::Row, Op::Delete, 1, 1);
+        let mut dreport = StructuralReport::default();
+        let dout = rewrite_edited_sheet(dt, &del, "s", &mut dreport).unwrap();
+        assert!(
+            dreport
+                .residuals
+                .iter()
+                .any(|r| r.reason == "datatable_input_consumed"),
+            "consuming a data-table input cell must refuse: {:?}",
+            dreport.residuals
+        );
+        assert!(
+            !String::from_utf8_lossy(&dout).contains(r#"r1="""#),
+            "never emit an empty r1"
+        );
     }
 
     #[test]
@@ -6821,6 +6924,23 @@ mod tests {
         );
         // inserting a row at 2 pushes A5:A9 down to A6:A10.
         assert!(s.contains(r#"sqref="A6:A10""#), "sqref shifted: {s}");
+
+        // REGRESSION (round-56 defect 8): a delete consuming the ONLY <ignoredError> drops the child
+        // but must NOT leave an empty <ignoredErrors></ignoredErrors> (CT_IgnoredErrors child
+        // minOccurs=1 -> Excel repair prompt).
+        let del_xml = br#"<worksheet><sheetData><row r="1"><c r="A1"/></row></sheetData><ignoredErrors><ignoredError sqref="A5:A6" numberStoredAsText="1"/></ignoredErrors></worksheet>"#;
+        let del = edit("Sheet1", Axis::Row, Op::Delete, 5, 2);
+        let mut dreport = StructuralReport::default();
+        let dout = rewrite_edited_sheet(del_xml, &del, "s", &mut dreport).unwrap();
+        let ds = String::from_utf8_lossy(&dout);
+        assert!(
+            !ds.contains("<ignoredError"),
+            "the consumed ignoredError is dropped: {ds}"
+        );
+        assert!(
+            !ds.contains("<ignoredErrors"),
+            "empty ignoredErrors container omitted: {ds}"
+        );
 
         // REGRESSION (round-55 defect 4): under a MOVE the sqref must ALSO follow its cells (it was
         // omitted from transform_tag_move and committed stale). Move row 3 -> before row 8 relocates
@@ -7841,6 +7961,29 @@ mod tests {
                 .any(|r| r.reason == "array_formula_present"),
             "array whose body ref the edit moves must refuse: {:?}",
             r4.residuals
+        );
+    }
+
+    #[test]
+    fn array_formula_non_ascii_qualifier_is_affect_based() {
+        // REGRESSION (round-56 defect 6): an array body referencing a NON-ASCII-named sheet must NOT
+        // be refused on an ASCII edited sheet when the edit moves nothing it references — the
+        // non-ASCII qualifier necessarily names a DIFFERENT sheet the edit cannot move.
+        let e = edit("Sheet1", Axis::Row, Op::Insert, 5, 1); // Sheet1 (ASCII), D1 at row 1 unmoved
+        assert!(
+            !array_formula_affected("D1:D1", "SUM(集計!A1:A10)", "Sheet1", &e),
+            "array to a non-ASCII sheet on an ASCII edited sheet, ref unmoved -> NOT affected"
+        );
+        // But if the edit WOULD move an edited-sheet ref in the same body, it is still affected.
+        assert!(
+            array_formula_affected("D1:D1", "SUM(集計!A1:A10)+A5", "Sheet1", &e),
+            "an edited-sheet ref the insert moves (A5) -> affected"
+        );
+        // And on a NON-ASCII edited sheet the qualifier could be a self-reference -> conservative.
+        let e2 = edit("集計", Axis::Row, Op::Insert, 5, 1);
+        assert!(
+            array_formula_affected("D1:D1", "SUM(集計!A1:A10)", "集計", &e2),
+            "non-ASCII edited sheet -> conservative refuse"
         );
     }
 
