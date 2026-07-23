@@ -1437,7 +1437,7 @@ fn edited_sheet_body_unshifted_ref(
 /// canonical form), otherwise the sorted cell list. A very large coverage (whole rows/columns) or
 /// an unparseable range falls back to a sorted-token join (a coalesce of huge ranges is rare, and
 /// refusing it is the safe direction).
-fn canonical_sqref(sqref: &str) -> String {
+pub(crate) fn canonical_sqref(sqref: &str) -> String {
     const CAP: usize = 262_144;
     let token_sort = || {
         let mut toks: Vec<&str> = sqref.split_whitespace().collect();
@@ -2994,20 +2994,15 @@ fn scan_extra_residuals(
         });
     }
 
-    // (0c) EXTERNAL LINKS. A cross-workbook reference (xl/externalLinks/*) that points
-    // into the edited grid cannot be verified; mirror certify and fail closed.
-    if names
-        .iter()
-        .any(|n| n.starts_with("xl/externalLinks/") && n.ends_with(".xml"))
-    {
-        report.residuals.push(Residual {
-            part: "xl/externalLinks".into(),
-            reason: "external_links_unsupported".into(),
-            detail: "the workbook has external (cross-workbook) links that we do not shift — \
-                     edit refused (fail-closed)"
-                .into(),
-        });
-    }
+    // (0c) EXTERNAL LINKS are NOT refused (round-58 defect 5). A cross-workbook reference is spelled
+    // `[n]Sheet!ref`, and `shift_ref` returns Shift::Unchanged for any `[`-prefixed reference (proven
+    // across the plain / mixed-with-local / range / defined-name / quoted forms) — so shift_formula
+    // shifts only the LOCAL portion and leaves every external ref intact — while the cached grid in
+    // `xl/externalLinks/*` is keyed by the EXTERNAL workbook's coordinates (never the edited sheet's)
+    // and is copied verbatim like any unrelated part. An intra-workbook row/column edit therefore
+    // never touches an external reference, so a pure coordinate shift IS coordinate-expressible and
+    // faithful; the old presence-refusal declined a provably-equivalent edit (an over-refusal, not a
+    // sound fail-safe).
 
     // (a) Structured tables carry an extent (`ref` / `autoFilter`) we do not rewrite.
     // But a table is endangered by THIS edit only if either:
@@ -5490,6 +5485,60 @@ mod tests {
                 break;
             }
         }
+    }
+
+    #[test]
+    fn external_link_workbook_is_not_presence_refused() {
+        // REGRESSION (round-58 defect 5): an intra-workbook edit never touches an external `[n]...`
+        // reference (shift_ref leaves `[`-prefixed refs unchanged) or the external-link cache (keyed
+        // by the EXTERNAL workbook's coordinates), so a workbook with an external link must NOT be
+        // presence-refused — the edit is a faithful pure coordinate shift.
+        use std::io::{Read, Write};
+        let base = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/structural/refs.xlsx"
+        ))
+        .unwrap();
+        let mut ar = zip::ZipArchive::new(Cursor::new(base.as_slice())).unwrap();
+        let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default();
+        for i in 0..ar.len() {
+            let mut f = ar.by_index(i).unwrap();
+            let name = f.name().to_string();
+            out.start_file(&name, opts).unwrap();
+            if name == "xl/worksheets/sheet1.xml" {
+                let mut s = String::new();
+                f.read_to_string(&mut s).unwrap();
+                let s = s.replace(
+                    "</sheetData>",
+                    r#"<row r="10"><c r="A10"><f>[1]Sheet1!A1+A5</f><v>99</v></c></row></sheetData>"#,
+                );
+                out.write_all(s.as_bytes()).unwrap();
+            } else {
+                let mut b = Vec::new();
+                f.read_to_end(&mut b).unwrap();
+                out.write_all(&b).unwrap();
+            }
+        }
+        out.start_file("xl/externalLinks/externalLink1.xml", opts)
+            .unwrap();
+        out.write_all(br#"<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><externalBook><sheetDataSet><sheetData sheetId="0"><row r="1"><cell r="A1"><v>99</v></cell></row></sheetData></sheetDataSet></externalBook></externalLink>"#).unwrap();
+        let bytes = out.finish().unwrap().into_inner();
+        let (result, report) =
+            structural_edit(&bytes, &edit("Sheet1", Axis::Row, Op::Insert, 2, 1)).unwrap();
+        assert!(
+            report.residuals.is_empty(),
+            "an external-link workbook must not be refused: {:?}",
+            report.residuals
+        );
+        let mut z = zip::ZipArchive::new(Cursor::new(result.as_slice())).unwrap();
+        let mut sf = z.by_name("xl/worksheets/sheet1.xml").unwrap();
+        let mut s = String::new();
+        sf.read_to_string(&mut s).unwrap();
+        assert!(
+            s.contains("[1]Sheet1!A1+A6"),
+            "external ref preserved while local ref shifts: {s}"
+        );
     }
 
     #[test]

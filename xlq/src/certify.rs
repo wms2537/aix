@@ -746,6 +746,18 @@ fn element_attr_signatures(xml: &[u8]) -> Vec<String> {
                     out.push(format!("#text({trimmed})"));
                 }
             }
+            // A `<![CDATA[…]]>` body arrives as a DISTINCT event, dropped by the catch-all — so a
+            // repointed Power Query `<DataMashup>` external source URL wrapped in CDATA evaded the
+            // opaque-target comparison and CERTIFIED (round-58 defect 6). Capture it like Text (CDATA
+            // is never entity-encoded, so append raw), matching the CData handling already in
+            // rich_data_values / element_text_semantics.
+            Ok(Event::CData(c)) => {
+                let text = String::from_utf8_lossy(c.as_ref());
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    out.push(format!("#text({trimmed})"));
+                }
+            }
             Ok(Event::Eof) | Err(_) => break,
             _ => {}
         }
@@ -1195,6 +1207,15 @@ fn rich_data_values(bytes: &[u8]) -> Vec<String> {
                         cap = false;
                     }
                 }
+                // A self-closing empty field `<v/>` (Event::Empty) is semantically identical to
+                // `<v></v>` (empty content). Without this arm it was neither emitted nor counted,
+                // shifting every subsequent field's POSITION key by one -> a faithful re-serialization
+                // of an empty rich-value field was refused (round-58 defect 7). Emit the same empty
+                // positional entry so the signature is invariant to the empty-element style.
+                Ok(Event::Empty(e)) if structural::local_of(e.name().as_ref()) == b"v" => {
+                    out.push(format!("{base}[{seq}]="));
+                    seq += 1;
+                }
                 Ok(Event::Text(t)) if cap => {
                     // Keep the raw (still-escaped) bytes — both sides escape identically, so a
                     // rewrite/permutation still differs and a benign re-serialization does not.
@@ -1294,6 +1315,9 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
                     b"cacheSource",
                     b"dataField",
                     b"pivotCacheDefinition",
+                    // The pivotTable ROOT: grand-total / subtotal-scope toggles that
+                    // add/remove/retype materialized total cells on refresh (round-58 defect 1).
+                    b"pivotTableDefinition",
                     // Filter/layout surface: which field sits on which axis, which items are
                     // HIDDEN (a manual report filter), the page (report) filter selection, and
                     // label/value filters. A change to any re-aggregates the pivot on refresh
@@ -1357,12 +1381,44 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
                             boolish(pick("refreshOnLoad="), false)
                         )
                     }
+                    // The pivotTable ROOT toggles that add/remove/retype materialized total cells on
+                    // refresh: rowGrandTotals/colGrandTotals (default TRUE — "0" removes the grand-
+                    // total row/col), subtotalHiddenItems (default FALSE — "1" folds hidden-item data
+                    // into every subtotal/grand total), dataOnRows (orientation of the data axis).
+                    "pivotTableDefinition" => format!(
+                        "pivotTableDefinition|rowGrand={}|colGrand={}|subtotalHiddenItems={}|dataOnRows={}",
+                        boolish(pick("rowGrandTotals="), true),
+                        boolish(pick("colGrandTotals="), true),
+                        boolish(pick("subtotalHiddenItems="), false),
+                        boolish(pick("dataOnRows="), false),
+                    ),
                     // Which field is placed on which axis (row/col/page/data) — a re-placement
-                    // re-pivots the output.
+                    // re-pivots the output — PLUS the subtotal-function flags that govern which
+                    // subtotal rows the field materializes and with what aggregate: defaultSubtotal
+                    // (default TRUE — "0" drops the automatic Sum subtotal) and each per-function
+                    // boolean (default FALSE — "1" adds a subtotal row computed with that function).
                     "pivotField" => format!(
-                        "pivotField|axis={}|dataField={}",
+                        "pivotField|axis={}|dataField={}|defaultSubtotal={}|{}",
                         pick("axis="),
                         boolish(pick("dataField="), false),
+                        boolish(pick("defaultSubtotal="), true),
+                        [
+                            "sumSubtotal",
+                            "countASubtotal",
+                            "avgSubtotal",
+                            "maxSubtotal",
+                            "minSubtotal",
+                            "productSubtotal",
+                            "countSubtotal",
+                            "stdDevSubtotal",
+                            "stdDevPSubtotal",
+                            "varSubtotal",
+                            "varPSubtotal",
+                        ]
+                        .iter()
+                        .map(|f| format!("{f}={}", boolish(pick(&format!("{f}=")), false)))
+                        .collect::<Vec<_>>()
+                        .join("|"),
                     ),
                     // A pivot field item: `h="1"` HIDES it (a manual filter that drops its row and
                     // changes the grand total); `x` is its cache index, `t` its type (default
@@ -1619,7 +1675,11 @@ fn normalize_filter_attrs(attrs: &str) -> String {
             };
             let is_default = matches!(
                 (k, v),
-                ("top", "1") | ("percent", "0") | ("and", "0") | ("blank", "0")
+                ("top", "1")
+                    | ("percent", "0")
+                    | ("and", "0")
+                    | ("blank", "0")
+                    | ("operator", "equal")
             );
             if is_default {
                 None
@@ -1719,6 +1779,25 @@ fn vba_parts(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
 /// `<sheetProtection>`/`<protectedRange>` (worksheets) and `<workbookProtection>`
 /// (workbook), keyed by sheet name, as sorted attribute strings — so stripping or weakening
 /// a password-backed protection control (invisible to the cell diff) is caught.
+/// Canonicalize a protection element's attribute string so a value-identical re-serialization is
+/// not refused: the `sqref` is an UNORDERED cell SET (a protectedRange written `A1:A5 B1:B5` vs
+/// `B1:B5 A1:A5`, or `A1:B2` vs `A1:A2 B1:B2`, is the same set) — fold it through `canonical_sqref`
+/// exactly as the CF/DV sqref is; and fold xsd:boolean literals `true`/`false` to `1`/`0`
+/// (`sheet="true"` == `sheet="1"`). All other attribute values (name, password hash) are kept
+/// verbatim, so a genuine protection change still differs (round-58 defect 3).
+fn canonicalize_protection_attrs(attrs: &str) -> String {
+    attrs
+        .split(structural::ATTR_SEP)
+        .map(|tok| match tok.split_once('=') {
+            Some(("sqref", v)) => format!("sqref={}", structural::canonical_sqref(v)),
+            Some((k, "true")) => format!("{k}=1"),
+            Some((k, "false")) => format!("{k}=0"),
+            _ => tok.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(structural::ATTR_SEP)
+}
+
 fn protection_semantics(bytes: &[u8]) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     if let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") {
@@ -1729,7 +1808,11 @@ fn protection_semantics(bytes: &[u8]) -> Vec<(String, String, String)> {
         for (elem, attrs) in
             structural::element_attr_semantics(&wb, &[b"workbookProtection", b"fileSharing"])
         {
-            out.push(("(workbook)".to_string(), elem, attrs));
+            out.push((
+                "(workbook)".to_string(),
+                elem,
+                canonicalize_protection_attrs(&attrs),
+            ));
         }
     }
     if let Ok(sheets) = crate::ooxml::all_sheets(bytes) {
@@ -1738,7 +1821,11 @@ fn protection_semantics(bytes: &[u8]) -> Vec<(String, String, String)> {
                 for (elem, attrs) in
                     structural::element_attr_semantics(&x, &[b"sheetProtection", b"protectedRange"])
                 {
-                    out.push((sheet_name.clone(), elem, attrs));
+                    out.push((
+                        sheet_name.clone(),
+                        elem,
+                        canonicalize_protection_attrs(&attrs),
+                    ));
                 }
             }
         }
@@ -3612,6 +3699,123 @@ mod tests {
     }
 
     #[test]
+    fn protected_range_sqref_set_is_canonicalized() {
+        // REGRESSION (round-58 defect 3): a protectedRange sqref is an UNORDERED cell SET; a faithful
+        // re-serialization that reorders or re-decomposes it (openpyxl sorts areas) must not refuse,
+        // exactly as the CF/DV sqref is canonicalized. A genuine cell-set change still differs.
+        let pr = |sqref: &str| {
+            format!(
+                r#"<protectedRanges><protectedRange sqref="{sqref}" name="R1"/></protectedRanges>"#
+            )
+        };
+        let good = wb(&pr("A1:A5 B1:B5"), &[]);
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        assert!(
+            verify_noncell_refs(&good, &wb(&pr("B1:B5 A1:A5"), &[])).is_none(),
+            "a sqref area reorder (same set) must not refuse"
+        );
+        let base2 = wb(&pr("A1:B2"), &[]);
+        assert!(
+            verify_noncell_refs(&base2, &wb(&pr("A1:A2 B1:B2"), &[])).is_none(),
+            "a sqref decomposition (same set) must not refuse"
+        );
+        // A GENUINE protected-range change (different cell set) still refuses.
+        assert_eq!(
+            verify_noncell_refs(&good, &wb(&pr("A1:A5 C1:C5"), &[]))
+                .expect("a genuine protected-range change must refuse")["reason"],
+            "protection_mismatch"
+        );
+        // A boolean-spelling difference on a protection attribute is not refused.
+        let sheet_prot = |v: &str| format!(r#"<sheetProtection sheet="{v}" password="ABCD"/>"#);
+        assert!(
+            verify_noncell_refs(&wb(&sheet_prot("1"), &[]), &wb(&sheet_prot("true"), &[]))
+                .is_none(),
+            "sheet=\"1\" == sheet=\"true\" must not refuse"
+        );
+    }
+
+    #[test]
+    fn pivot_root_and_field_subtotal_toggles_are_compared() {
+        // REGRESSION (round-58 defects 1 & 2): the pivotTable ROOT grand-total / subtotal-scope
+        // toggles and the pivotField subtotal-function flags add/remove/retype materialized total
+        // cells on refresh — but the root was never scanned and the field signature read only
+        // axis+dataField. A toggle must differ; an explicit-default reserialization must not refuse.
+        let root = |attrs: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="urn:x"{attrs}><pivotFields/></pivotTableDefinition>"#
+            )
+        };
+        let base = wb("", &[("xl/pivotTables/pivotTable1.xml", &root(""))]);
+        // rowGrandTotals/colGrandTotals default TRUE -> "0" removes them and must differ.
+        let no_gt = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &root(r#" rowGrandTotals="0" colGrandTotals="0""#),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&base),
+            pivot_refs(&no_gt),
+            "removing grand totals must differ"
+        );
+        // subtotalHiddenItems default FALSE -> "1" must differ.
+        let sub_hidden = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &root(r#" subtotalHiddenItems="1""#),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&base),
+            pivot_refs(&sub_hidden),
+            "subtotalHiddenItems must differ"
+        );
+        // An explicit default (grand totals ON) matches the absent form — no over-refusal.
+        let explicit_default = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &root(r#" rowGrandTotals="1" colGrandTotals="true""#),
+            )],
+        );
+        assert_eq!(pivot_refs(&base), pivot_refs(&explicit_default));
+
+        // pivotField: defaultSubtotal default TRUE ("0" drops the Sum subtotal); avgSubtotal adds one.
+        let field = |attrs: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="urn:x"><pivotFields><pivotField axis="axisRow"{attrs}/></pivotFields></pivotTableDefinition>"#
+            )
+        };
+        let fbase = wb("", &[("xl/pivotTables/pivotTable1.xml", &field(""))]);
+        let no_defsub = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &field(r#" defaultSubtotal="0""#),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&fbase),
+            pivot_refs(&no_defsub),
+            "defaultSubtotal off must differ"
+        );
+        let avg_sub = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                &field(r#" avgSubtotal="1""#),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&fbase),
+            pivot_refs(&avg_sub),
+            "adding an avg subtotal must differ"
+        );
+    }
+
+    #[test]
     fn hidden_tokens_invariant_to_shared_formula_expansion() {
         // REGRESSION (round-55 defect 3, over-refusal): a shared-formula group stores the body — and
         // its hidden token (`_xlfn.`) — only on the MASTER cell; a faithful foreign editor
@@ -3947,6 +4151,20 @@ mod tests {
             verify_noncell_refs(&openpyxl_top10, &bottom10).expect("top->bottom must refuse")
                 ["reason"],
             "autofilter_criteria_mismatch"
+        );
+        // REGRESSION (round-58 defect 4): the CT_CustomFilter default operator="equal" written
+        // explicitly must fold to the omitted form (direct follow-on to the round-57 fix).
+        let explicit_op = wb(
+            r#"<autoFilter ref="A1:A10"><filterColumn colId="0"><customFilters><customFilter operator="equal" val="9"/></customFilters></filterColumn></autoFilter>"#,
+            &[],
+        );
+        let omitted_op = wb(
+            r#"<autoFilter ref="A1:A10"><filterColumn colId="0"><customFilters><customFilter val="9"/></customFilters></filterColumn></autoFilter>"#,
+            &[],
+        );
+        assert!(
+            verify_noncell_refs(&explicit_op, &omitted_op).is_none(),
+            "explicit default operator=\"equal\" must fold to the omitted form"
         );
     }
 
@@ -5337,6 +5555,27 @@ mod tests {
         let refusal = verify_noncell_refs(&good, &evil)
             .expect("a repointed DataMashup query source must refuse");
         assert_eq!(refusal["reason"], "external_target_mismatch");
+        // REGRESSION (round-58 defect 6): the same repoint wrapped in CDATA must also refuse — the
+        // Text-only capture dropped CDATA, so a CDATA-encoded DataMashup evaded the comparison.
+        let cdata = |host: &str| {
+            format!(
+                r#"<root><DataMashup><![CDATA[section S; shared Q = Web.Contents("https://{host}/api");]]></DataMashup></root>"#
+            )
+        };
+        let cgood = wb(
+            "",
+            &[("customXml/item1.xml", cdata("good.example").as_str())],
+        );
+        assert!(verify_noncell_refs(&cgood, &cgood).is_none());
+        let cevil = wb(
+            "",
+            &[("customXml/item1.xml", cdata("evil.example").as_str())],
+        );
+        assert_eq!(
+            verify_noncell_refs(&cgood, &cevil)
+                .expect("a CDATA-wrapped DataMashup repoint must refuse")["reason"],
+            "external_target_mismatch"
+        );
     }
 
     #[test]
