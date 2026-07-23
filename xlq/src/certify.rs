@@ -950,6 +950,62 @@ fn drawing_shape_links(x: &[u8], rels: &std::collections::BTreeMap<String, Strin
     out
 }
 
+/// Chart-part hyperlink bindings: every `<a:hlinkClick r:id>` / `<a:hlinkHover r:id>` in a chart XML
+/// resolved through the chart's own rels to its target, KEYED BY the referencing element's ancestor
+/// path (so a chart title's hyperlink is distinguished from a series' one). A chart's `.rels` is
+/// compared by external_rels_targets, but WHICH chart element references WHICH rId lives in the chart
+/// XML — re-pointing the title's rId to a declared attacker target left the .rels byte-identical and
+/// was read by no comparator (charts have no drawing_shape_links resolver) → certified (round-61
+/// defect 3). Keying by the ancestor path makes title->phish differ from title->report.
+fn chart_hyperlink_sigs(
+    x: &[u8],
+    rels: &std::collections::BTreeMap<String, String>,
+) -> Vec<String> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(x);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut path: Vec<String> = Vec::new();
+    let emit =
+        |kind: &[u8], e: &quick_xml::events::BytesStart, path: &[String], out: &mut Vec<String>| {
+            if let Some(id) = rel_id(e) {
+                let url = rels.get(&id).cloned().unwrap_or_default();
+                out.push(format!(
+                    "chartlink|{}|{}={url}",
+                    path.join(">"),
+                    String::from_utf8_lossy(kind),
+                ));
+            }
+        };
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let name = e.name();
+                let local = structural::local_of(name.as_ref());
+                if local == b"hlinkClick" || local == b"hlinkHover" {
+                    emit(local, &e, &path, &mut out);
+                }
+                path.push(String::from_utf8_lossy(local).into_owned());
+            }
+            Ok(Event::Empty(e)) => {
+                let name = e.name();
+                let local = structural::local_of(name.as_ref());
+                if local == b"hlinkClick" || local == b"hlinkHover" {
+                    emit(local, &e, &path, &mut out);
+                }
+            }
+            Ok(Event::End(_)) => {
+                path.pop();
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
 /// Chart data references (`<f>`) and drawing cell anchors (`<col>`/`<row>`) across ALL
 /// chart/drawing parts, as two sorted lists (keyed by neither part name nor sheet, so a
 /// foreign tool renumbering parts does not false-refuse). The transform shifts chart refs
@@ -971,6 +1027,11 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                         .iter()
                         .map(|s| structural::canonicalize_sheet_quotes(s)),
                 );
+                // A chart element's hyperlink (`<a:hlinkClick r:id>`) resolves through the chart's
+                // rels to a target — a phishing repoint the .rels-only external comparator can't
+                // attribute to its owning element.
+                let rels = rels_targets(bytes, n);
+                charts.extend(chart_hyperlink_sigs(&x, &rels));
             }
         } else if low.starts_with("xl/drawings/") && low.ends_with(".xml") {
             if let Ok(x) = crate::ooxml::read_part(bytes, n) {
@@ -3608,28 +3669,63 @@ fn prune_early_date_consumers(
     // (`IF(C=28,1,0)` where the engine gives 27 but Excel 28) does not change under any single poison,
     // so it would be retained carrying the engine's derived value (round-60 defect 1). Reachability is
     // exact: compute the transitive-closure set of oracle formula cells whose formula REFERENCES a
-    // divergent consumer (directly or through a chain), and drop them all. Runs only when a divergent
-    // consumer exists (date consumers are rare), so the O(cells x reached) closure is bounded.
+    // divergent consumer — DIRECTLY, or THROUGH A DEFINED NAME whose body reaches one (round-61: the
+    // static reachability that replaced the round-59 engine poison-diff lost the name-mediated path
+    // the engine resolved for free). Both cells and names propagate to a joint fixpoint. Runs only
+    // when a divergent consumer exists (date consumers are rare), so the closure is bounded.
     let mut cells: Vec<((u32, i32, i32), String, String)> = Vec::new();
     for (coord, (sheet, _a1)) in formula_cells {
         if let Ok(Some(f)) = model.get_cell_formula(coord.0, coord.1, coord.2) {
             cells.push((*coord, sheet.clone(), f));
         }
     }
+    let defined: Vec<(String, String)> = model
+        .workbook
+        .defined_names
+        .iter()
+        .map(|d| (d.name.to_lowercase(), d.formula.clone()))
+        .collect();
     let mut reached: std::collections::HashSet<(u32, i32, i32)> =
         divergent.iter().copied().collect();
+    let mut reached_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // A formula references a reached CELL. `home` is the formula's own sheet (for unqualified refs);
+    // for a defined-name body (no cell home) the target's own sheet is used, so an unqualified body
+    // ref is conservatively matched (over-approximation — over-refuse, never under-drop).
+    let refs_reached_cell =
+        |f: &str, home: &str, reached: &std::collections::HashSet<(u32, i32, i32)>| {
+            reached.iter().any(|&(s, r, c)| {
+                names.get(s as usize).is_some_and(|ts| {
+                    let h = if home.is_empty() { ts.as_str() } else { home };
+                    crate::refshift::formula_references_cell(f, h, ts, c as u32, r as u32)
+                })
+            })
+        };
     loop {
         let mut grew = false;
+        // A defined NAME is reached if its body references a reached cell or a reached name.
+        for (n, f) in &defined {
+            if reached_names.contains(n) {
+                continue;
+            }
+            if refs_reached_cell(f, "", &reached)
+                || reached_names
+                    .iter()
+                    .any(|rn| formula_references_name(f, rn))
+            {
+                reached_names.insert(n.clone());
+                grew = true;
+            }
+        }
+        // A CELL is reached if its formula references a reached cell or a reached name.
         for (coord, home, f) in &cells {
             if reached.contains(coord) {
                 continue;
             }
-            let hits = reached.iter().any(|&(s, r, c)| {
-                names.get(s as usize).is_some_and(|ts| {
-                    crate::refshift::formula_references_cell(f, home, ts, c as u32, r as u32)
-                })
-            });
-            if hits {
+            if refs_reached_cell(f, home, &reached)
+                || reached_names
+                    .iter()
+                    .any(|rn| formula_references_name(f, rn))
+            {
                 reached.insert(*coord);
                 grew = true;
             }
@@ -5659,6 +5755,42 @@ mod tests {
     }
 
     #[test]
+    fn early_date_consumer_dependent_through_a_defined_name_is_excluded() {
+        // REGRESSION (round-61 defects 1/4/5, HIGH false-certify): a dependent that reaches the
+        // divergent consumer THROUGH A DEFINED NAME (`E1 = Cons+1`, Cons -> Sheet1!$C$1 = DAY(59))
+        // was missed by the round-60 static A1-only reachability (the round-59 engine poison-diff
+        // resolved names for free). The joint cell+name fixpoint now drops E1. An unrelated cell stays.
+        let rows = r#"<row r="1"><c r="A1"><v>59</v></c><c r="C1"><f>DAY(A1)</f><v>27</v></c><c r="E1"><f>Cons+1</f><v>28</v></c><c r="G1"><f>DAY(50000)</f><v>18</v></c></row>"#;
+        let bytes = oracle_wb_named(
+            rows,
+            r#"<definedNames><definedName name="Cons">Sheet1!$C$1</definedName></definedNames>"#,
+        );
+        let mut model = load_from_bytes(
+            &bytes,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/structural/refs.xlsx"
+            ),
+        )
+        .expect("load name-mediated workbook");
+        let oracle = build_cache_oracle(&mut model, false, &Default::default())
+            .expect("oracle is always Some");
+        let key = |c: &str| ("Sheet1".to_string(), c.to_string());
+        assert!(
+            !oracle.contains_key(&key("C1")),
+            "the divergent consumer DAY(59) is excluded: {oracle:?}"
+        );
+        assert!(
+            !oracle.contains_key(&key("E1")),
+            "a dependent reached THROUGH a defined name (E1=Cons+1, Cons->C1) must be dropped"
+        );
+        assert!(
+            oracle.contains_key(&key("G1")),
+            "an unrelated modern consumer stays vouchable — no over-refusal"
+        );
+    }
+
+    #[test]
     fn date_producer_consuming_an_early_serial_is_excluded() {
         // REGRESSION (round-60 defect 4, HIGH false-certify): EDATE/EOMONTH/WORKDAY also CONSUME a
         // serial in arg 0. Reading a pre-1900-03-01 input (< 61) lands the engine up to a month off
@@ -6411,10 +6543,13 @@ mod tests {
         assert!(verify_noncell_refs(&good, &good).is_none());
         // TRANSPOSE: rIdA now -> terms, rIdB -> report. Same URL multiset, different rId bindings.
         let swapped = mk("https://terms.example/tos", "https://corp.example/report");
-        assert_eq!(
-            verify_noncell_refs(&good, &swapped)
-                .expect("a transposition of two external targets must refuse")["reason"],
-            "external_relationship_mismatch"
+        let reason = verify_noncell_refs(&good, &swapped)
+            .expect("a transposition of two external targets must refuse")["reason"]
+            .clone();
+        // Caught by the rId-keyed external comparator AND (round-61) the chart-XML hyperlink resolver.
+        assert!(
+            reason == "external_relationship_mismatch" || reason == "chart_drawing_mismatch",
+            "reason: {reason}"
         );
     }
 
@@ -6548,6 +6683,40 @@ mod tests {
         assert!(
             verify_noncell_refs(&a, &b).is_none(),
             "a trailing-slash renormalization must not refuse"
+        );
+    }
+
+    #[test]
+    fn chart_in_xml_hyperlink_repoint_is_caught() {
+        // REGRESSION (round-61 defect 3, security): the chart XML binds which element references which
+        // rId; re-pointing the chart TITLE's r:id to a declared attacker target leaves the .rels
+        // byte-identical, so external_rels_targets (which reads only .rels) sees no change and no
+        // comparator read the chart-XML binding. chart_hyperlink_sigs now resolves it, keyed by the
+        // referencing element's ancestor path.
+        let chart = |r1: &str, r2: &str| {
+            format!(
+                r#"<c:chartSpace xmlns:c="urn:c" xmlns:a="urn:a" xmlns:r="urn:r"><c:title><a:hlinkClick r:id="{r1}"/></c:title><c:ser><a:hlinkClick r:id="{r2}"/></c:ser></c:chartSpace>"#
+            )
+        };
+        let rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdA" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://corp.example/report" TargetMode="External"/><Relationship Id="rIdB" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://evil.example/phish" TargetMode="External"/></Relationships>"#;
+        let mk = |r1: &str, r2: &str| {
+            wb(
+                "",
+                &[
+                    ("xl/charts/chart1.xml", &chart(r1, r2)),
+                    ("xl/charts/_rels/chart1.xml.rels", rels),
+                ],
+            )
+        };
+        // title -> rIdA (report), series -> rIdB (phish).
+        let good = mk("rIdA", "rIdB");
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // SWAP in the CHART XML: title now -> rIdB (phish). The .rels is byte-identical.
+        let evil = mk("rIdB", "rIdA");
+        assert_eq!(
+            verify_noncell_refs(&good, &evil).expect("a chart-XML hyperlink repoint must refuse")
+                ["reason"],
+            "chart_drawing_mismatch"
         );
     }
 
