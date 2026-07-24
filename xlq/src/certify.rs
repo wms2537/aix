@@ -846,6 +846,7 @@ fn drawing_shape_links(x: &[u8], rels: &std::collections::BTreeMap<String, Strin
     // The currently-open text RUN (`<a:r>`): its accumulated <a:t> text and the hyperlink URLs its
     // <a:rPr><a:hlinkClick> decorates, associated at run End so a run hyperlink keys by its text.
     let mut run: Option<(String, Vec<String>)> = None;
+    let mut occ: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let is_shape = |n: &[u8]| matches!(n, b"sp" | b"cxnSp" | b"pic" | b"graphicFrame" | b"grpSp");
     let shape_links = |e: &quick_xml::events::BytesStart| -> Vec<String> {
         let mut links = Vec::new();
@@ -868,13 +869,20 @@ fn drawing_shape_links(x: &[u8], rels: &std::collections::BTreeMap<String, Strin
                        local: &[u8],
                        stack: &mut Vec<(String, Vec<String>)>,
                        run: &mut Option<(String, Vec<String>)>,
+                       occ: &mut std::collections::HashMap<String, usize>,
                        out: &mut Vec<String>| {
         if local == b"cNvPr" {
             if let Some(top) = stack.last_mut() {
-                top.0 = attr_local(e, b"name")
-                    .filter(|v| !v.is_empty())
-                    .or_else(|| attr_local(e, b"id"))
-                    .unwrap_or_default();
+                // The shape identity: cNvPr `name` (Excel-preserved, stable across a re-save that
+                // renumbers `id`) DISAMBIGUATED by a per-name document-order occurrence index — because
+                // `name` is NOT unique in DrawingML (only `id` is), two same-named shapes would key
+                // identically and a target SWAP between them would survive the sorted multiset
+                // (round-65). `name#occ` is both id-renumber-stable and collision-free; only a re-order
+                // of two identically-named shapes (rare, cosmetic) over-refuses.
+                let name = attr_local(e, b"name").unwrap_or_default();
+                let c = occ.entry(name.clone()).or_insert(0);
+                top.0 = format!("{name}#{c}");
+                *c += 1;
             }
         } else if local == b"hlinkClick" || local == b"hlinkHover" {
             // Both a click hyperlink AND a mouse-over `<a:hlinkHover>` resolve through the drawing rels
@@ -909,7 +917,7 @@ fn drawing_shape_links(x: &[u8], rels: &std::collections::BTreeMap<String, Strin
                 } else if local == b"r" {
                     run = Some((String::new(), Vec::new()));
                 } else {
-                    handle_leaf(&e, local, &mut stack, &mut run, &mut out);
+                    handle_leaf(&e, local, &mut stack, &mut run, &mut occ, &mut out);
                 }
             }
             Ok(Event::Empty(e)) => {
@@ -919,7 +927,7 @@ fn drawing_shape_links(x: &[u8], rels: &std::collections::BTreeMap<String, Strin
                     // A childless shape (no cNvPr/hlink children) — flush its attrs at once.
                     flush(&mut out, "", shape_links(&e));
                 } else {
-                    handle_leaf(&e, local, &mut stack, &mut run, &mut out);
+                    handle_leaf(&e, local, &mut stack, &mut run, &mut occ, &mut out);
                 }
             }
             Ok(Event::Text(t)) if run.is_some() => {
@@ -6653,6 +6661,105 @@ mod tests {
     }
 
     #[test]
+    fn zzz_e2e_3d_span_defined_name_false_certify() {
+        use std::io::Read;
+        // Build orig: Sheet1 A5=10, A8=9, B1 = IFERROR(SUM(Span),0)+A8, Span = Sheet1:Sheet2!A5.
+        let orig = {
+            let base = e2e_wb_no_recalc(
+                r#"<row r="1"><c r="B1"><f>IFERROR(SUM(Span),0)+A8</f><v>19</v></c></row><row r="5"><c r="A5"><v>10</v></c></row><row r="8"><c r="A8"><v>9</v></c></row>"#,
+            );
+            let mut ar = zip::ZipArchive::new(Cursor::new(base.as_slice())).unwrap();
+            let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let opts = zip::write::SimpleFileOptions::default();
+            for i in 0..ar.len() {
+                let mut f = ar.by_index(i).unwrap();
+                let name = f.name().to_string();
+                let mut b = Vec::new();
+                f.read_to_end(&mut b).unwrap();
+                out.start_file(&name, opts).unwrap();
+                if name == "xl/workbook.xml" {
+                    let s = String::from_utf8(b).unwrap().replacen(
+                        "</sheets>",
+                        r#"</sheets><definedNames><definedName name="Span">Sheet1:Sheet2!A5</definedName></definedNames>"#,
+                        1,
+                    );
+                    out.write_all(s.as_bytes()).unwrap();
+                } else {
+                    out.write_all(&b).unwrap();
+                }
+            }
+            out.finish().unwrap().into_inner()
+        };
+        let edit = StructuralEdit {
+            axis: crate::refshift::Axis::Row,
+            at: 6,
+            count: 1,
+            op: crate::refshift::Op::Insert,
+            sheet: "Sheet1".to_string(),
+            dest: 0,
+        };
+        let (expected, r) = structural::structural_edit(&orig, &edit).unwrap();
+        eprintln!("E2E residuals = {:?}", r.residuals);
+        // Inspect xlq's transform of B1.
+        {
+            let mut ar = zip::ZipArchive::new(Cursor::new(expected.clone())).unwrap();
+            for i in 0..ar.len() {
+                let mut f = ar.by_index(i).unwrap();
+                if f.name() == "xl/worksheets/sheet1.xml" {
+                    let mut s = String::new();
+                    f.read_to_string(&mut s).unwrap();
+                    let idx = s
+                        .find("B1")
+                        .map(|i| &s[i.saturating_sub(6)..(i + 60).min(s.len())]);
+                    eprintln!("E2E xlq B1 = {:?}", idx);
+                }
+            }
+        }
+        // Forge: inject a preserved cache = 9 (the engine's laundered value) into B1.
+        let forged = {
+            let mut ar = zip::ZipArchive::new(Cursor::new(expected.clone())).unwrap();
+            let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let opts = zip::write::SimpleFileOptions::default();
+            for i in 0..ar.len() {
+                let mut f = ar.by_index(i).unwrap();
+                let name = f.name().to_string();
+                let mut b = Vec::new();
+                f.read_to_end(&mut b).unwrap();
+                out.start_file(&name, opts).unwrap();
+                if name == "xl/worksheets/sheet1.xml" {
+                    let s = String::from_utf8(b).unwrap().replace(
+                        r#"<f>IFERROR(SUM(Span),0)+A9</f></c>"#,
+                        r#"<f>IFERROR(SUM(Span),0)+A9</f><v>9</v></c>"#,
+                    );
+                    out.write_all(s.as_bytes()).unwrap();
+                } else {
+                    out.write_all(&b).unwrap();
+                }
+            }
+            out.finish().unwrap().into_inner()
+        };
+        let dir = std::env::temp_dir();
+        let tag = format!("xlqspan_{}", std::process::id());
+        let op = dir.join(format!("{tag}_o.xlsx"));
+        let fp = dir.join(format!("{tag}_f.xlsx"));
+        std::fs::write(&op, &orig).unwrap();
+        std::fs::write(&fp, &forged).unwrap();
+        let rf = run(
+            op.to_str().unwrap(),
+            fp.to_str().unwrap(),
+            "Sheet1",
+            "insert-rows",
+            6,
+            1,
+            0,
+        )
+        .unwrap();
+        let _ = std::fs::remove_file(&op);
+        let _ = std::fs::remove_file(&fp);
+        eprintln!("E2E forged certify status = {} full={}", rf["status"], rf);
+    }
+
+    #[test]
     fn iso_date_value_change_is_refused() {
         // REGRESSION (round-49 defect 3): an ISO-8601 date VALUE cell (t="d") is discarded by
         // ironcalc's importer (loaded as a constant NIMPL error), so the engine snapshot is blind to
@@ -7013,6 +7120,40 @@ mod tests {
         assert_eq!(
             verify_noncell_refs(&good, &swapped)
                 .expect("a hover-hyperlink swap between shapes must refuse")["reason"],
+            "chart_drawing_mismatch"
+        );
+    }
+
+    #[test]
+    fn drawing_hyperlink_swap_between_same_named_shapes_is_caught() {
+        // REGRESSION (round-65, security): cNvPr `name` is NOT unique in DrawingML (only `id` is), so
+        // keying a shape hyperlink by name alone let two SAME-named shapes collide — a target swap
+        // survived the sorted multiset. A per-name occurrence index (name#occ) disambiguates them.
+        let two = |r1: &str, r2: &str| {
+            format!(
+                r#"<xdr:wsDr xmlns:xdr="urn:xdr" xmlns:a="urn:a"><xdr:sp><xdr:nvSpPr><xdr:cNvPr id="1" name="Btn"><a:hlinkClick xmlns:r="urn:r" r:id="{r1}"/></xdr:cNvPr></xdr:nvSpPr></xdr:sp><xdr:sp><xdr:nvSpPr><xdr:cNvPr id="2" name="Btn"><a:hlinkClick xmlns:r="urn:r" r:id="{r2}"/></xdr:cNvPr></xdr:nvSpPr></xdr:sp></xdr:wsDr>"#
+            )
+        };
+        let drels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rA" Type="x/hyperlink" Target="https://corp.example/a" TargetMode="External"/><Relationship Id="rB" Type="x/hyperlink" Target="https://evil.example/b" TargetMode="External"/></Relationships>"#;
+        let good = wb(
+            "",
+            &[
+                ("xl/drawings/drawing1.xml", two("rA", "rB").as_str()),
+                ("xl/drawings/_rels/drawing1.xml.rels", drels),
+            ],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // Both shapes are named "Btn"; swap their hyperlink r:ids. The .rels is byte-identical.
+        let swapped = wb(
+            "",
+            &[
+                ("xl/drawings/drawing1.xml", two("rB", "rA").as_str()),
+                ("xl/drawings/_rels/drawing1.xml.rels", drels),
+            ],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &swapped)
+                .expect("a hyperlink swap between two same-named shapes must refuse")["reason"],
             "chart_drawing_mismatch"
         );
     }
