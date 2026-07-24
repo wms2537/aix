@@ -1509,6 +1509,11 @@ mod tests {
         assert!(!is_plain_reference("OtherName")); // reference to another name
         assert!(!is_plain_reference("")); // empty
         assert!(!is_plain_reference("[1]Sheet1!A1")); // external
+                                                      // A 3D-SPAN name body PASSES is_plain_reference (the tokenizer treats `Sheet1:Sheet3` as one
+                                                      // qualifier), but the engine cannot evaluate a 3D-span DEFINED NAME — so build_cache_oracle
+                                                      // ALSO gates on formula_contains_3d_span (round-65). Document the interaction here.
+        assert!(is_plain_reference("Sheet1:Sheet3!$A$1"));
+        assert!(formula_contains_3d_span("Sheet1:Sheet3!$A$1"));
     }
 
     #[test]

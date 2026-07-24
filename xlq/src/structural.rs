@@ -4312,6 +4312,21 @@ fn rewrite_edited_sheet_move(
                 }
             }
             Event::Empty(e) if e.name().as_ref() == b"f" => {
+                // A what-if DATA-TABLE `<f>` carries its live coordinates in ATTRIBUTES (ref output
+                // extent, r1 column-input, r2 row-input), never in a body — route it through
+                // shift_datatable_attrs like the insert/delete path. The verbatim write below would
+                // otherwise leave r1/r2/ref STALE under Op::Move (silent value corruption): these
+                // formula arms intercept every `<f>` before the generic transform_tag_move dispatch,
+                // making transform_tag_move's datatable arm dead code on the Move path (round-65 d4).
+                if is_datatable_f(&e) {
+                    let tag = transform_tag_move(&e, &sheet, edit, report);
+                    match row_buf.as_mut() {
+                        Some((_, w)) => w.write_event(Event::Empty(tag))?,
+                        None => main.write_event(Event::Empty(tag))?,
+                    }
+                    buf.clear();
+                    continue;
+                }
                 if let Some(reason) = detect_residual(&e) {
                     report.residuals.push(Residual {
                         part: part_name.into(),
@@ -7096,6 +7111,34 @@ mod tests {
         assert!(
             !String::from_utf8_lossy(&dout).contains(r#"r1="""#),
             "never emit an empty r1"
+        );
+    }
+
+    #[test]
+    fn datatable_f_attrs_are_shifted_under_move() {
+        // REGRESSION (round-65 defect 4, silent-wrong): Op::Move's verbatim <f> arms intercepted a
+        // data-table <f> before transform_tag_move's datatable dispatch, leaving r1/r2/ref STALE (the
+        // table then reads the wrong input cell after the move). Now routed through shift_datatable_attrs.
+        let xml = br#"<worksheet><sheetData><row r="2"><c r="C2"><f t="dataTable" ref="C2:C5" dt2D="0" dtr="0" r1="A8" ca="1"/><v>1</v></c></row></sheetData></worksheet>"#;
+        // Move rows [4,6) to before row 10: a cell at row 8 (between the block and the dest) shifts up.
+        let e = StructuralEdit {
+            axis: Axis::Row,
+            at: 4,
+            count: 2,
+            op: Op::Move,
+            sheet: "Sheet1".into(),
+            dest: 10,
+        };
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet_move(xml, &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            !s.contains(r#"r1="A8""#),
+            "the data-table input cell must NOT be left stale under Move: {s}"
+        );
+        assert!(
+            s.contains(r#"t="dataTable""#) && !s.contains(r#"r1="""#),
+            "the shifted data-table <f> is well-formed (no empty r1): {s}"
         );
     }
 

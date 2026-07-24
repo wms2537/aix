@@ -847,6 +847,7 @@ fn drawing_shape_links(x: &[u8], rels: &std::collections::BTreeMap<String, Strin
     // <a:rPr><a:hlinkClick> decorates, associated at run End so a run hyperlink keys by its text.
     let mut run: Option<(String, Vec<String>)> = None;
     let mut occ: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut run_occ: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let is_shape = |n: &[u8]| matches!(n, b"sp" | b"cxnSp" | b"pic" | b"graphicFrame" | b"grpSp");
     let shape_links = |e: &quick_xml::events::BytesStart| -> Vec<String> {
         let mut links = Vec::new();
@@ -947,8 +948,15 @@ fn drawing_shape_links(x: &[u8], rels: &std::collections::BTreeMap<String, Strin
                 if local == b"r" {
                     if let Some((text, kvs)) = run.take() {
                         let text = text.trim();
+                        // Two runs with the SAME visible text would key identically, so a swap of
+                        // their hyperlink targets would survive the sorted multiset — disambiguate by
+                        // a per-text document-order occurrence index (round-65), mirroring the cNvPr
+                        // name#occ and non-run per-path occ discriminators.
+                        let counter = run_occ.entry(text.to_string()).or_insert(0);
+                        let n = *counter;
+                        *counter += 1;
                         for kv in kvs {
-                            let sig = format!("run[{text}]|{kv}");
+                            let sig = format!("run[{text}]#{n}|{kv}");
                             if let Some(top) = stack.last_mut() {
                                 top.1.push(sig);
                             } else {
@@ -1001,6 +1009,7 @@ fn chart_hyperlink_sigs(
     // currently-open `<a:r>` run.
     let mut run: Option<ChartRun> = None;
     let mut occ: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut run_occ: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     // Resolve an hlink element to (kind, url) and either buffer it on the open run or emit it now.
     let handle_link = |local: &[u8],
                        e: &quick_xml::events::BytesStart,
@@ -1056,8 +1065,14 @@ fn chart_hyperlink_sigs(
                     if let Some((rpath, txt, links)) = run.take() {
                         let base = rpath.join(">");
                         let t = txt.trim();
+                        // Two runs with the SAME text at the same path would collide — disambiguate by
+                        // a per-(path,text) occurrence index so a target swap differs (round-65 twin of
+                        // the drawing_shape_links run occ).
+                        let counter = run_occ.entry(format!("{base}|{t}")).or_insert(0);
+                        let n = *counter;
+                        *counter += 1;
                         for (kind, url) in links {
-                            out.push(format!("chartlink|{base}|run[{t}]|{kind}={url}"));
+                            out.push(format!("chartlink|{base}|run[{t}]#{n}|{kind}={url}"));
                         }
                     }
                 }
@@ -1707,10 +1722,19 @@ fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
             b"dataField" => {
                 if let Some((name, v)) = container {
                     if *name == "dataFields" {
+                        // Include the value-affecting attrs (aggregation `subtotal`, `showDataAs`
+                        // display calc, and its `baseField`/`baseItem` %-of anchors), not just
+                        // fld+name: two dataFields with the SAME fld AND name (e.g. Revenue summed AND
+                        // counted) differ only in these, so a SWAP moving each aggregation into the
+                        // other ΣValues column was invisible to the ordered fld/name list (round-65).
                         v.push(format!(
-                            "fld={}|name={}",
+                            "fld={}|name={}|subtotal={}|showDataAs={}|baseField={}|baseItem={}",
                             attr_local(e, b"fld").unwrap_or_default(),
-                            attr_local(e, b"name").unwrap_or_default()
+                            attr_local(e, b"name").unwrap_or_default(),
+                            attr_local(e, b"subtotal").unwrap_or_else(|| "sum".into()),
+                            attr_local(e, b"showDataAs").unwrap_or_else(|| "normal".into()),
+                            attr_local(e, b"baseField").unwrap_or_default(),
+                            attr_local(e, b"baseItem").unwrap_or_default(),
                         ));
                     }
                 }
@@ -3666,7 +3690,13 @@ fn build_cache_oracle(
     // attacker-chosen clean value (999), which by_eval vouches against a forged cache (round-64 defect
     // 1). Treat such names as bad so every referencing cell is dropped, like a bad function.
     for d in &model.workbook.defined_names {
-        if !crate::refshift::is_plain_reference(&d.formula) {
+        // ...OR a 3D (multi-sheet) span body (`Sheet1:Sheet3!$A$1`): is_plain_reference accepts it (the
+        // ref tokenizer treats `Sheet1:Sheet3` as one qualifier), but the engine cannot evaluate a
+        // 3D-span DEFINED NAME (only inline span cells are handled) and returns #NAME? — which
+        // IFERROR/SUM would launder into the oracle (round-65). Treat it bad too.
+        if !crate::refshift::is_plain_reference(&d.formula)
+            || crate::refshift::formula_contains_3d_span(&d.formula)
+        {
             bad_names.insert(d.name.to_lowercase());
         }
     }
@@ -4805,6 +4835,25 @@ mod tests {
             pivot_refs(&ab),
             pivot_refs(&ba),
             "a dataField (measure) reorder must differ"
+        );
+        // SWAP two SAME-fld/SAME-name dataFields differing only in subtotal (Revenue summed vs
+        // counted) — the value columns re-aggregate on refresh, but fld+name alone were equal so the
+        // ordered list was unchanged (round-65 defect 2). Now the aggregation attrs are in the sig.
+        let dfsub = |s0: &str, s1: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dataFields count="2"><dataField name="Revenue" fld="3" subtotal="{s0}"/><dataField name="Revenue" fld="3" subtotal="{s1}"/></dataFields></pivotTableDefinition>"#
+            )
+        };
+        assert_ne!(
+            pivot_refs(&wb(
+                "",
+                &[("xl/pivotTables/pivotTable1.xml", &dfsub("sum", "count"))]
+            )),
+            pivot_refs(&wb(
+                "",
+                &[("xl/pivotTables/pivotTable1.xml", &dfsub("count", "sum"))]
+            )),
+            "a swap of two same-fld/same-name dataFields' aggregation must differ"
         );
         // A benign identical re-serialization still matches (no over-refusal).
         assert_eq!(pivot_refs(&region), pivot_refs(&region));
@@ -7196,6 +7245,34 @@ mod tests {
         assert_eq!(
             verify_noncell_refs(&good, &swapped)
                 .expect("a run-level hyperlink swap within a shape must refuse")["reason"],
+            "chart_drawing_mismatch"
+        );
+        // REGRESSION (round-65): two runs with the SAME visible text ("here") — the run-text key
+        // collided, so a target swap survived. A per-text occurrence index disambiguates them.
+        let g2 = wb(
+            "",
+            &[
+                (
+                    "xl/drawings/drawing1.xml",
+                    &shape("here", "rId1", "here", "rId2"),
+                ),
+                ("xl/drawings/_rels/drawing1.xml.rels", drels),
+            ],
+        );
+        assert!(verify_noncell_refs(&g2, &g2).is_none());
+        let s2 = wb(
+            "",
+            &[
+                (
+                    "xl/drawings/drawing1.xml",
+                    &shape("here", "rId2", "here", "rId1"),
+                ),
+                ("xl/drawings/_rels/drawing1.xml.rels", drels),
+            ],
+        );
+        assert_eq!(
+            verify_noncell_refs(&g2, &s2)
+                .expect("a swap of two same-text runs' targets must refuse")["reason"],
             "chart_drawing_mismatch"
         );
     }
