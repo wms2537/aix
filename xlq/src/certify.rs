@@ -467,6 +467,36 @@ fn verify_noncell_refs_named(
                        value with no cell/formula diff",
         }));
     }
+    // `CELL("prefix", A1)` returns a label-alignment prefix character derived from the cell's
+    // HORIZONTAL alignment (a style attribute the cell diff and the style-is-benign rule ignore, and
+    // one the engine's fn_cell returns #VALUE! for so the oracle cannot recompute it). Compare
+    // per-cell alignment only when such a formula is present (round-65 defect 8).
+    if (workbook_has_cell_info_fn(expected, &["prefix"])
+        || workbook_has_cell_info_fn(edited, &["prefix"]))
+        && cell_horizontal_alignments(expected) != cell_horizontal_alignments(edited)
+    {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "cell_prefix_mismatch",
+            "detail": "a cell's horizontal alignment differs from xlq's transform and a \
+                       CELL(\"prefix\",…) formula reads it — a re-alignment changes that formula's \
+                       label-prefix value with no cell/formula diff",
+        }));
+    }
+    // `CELL("width", A1)` returns the cell's COLUMN WIDTH (a `<col width>` the styles/col surface
+    // otherwise passes through as benign, and one fn_cell returns #VALUE! for). Compare column widths
+    // only when such a formula is present.
+    if (workbook_has_cell_info_fn(expected, &["width"])
+        || workbook_has_cell_info_fn(edited, &["width"]))
+        && column_widths(expected) != column_widths(edited)
+    {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "cell_width_mismatch",
+            "detail": "a column's width differs from xlq's transform and a CELL(\"width\",…) formula \
+                       reads it — a resize changes that formula's value with no cell/formula diff",
+        }));
+    }
     // Tokens the engine NORMALIZES AWAY on load — the required `_xlfn.` prefix on post-2007
     // functions (dropping it makes Excel show `#NAME?`) and the implicit-intersection `@`
     // operator (`@A1:A10` scalar vs the bare `A1:A10` spilling array) — are invisible to the
@@ -1300,6 +1330,143 @@ fn cell_lock_states(bytes: &[u8]) -> Vec<String> {
                         out.push(format!(
                             "{name}|{}",
                             attr_local(&e, b"r").unwrap_or_default()
+                        ));
+                    }
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The HORIZONTAL alignment of each cellXf (by index) in xl/styles.xml (`<xf><alignment horizontal>`;
+/// default "general"). `CELL("prefix", A1)` derives a label-alignment prefix character from this, so
+/// an alignment change flips that formula's value with no cell/formula diff.
+fn cellxfs_horizontal(styles: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(styles);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut in_cellxfs = false;
+    let mut in_xf = false;
+    let mut cur = String::from("general");
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => match structural::local_of(e.name().as_ref()) {
+                b"cellXfs" => in_cellxfs = true,
+                b"xf" if in_cellxfs => {
+                    in_xf = true;
+                    cur = "general".into();
+                }
+                b"alignment" if in_xf => {
+                    if let Some(h) = attr_local(&e, b"horizontal").filter(|v| !v.is_empty()) {
+                        cur = h;
+                    }
+                }
+                _ => {}
+            },
+            Ok(Event::Empty(e)) => match structural::local_of(e.name().as_ref()) {
+                b"xf" if in_cellxfs => out.push("general".into()),
+                b"alignment" if in_xf => {
+                    if let Some(h) = attr_local(&e, b"horizontal").filter(|v| !v.is_empty()) {
+                        cur = h;
+                    }
+                }
+                _ => {}
+            },
+            Ok(Event::End(e)) => match structural::local_of(e.name().as_ref()) {
+                b"cellXfs" => in_cellxfs = false,
+                b"xf" if in_xf => {
+                    out.push(std::mem::replace(&mut cur, "general".into()));
+                    in_xf = false;
+                }
+                _ => {}
+            },
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out
+}
+
+/// The (sheet, cell, horizontal-alignment) of every cell whose cellXf sets a NON-general horizontal
+/// alignment, sorted — compared ONLY when a `CELL("prefix", …)` formula reads it. Excel's cell diff
+/// and the style-is-benign rule miss an alignment change, but `CELL("prefix")` turns it into a value
+/// change (a left-aligned label yields `'`, right `"`, centered `^`, fill `\`, else empty).
+fn cell_horizontal_alignments(bytes: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let align = crate::ooxml::read_part(bytes, "xl/styles.xml")
+        .map(|s| cellxfs_horizontal(&s))
+        .unwrap_or_default();
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (name, part) in sheets {
+        let Ok(xml) = crate::ooxml::read_part(bytes, &part) else {
+            continue;
+        };
+        let mut reader = quick_xml::Reader::from_reader(xml.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                    if structural::local_of(e.name().as_ref()) == b"c" =>
+                {
+                    let s: usize = attr_local(&e, b"s")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
+                    let h = align.get(s).map(String::as_str).unwrap_or("general");
+                    if h != "general" {
+                        out.push(format!(
+                            "{name}|{}|{h}",
+                            attr_local(&e, b"r").unwrap_or_default()
+                        ));
+                    }
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The (sheet, column-range, width) of every explicitly-sized `<col width>`, sorted — compared ONLY
+/// when a `CELL("width", …)` formula reads it. A column-width change flips that formula's value with
+/// no cell/formula diff, and the styles/`<col>` surface is otherwise on the benign passthrough.
+fn column_widths(bytes: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (name, part) in sheets {
+        let Ok(xml) = crate::ooxml::read_part(bytes, &part) else {
+            continue;
+        };
+        let mut reader = quick_xml::Reader::from_reader(xml.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                    if structural::local_of(e.name().as_ref()) == b"col" =>
+                {
+                    if let Some(w) = attr_local(&e, b"width") {
+                        out.push(format!(
+                            "{name}|{}-{}|{w}",
+                            attr_local(&e, b"min").unwrap_or_default(),
+                            attr_local(&e, b"max").unwrap_or_default(),
                         ));
                     }
                 }
@@ -6005,6 +6172,97 @@ mod tests {
         assert!(
             oracle.contains_key(&key("C1")),
             "a modern DATE serial (>= 61) stays vouchable — no over-refusal: {oracle:?}"
+        );
+    }
+
+    #[test]
+    fn cell_prefix_and_width_backstops_catch_style_changes() {
+        // REGRESSION (round-65 defect 8, false-certify): CELL("prefix") reads a cell's horizontal
+        // alignment and CELL("width") its column width — style attributes the cell diff, the
+        // style-is-benign allowlist, and the engine (fn_cell returns #VALUE!) all miss. A dedicated
+        // backstop compares them when such a formula is present.
+        // Build a minimal 1-sheet workbook with a given sheetData body + styles.xml.
+        let styled = |body: &str, styles: &str| -> Vec<u8> {
+            let ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+            let pkg = "http://schemas.openxmlformats.org/package/2006/relationships";
+            let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let o = zip::write::SimpleFileOptions::default();
+            let mut put = |n: &str, b: &str| {
+                z.start_file(n, o).unwrap();
+                z.write_all(b.as_bytes()).unwrap();
+            };
+            put(
+                "[Content_Types].xml",
+                r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>"#,
+            );
+            put(
+                "_rels/.rels",
+                &format!(
+                    r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/officeDocument" Target="xl/workbook.xml"/></Relationships>"#
+                ),
+            );
+            put(
+                "xl/workbook.xml",
+                &format!(
+                    r#"<?xml version="1.0"?><workbook xmlns="{ns}" xmlns:r="{r}"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>"#
+                ),
+            );
+            put(
+                "xl/_rels/workbook.xml.rels",
+                &format!(
+                    r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#
+                ),
+            );
+            put(
+                "xl/worksheets/sheet1.xml",
+                &format!(r#"<?xml version="1.0"?><worksheet xmlns="{ns}">{body}</worksheet>"#),
+            );
+            put("xl/styles.xml", styles);
+            z.finish().unwrap().into_inner()
+        };
+        let styles = |align: &str| {
+            format!(
+                r#"<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cellXfs count="2"><xf/><xf><alignment horizontal="{align}"/></xf></cellXfs></styleSheet>"#
+            )
+        };
+        // A CELL("prefix") formula reads A1's alignment; A1 uses styled xf 1.
+        let body = |cols: &str| {
+            format!(
+                r#"<cols>{cols}</cols><sheetData><row r="1"><c r="A1" s="1"><v>1</v></c><c r="B1"><f>CELL("prefix",A1)</f><v>x</v></c></row></sheetData>"#
+            )
+        };
+        let good = styled(&body(""), &styles("left"));
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // Re-align A1 left -> right: CELL("prefix") flips from ' to " with no cell/formula diff.
+        let realigned = styled(&body(""), &styles("right"));
+        assert_eq!(
+            verify_noncell_refs(&good, &realigned).expect("a re-alignment must refuse")["reason"],
+            "cell_prefix_mismatch"
+        );
+        // CELL("width"): a <col width> change is caught when a CELL("width") formula is present.
+        let wbody = |w: &str| {
+            format!(
+                r#"<cols><col min="1" max="1" width="{w}" customWidth="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>CELL("width",A1)</f><v>10</v></c></row></sheetData>"#
+            )
+        };
+        let wgood = styled(&wbody("10"), &styles("general"));
+        assert!(verify_noncell_refs(&wgood, &wgood).is_none());
+        let wide = styled(&wbody("30"), &styles("general"));
+        assert_eq!(
+            verify_noncell_refs(&wgood, &wide).expect("a column resize must refuse")["reason"],
+            "cell_width_mismatch"
+        );
+        // No CELL("prefix"/"width") formula -> the style change is NOT compared (no over-refusal).
+        let plain = |align: &str| {
+            styled(
+                r#"<sheetData><row r="1"><c r="A1" s="1"><v>1</v></c></row></sheetData>"#,
+                &styles(align),
+            )
+        };
+        assert!(
+            verify_noncell_refs(&plain("left"), &plain("right")).is_none(),
+            "with no CELL(prefix) formula, an alignment change is benign"
         );
     }
 
