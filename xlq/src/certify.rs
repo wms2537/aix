@@ -7105,16 +7105,14 @@ mod tests {
         };
         let ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
         // A1 carries NO @s; its alignment comes from the COLUMN style -> xf 1.
-        let body = format!(
-            r#"<cols><col min="1" max="1" style="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>CELL("prefix",A1)</f><v>x</v></c></row></sheetData>"#
-        );
+        let body = r#"<cols><col min="1" max="1" style="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>CELL("prefix",A1)</f><v>x</v></c></row></sheetData>"#;
         let styles = |h1: &str, h2: &str| {
             format!(
                 r#"<styleSheet xmlns="{ns}"><cellXfs count="3"><xf/><xf><alignment horizontal="{h1}"/></xf><xf><alignment horizontal="{h2}"/></xf></cellXfs></styleSheet>"#
             )
         };
         // (a) REBIND the column to a differently-aligned xf.
-        let good = build(&body, &styles("left", "right"));
+        let good = build(body, &styles("left", "right"));
         assert!(verify_noncell_refs(&good, &good).is_none());
         let rebound = build(
             r#"<cols><col min="1" max="1" style="2"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>CELL("prefix",A1)</f><v>x</v></c></row></sheetData>"#,
@@ -7125,7 +7123,7 @@ mod tests {
             "cell_prefix_mismatch"
         );
         // (b) keep the binding, edit the TARGET xf's content instead.
-        let retargeted = build(&body, &styles("right", "right"));
+        let retargeted = build(body, &styles("right", "right"));
         assert_eq!(
             verify_noncell_refs(&good, &retargeted)
                 .expect("an inherited-xf content edit must refuse")["reason"],
