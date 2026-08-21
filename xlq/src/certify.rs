@@ -255,6 +255,53 @@ pub fn run(
     }))
 }
 
+/// The workbook-level `<webPublishItems><webPublishItem …>` publish bindings, occurrence-indexed
+/// in document order (a flat multiset would let two items transpose their whole attribute sets
+/// invisibly). Each item's `sourceRef`/`sourceDefinition` names the RANGE published to its
+/// address/filename — a foreign re-point publishes the wrong data to the wrong target on the
+/// next "Save for Web" export, which no other comparator reads (round-68 candidate 4).
+fn web_publish_items(bytes: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") else {
+        return Vec::new();
+    };
+    let mut reader = quick_xml::Reader::from_reader(wb.as_slice());
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut n = 0usize;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if structural::local_of(e.name().as_ref()) == b"webPublishItem" =>
+            {
+                n += 1;
+                let mut attrs: Vec<String> = e
+                    .attributes()
+                    .flatten()
+                    .map(|at| {
+                        format!(
+                            "{}={}",
+                            String::from_utf8_lossy(structural::local_of(at.key.as_ref())),
+                            at.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                                .map(|c| c.into_owned())
+                                .unwrap_or_else(|_| String::from_utf8_lossy(&at.value)
+                                    .into_owned())
+                        )
+                    })
+                    .collect();
+                attrs.sort();
+                out.push(format!("{n}|{}", attrs.join(structural::ATTR_SEP)));
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out.sort();
+    out
+}
+
 /// True when any of the three resolved cellXf tables (locked / horizontal / numFmt code) differs
 /// between the two workbooks. Used ONLY alongside the CELL()-info gates when a row/column style
 /// surface exists: a cell with no explicit `@s` INHERITS its effective style from `<col style>`/
@@ -586,6 +633,18 @@ fn verify_noncell_refs_named(
             "detail": "a form-control / OLE data binding (linkedCell/fmlaLink/listFillRange/\
                        sourceRef, or a VML FmlaLink/FmlaMacro) differs from xlq's transform — \
                        a value/behavior change the cell diff cannot see",
+        }));
+    }
+    // Workbook-level publish bindings: each <webPublishItem> names the RANGE exported to its
+    // address on the next web publish — re-pointing one publishes different data and no other
+    // comparator reads workbook.xml's item list (round-68 candidate 4).
+    if web_publish_items(expected) != web_publish_items(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "web_publish_item_mismatch",
+            "detail": "a <webPublishItem>'s source range or target address differs from xlq's \
+                       transform — the wrong data would be published to the wrong target on the \
+                       next export",
         }));
     }
     // INTERNAL drawing bindings (which image a pic embeds, which chart part a graphicFrame
@@ -7635,6 +7694,52 @@ mod tests {
         assert!(
             verify_noncell_refs(&good, &swapped).is_some(),
             "a cross-table filter swap must be caught"
+        );
+    }
+
+    #[test]
+    fn web_publish_item_repoint_is_caught() {
+        // REGRESSION (round-68 candidate 4, MED): workbook.xml's <webPublishItems> were read by
+        // no comparator — re-pointing an item's sourceRef publishes a different range to the
+        // target on the next export, certified.
+        let build = |workbook_xml: &str| -> Vec<u8> {
+            let ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+            let pkg = "http://schemas.openxmlformats.org/package/2006/relationships";
+            let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let o = zip::write::SimpleFileOptions::default();
+            let mut put = |n: &str, b: &str| {
+                z.start_file(n, o).unwrap();
+                z.write_all(b.as_bytes()).unwrap();
+            };
+            put(
+                "[Content_Types].xml",
+                r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>"#,
+            );
+            put("_rels/.rels", format!(r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/officeDocument" Target="xl/workbook.xml"/></Relationships>"#).as_str());
+            put("xl/workbook.xml", workbook_xml);
+            put("xl/_rels/workbook.xml.rels", format!(r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#).as_str());
+            put(
+                "xl/worksheets/sheet1.xml",
+                r#"<?xml version="1.0"?><worksheet xmlns="urn:main"><sheetData/></worksheet>"#,
+            );
+            z.finish().unwrap().into_inner()
+        };
+        let item = |src: &str| {
+            format!(
+                r#"<?xml version="1.0"?><workbook xmlns="{ns}" xmlns:r="{r}"><sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets><webPublishItems count="1"><webPublishItem id="1" sourceRef="{src}" address="reportA.htm" title="Report A"/></webPublishItems></workbook>"#,
+                ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+                r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+            )
+        };
+        let good = build(&item("Data!$A$1:$C$10"));
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // Re-point the range to another (unpublished) part of the data.
+        let repointed = build(&item("Data!$D$1:$F$99"));
+        assert_eq!(
+            verify_noncell_refs(&good, &repointed)
+                .expect("a web-publish source repoint must refuse")["reason"],
+            "web_publish_item_mismatch"
         );
     }
 
