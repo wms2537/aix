@@ -7373,16 +7373,28 @@ mod tests {
         let good = wb(
             "",
             &[
-                ("xl/drawings/drawing1.xml", shape("Module1.SafeExport").as_str()),
-                ("xl/drawings/drawing2.xml", shape("Module1.DeleteAllData").as_str()),
+                (
+                    "xl/drawings/drawing1.xml",
+                    shape("Module1.SafeExport").as_str(),
+                ),
+                (
+                    "xl/drawings/drawing2.xml",
+                    shape("Module1.DeleteAllData").as_str(),
+                ),
             ],
         );
         assert!(verify_noncell_refs(&good, &good).is_none());
         let swapped = wb(
             "",
             &[
-                ("xl/drawings/drawing1.xml", shape("Module1.DeleteAllData").as_str()),
-                ("xl/drawings/drawing2.xml", shape("Module1.SafeExport").as_str()),
+                (
+                    "xl/drawings/drawing1.xml",
+                    shape("Module1.DeleteAllData").as_str(),
+                ),
+                (
+                    "xl/drawings/drawing2.xml",
+                    shape("Module1.SafeExport").as_str(),
+                ),
             ],
         );
         let res = verify_noncell_refs(&good, &swapped);

@@ -8562,7 +8562,10 @@ mod tests {
                     if let Some(i) = s.find("<mergeCells") {
                         let tag = &s[i..i + s[i..].find('>').unwrap()];
                         if tag.contains("count=") {
-                            assert!(tag.contains(&want), "{label}: mergeCells count mismatch (actual {c}): {tag}");
+                            assert!(
+                                tag.contains(&want),
+                                "{label}: mergeCells count mismatch (actual {c}): {tag}"
+                            );
                         }
                     }
                 }
