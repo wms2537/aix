@@ -1,9 +1,9 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `8ffa144` (pushed to origin, **NOT merged to main**)
-**Last updated:** 2026-08-21, end of round 66 (the aborted run's 5 themes all processed)
-**Gate:** green (397 tests) — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **397 committed tests** pass
-**Totals:** ~274 defects fixed over 66 rounds
+**Branch:** `xlq-reference-completeness` @ `16eb73b` (pushed to origin, **NOT merged to main**)
+**Last updated:** 2026-08-21, end of round 67
+**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **402 tests** pass
+**Totals:** ~280 defects fixed over 67 rounds
 
 ---
 
@@ -42,12 +42,13 @@ The round-N script lives at `/tmp/claude-1000/-home-soh-aix/<session>/scratchpad
 is produced by copying the previous script and rewriting the "ROUND N JUST ADDED" block to weight the
 newest code plus any known residuals.
 
-## 3. Progress this session (rounds 60–66)
+## 3. Progress this session (rounds 60–67)
 
-44 fixes across 20 commits. Newest first:
+50 fixes across 25 commits. Newest first:
 
 | Round | Commits | Confirmed | Headline defects |
 |---|---|---|---|
+| 67 | `dc58530`, `a58b054`, `4bc13fb`, `16eb73b` | 6 | self-closed `<numFmts/>` leaked the dxf-map gate (r61 vector via one-byte encoding); OLAP calculatedMember's expression lives in `@mdx` — read by nothing; intra-chart series ref/name swap (pooled `<f>` list permutation-invariant WITHIN a part); row/col inherited styles invisible to per-cell CELL() backstops (+ target-xf content edit); CELL("width") blind to defaultColWidth/hidden cols; internal drawing image/chart bindings + xl/media bytes uncompared (logo substitution) |
 | 66 | `0b5996e`, `de76d1c`, `e3367bb`, `8ffa144` | 6 (5 fixed + Theme E assessed not-a-defect) | data-table `<f>` NON-self-closing Start arm stale under Op::Move (silent-wrong); cross-part drawing macro=/textlink= swap via same-named shapes — **confirmed by the retained probe** (+ its charts twin); CELL() backstops never followed `xfId` → `<cellStyleXfs>` inheritance (4-lens convergence; e2e repro'd); slicer/timeline selection state uncompared; Theme E assessed CLOSED BY CONSTRUCTION (see §6) |
 | 65 | `5ac8071`, `5292bd0`, `ab76abb` | 6 | 3D-span defined name → engine `#NAME?` laundered via IFERROR (found by **4 lenses**); same-named drawing shapes collide (`cNvPr name` is not unique → `name#occ`); swap of two same-fld/same-name pivot dataFields' aggregation; `Op::Move` left data-table `<f>` r1/r2/ref stale (dead-code dispatch); two same-text runs' hyperlink swap; **new class** — `CELL("prefix")`/`CELL("width")` style backstops |
 | 64 | `5b7379c`, `6f7ab02` | 7 | **new class** — engine cannot evaluate non-plain-ref defined names (named constant/formula/dynamic OFFSET) → `#NAME?` laundered; pivotField `<item>` display-order swap; cross-part pivot cacheSource connection swap; pivotField sortType/showAll/subtotalTop; autofilter predicate swap between filterColumns; delete consuming `<pane topLeftCell>` → empty ref |
@@ -122,11 +123,16 @@ The 8 candidates from the aborted run collapsed to 5 themes; all processed:
 
 ## 7. Next steps (in order)
 
-1. **Run round 67 as a fresh full workflow** (weekly limit reset long ago): same protocol,
-   weighting the newest code (styles-inheritance folding, slicer/timeline comparator,
-   chart/drawing owning-part prefixes, data-table Start arm) plus known residuals.
-2. Continue the loop toward two consecutive genuinely-dry rounds.
-3. Update `~/.claude/projects/-home-soh-aix/memory/xlq-reference-completeness-hardening.md`
+1. **Round 68**: fresh workflow, weighting the round-67 NEW surface (chart_series_sigs,
+   slicer_timeline_sigs, drawing_internal_bindings, row_column_style_surfaces /
+   cellxfs_tables_differ) — per the standing lesson, every new comparator creates fresh surface.
+2. **Accepted residuals** (documented, not defects): chart numCache/strCache point values are
+   deliberately uncompared (self-repairs on refresh; re-derivation is common faithful behavior);
+   chained cellStyleXfs→cellStyleXfs inheritance folds one hop only (exotic construct);
+   xl/diagrams/* + xl/embeddings/* remain blanket-refused (fail-closed availability gap — OLE
+   content is executable and must not be allowlisted without a comparator).
+3. Continue the loop toward two consecutive genuinely-dry rounds.
+4. Update `~/.claude/projects/-home-soh-aix/memory/xlq-reference-completeness-hardening.md`
    after each completed round.
 
 ## 8. Hard-won operational lessons
