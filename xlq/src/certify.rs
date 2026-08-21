@@ -1260,18 +1260,28 @@ fn cell_metadata_bindings(bytes: &[u8]) -> Vec<String> {
 }
 
 /// The LOCKED state of each `<xf>` in styles.xml `<cellXfs>`, in document order. The default is
-/// LOCKED (`true`); an `<xf>` carrying `<protection locked="0"/>` (or "false") is unlocked. The
-/// resolution need not be perfectly Excel-accurate — only CONSISTENT between the two files, so a
-/// genuine unlock (a change to the xf's protection) differs and a benign edit does not.
+/// LOCKED (`true`); an `<xf>` carrying `<protection locked="0"/>` (or "false") is unlocked. A
+/// cellXf that carries NO explicit `<protection>` INHERITS its named cell style's lock through
+/// `xfId` -> `<cellStyleXfs>` (ECMA-376 style merging — Excel resolves this for
+/// `CELL("protect")`), so the parent entry is folded in when the child omits the property;
+/// otherwise editing only the PARENT style would flip every inheriting cell's effective lock
+/// invisibly (round-66 Theme A). The resolution need not be perfectly Excel-accurate — only
+/// CONSISTENT between the two files, so a genuine unlock (child OR parent) differs and a benign
+/// edit does not.
 fn cellxfs_locked(styles: &[u8]) -> Vec<bool> {
     use quick_xml::events::Event;
     let mut reader = quick_xml::Reader::from_reader(styles);
     reader.config_mut().expand_empty_elements = false;
     let mut buf = Vec::new();
-    let mut out = Vec::new();
+    // Parent (named-style) xf -> Some(locked) iff it declares an explicit lock.
+    let mut parents: Vec<Option<bool>> = Vec::new();
+    // Child cellXf -> (xfId, Some(locked) iff it declares an explicit lock).
+    let mut children: Vec<(usize, Option<bool>)> = Vec::new();
     let mut in_cellxfs = false;
+    let mut in_cellstylexfs = false;
     let mut in_xf = false;
-    let mut cur = true;
+    let mut cur: Option<bool> = None;
+    let mut cur_xfid = 0usize;
     let locked_of = |e: &quick_xml::events::BytesStart| {
         attr_local(e, b"locked").map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
     };
@@ -1279,30 +1289,49 @@ fn cellxfs_locked(styles: &[u8]) -> Vec<bool> {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) => match structural::local_of(e.name().as_ref()) {
                 b"cellXfs" => in_cellxfs = true,
+                b"cellStyleXfs" => in_cellstylexfs = true,
                 b"xf" if in_cellxfs => {
                     in_xf = true;
-                    cur = true;
+                    cur = None;
+                    cur_xfid = attr_local(&e, b"xfId")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
+                }
+                b"xf" if in_cellstylexfs => {
+                    in_xf = true;
+                    cur = None;
                 }
                 b"protection" if in_xf => {
                     if let Some(l) = locked_of(&e) {
-                        cur = l;
+                        cur = Some(l);
                     }
                 }
                 _ => {}
             },
             Ok(Event::Empty(e)) => match structural::local_of(e.name().as_ref()) {
-                b"xf" if in_cellxfs => out.push(true),
+                b"xf" if in_cellxfs => children.push((
+                    attr_local(&e, b"xfId")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0),
+                    None,
+                )),
+                b"xf" if in_cellstylexfs => parents.push(None),
                 b"protection" if in_xf => {
                     if let Some(l) = locked_of(&e) {
-                        cur = l;
+                        cur = Some(l);
                     }
                 }
                 _ => {}
             },
             Ok(Event::End(e)) => match structural::local_of(e.name().as_ref()) {
                 b"cellXfs" => in_cellxfs = false,
+                b"cellStyleXfs" => in_cellstylexfs = false,
                 b"xf" if in_xf => {
-                    out.push(cur);
+                    if in_cellstylexfs && !in_cellxfs {
+                        parents.push(cur.take());
+                    } else {
+                        children.push((cur_xfid, cur.take()));
+                    }
                     in_xf = false;
                 }
                 _ => {}
@@ -1312,7 +1341,14 @@ fn cellxfs_locked(styles: &[u8]) -> Vec<bool> {
         }
         buf.clear();
     }
-    out
+    children
+        .into_iter()
+        .map(|(xfid, locked)| {
+            locked
+                .or_else(|| parents.get(xfid).copied().flatten())
+                .unwrap_or(true)
+        })
+        .collect()
 }
 
 /// The (sheet, cell) of every UNLOCKED cell, sorted — compared ONLY when a `CELL("protect", …)`
@@ -1363,45 +1399,75 @@ fn cell_lock_states(bytes: &[u8]) -> Vec<String> {
 }
 
 /// The HORIZONTAL alignment of each cellXf (by index) in xl/styles.xml (`<xf><alignment horizontal>`;
-/// default "general"). `CELL("prefix", A1)` derives a label-alignment prefix character from this, so
-/// an alignment change flips that formula's value with no cell/formula diff.
+/// default "general"). A cellXf that carries NO explicit horizontal INHERITS its named cell
+/// style's through `xfId` -> `<cellStyleXfs>` (ECMA-376 style merging — Excel resolves this for
+/// `CELL("prefix")`), so the parent entry is folded in when the child omits the attribute;
+/// otherwise editing only the PARENT style would flip every inheriting cell's effective prefix
+/// invisibly (round-66 Theme A). `CELL("prefix", A1)` derives a label-alignment prefix character
+/// from this, so an alignment change flips that formula's value with no cell/formula diff.
 fn cellxfs_horizontal(styles: &[u8]) -> Vec<String> {
     use quick_xml::events::Event;
     let mut reader = quick_xml::Reader::from_reader(styles);
     reader.config_mut().expand_empty_elements = false;
     let mut buf = Vec::new();
-    let mut out = Vec::new();
+    // Parent (named-style) xf -> Some(horizontal) iff it declares one.
+    let mut parents: Vec<Option<String>> = Vec::new();
+    // Child cellXf -> (xfId, Some(horizontal) iff it declares one).
+    let mut children: Vec<(usize, Option<String>)> = Vec::new();
     let mut in_cellxfs = false;
+    let mut in_cellstylexfs = false;
     let mut in_xf = false;
-    let mut cur = String::from("general");
+    let mut cur: Option<String> = None;
+    let mut cur_xfid = 0usize;
+    let horizontal_of =
+        |e: &quick_xml::events::BytesStart| attr_local(e, b"horizontal").filter(|v| !v.is_empty());
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) => match structural::local_of(e.name().as_ref()) {
                 b"cellXfs" => in_cellxfs = true,
+                b"cellStyleXfs" => in_cellstylexfs = true,
                 b"xf" if in_cellxfs => {
                     in_xf = true;
-                    cur = "general".into();
+                    cur = None;
+                    cur_xfid = attr_local(&e, b"xfId")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
+                }
+                b"xf" if in_cellstylexfs => {
+                    in_xf = true;
+                    cur = None;
                 }
                 b"alignment" if in_xf => {
-                    if let Some(h) = attr_local(&e, b"horizontal").filter(|v| !v.is_empty()) {
-                        cur = h;
+                    if let Some(h) = horizontal_of(&e) {
+                        cur = Some(h);
                     }
                 }
                 _ => {}
             },
             Ok(Event::Empty(e)) => match structural::local_of(e.name().as_ref()) {
-                b"xf" if in_cellxfs => out.push("general".into()),
+                b"xf" if in_cellxfs => children.push((
+                    attr_local(&e, b"xfId")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0),
+                    None,
+                )),
+                b"xf" if in_cellstylexfs => parents.push(None),
                 b"alignment" if in_xf => {
-                    if let Some(h) = attr_local(&e, b"horizontal").filter(|v| !v.is_empty()) {
-                        cur = h;
+                    if let Some(h) = horizontal_of(&e) {
+                        cur = Some(h);
                     }
                 }
                 _ => {}
             },
             Ok(Event::End(e)) => match structural::local_of(e.name().as_ref()) {
                 b"cellXfs" => in_cellxfs = false,
+                b"cellStyleXfs" => in_cellstylexfs = false,
                 b"xf" if in_xf => {
-                    out.push(std::mem::replace(&mut cur, "general".into()));
+                    if in_cellstylexfs && !in_cellxfs {
+                        parents.push(cur.take());
+                    } else {
+                        children.push((cur_xfid, cur.take()));
+                    }
                     in_xf = false;
                 }
                 _ => {}
@@ -1411,7 +1477,13 @@ fn cellxfs_horizontal(styles: &[u8]) -> Vec<String> {
         }
         buf.clear();
     }
-    out
+    children
+        .into_iter()
+        .map(|(xfid, h)| {
+            h.or_else(|| parents.get(xfid).cloned().flatten())
+                .unwrap_or_else(|| "general".to_string())
+        })
+        .collect()
 }
 
 /// The (sheet, cell, horizontal-alignment) of every cell whose cellXf sets a NON-general horizontal
@@ -1501,17 +1573,25 @@ fn column_widths(bytes: &[u8]) -> Vec<String> {
 
 /// The resolved number-format CODE of each cellXf (by index) in xl/styles.xml. A custom numFmt (an
 /// id declared in `<numFmts>`) resolves to its `formatCode`; a built-in id resolves to
-/// `builtin:{id}` (the id IS the canonical key for built-ins). Used to detect a number-format change
-/// that `CELL("format")` reads but that leaves the RENDERED value unchanged (so the display-based
-/// `format` diff misses it).
+/// `builtin:{id}` (the id IS the canonical key for built-ins). A cellXf that carries NO explicit
+/// `numFmtId` INHERITS its named cell style's through `xfId` -> `<cellStyleXfs>` (ECMA-376 style
+/// merging — Excel resolves this for `CELL("format")`), so the parent id is folded in when the
+/// child omits the attribute; otherwise editing only the PARENT style would change every
+/// inheriting cell's effective format invisibly (round-66 Theme A). Used to detect a
+/// number-format change that `CELL("format")` reads but that leaves the RENDERED value unchanged
+/// (so the display-based `format` diff misses it).
 fn cellxfs_numfmt_codes(styles: &[u8]) -> Vec<String> {
     use quick_xml::events::Event;
     let mut reader = quick_xml::Reader::from_reader(styles);
     reader.config_mut().expand_empty_elements = false;
     let mut buf = Vec::new();
     let mut custom: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
-    let mut ids: Vec<u32> = Vec::new(); // cellXf index -> numFmtId
+    // Parent (named-style) xf numFmtIds; a missing attr means the ECMA default 0.
+    let mut parent_ids: Vec<u32> = Vec::new();
+    // Child cellXf -> (xfId, Some(numFmtId) iff declared explicitly).
+    let mut children: Vec<(usize, Option<u32>)> = Vec::new();
     let mut in_cellxfs = false;
+    let mut in_cellstylexfs = false;
     let mut in_numfmts = false;
     loop {
         match reader.read_event_into(&mut buf) {
@@ -1531,34 +1611,41 @@ fn cellxfs_numfmt_codes(styles: &[u8]) -> Vec<String> {
                     }
                     b"numFmts" => in_numfmts = true,
                     b"cellXfs" => in_cellxfs = true,
-                    b"xf" if in_cellxfs => {
-                        ids.push(
-                            attr_local(&e, b"numFmtId")
-                                .and_then(|v| v.parse().ok())
-                                .unwrap_or(0),
-                        );
-                    }
+                    b"cellStyleXfs" => in_cellstylexfs = true,
+                    b"xf" if in_cellxfs => children.push((
+                        attr_local(&e, b"xfId")
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(0),
+                        attr_local(&e, b"numFmtId").and_then(|v| v.parse().ok()),
+                    )),
+                    b"xf" if in_cellstylexfs => parent_ids.push(
+                        attr_local(&e, b"numFmtId")
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(0),
+                    ),
                     _ => {}
                 }
             }
-            Ok(Event::End(e)) if structural::local_of(e.name().as_ref()) == b"cellXfs" => {
-                in_cellxfs = false;
-            }
-            Ok(Event::End(e)) if structural::local_of(e.name().as_ref()) == b"numFmts" => {
-                in_numfmts = false;
-            }
+            Ok(Event::End(e)) => match structural::local_of(e.name().as_ref()) {
+                b"cellXfs" => in_cellxfs = false,
+                b"cellStyleXfs" => in_cellstylexfs = false,
+                b"numFmts" => in_numfmts = false,
+                _ => {}
+            },
             Ok(Event::Eof) | Err(_) => break,
             _ => {}
         }
         buf.clear();
     }
-    ids.into_iter()
-        .map(|id| {
+    children
+        .into_iter()
+        .map(|(xfid, id)| {
             // A cell may carry a builtin numFmtId directly (what Excel/openpyxl emit) OR, after a
             // real-editor re-save, the SAME format materialized as a custom `<numFmt>` with the
             // equivalent formatCode. Resolve a builtin to its canonical ECMA-376 code so the two
             // forms compare EQUAL (else CELL("format") over-refused a faithful builtin->custom
             // expansion). A builtin without a canonical code (locale-reserved) stays `builtin:{id}`.
+            let id = id.or_else(|| parent_ids.get(xfid).copied()).unwrap_or(0);
             custom
                 .get(&id)
                 .cloned()
@@ -6283,6 +6370,103 @@ mod tests {
             verify_noncell_refs(&plain("left"), &plain("right")).is_none(),
             "with no CELL(prefix) formula, an alignment change is benign"
         );
+    }
+
+    #[test]
+    fn cell_prefix_via_named_style_inheritance_is_caught() {
+        // REGRESSION (round-66 Theme A, false-certify): a cellXf with NO explicit alignment
+        // INHERITS its named cell style's horizontal through xfId -> <cellStyleXfs> (Excel resolves
+        // this for CELL("prefix")), but the round-65 backstops read only the <cellXfs><xf> entry —
+        // editing ONLY the parent style flipped every inheriting cell's effective prefix invisibly.
+        // The styled() helper below is copied from
+        // cell_prefix_and_width_backstops_catch_style_changes (round 65).
+        let styled = |body: &str, styles: &str| -> Vec<u8> {
+            let ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+            let pkg = "http://schemas.openxmlformats.org/package/2006/relationships";
+            let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let o = zip::write::SimpleFileOptions::default();
+            let mut put = |n: &str, b: &str| {
+                z.start_file(n, o).unwrap();
+                z.write_all(b.as_bytes()).unwrap();
+            };
+            put(
+                "[Content_Types].xml",
+                r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>"#,
+            );
+            put(
+                "_rels/.rels",
+                &format!(
+                    r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/officeDocument" Target="xl/workbook.xml"/></Relationships>"#
+                ),
+            );
+            put(
+                "xl/workbook.xml",
+                &format!(
+                    r#"<?xml version="1.0"?><workbook xmlns="{ns}" xmlns:r="{r}"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>"#
+                ),
+            );
+            put(
+                "xl/_rels/workbook.xml.rels",
+                &format!(
+                    r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#
+                ),
+            );
+            put(
+                "xl/worksheets/sheet1.xml",
+                &format!(r#"<?xml version="1.0"?><worksheet xmlns="{ns}">{body}</worksheet>"#),
+            );
+            put("xl/styles.xml", styles);
+            z.finish().unwrap().into_inner()
+        };
+        // xf 1 carries NO <alignment>; the horizontal lives on the NAMED STYLE it inherits from.
+        let styles = |named_align: &str| {
+            format!(
+                r#"<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cellStyleXfs count="2"><xf/><xf><alignment horizontal="{named_align}"/></xf></cellStyleXfs><cellXfs count="2"><xf/><xf xfId="1" applyAlignment="1"/></cellXfs></styleSheet>"#
+            )
+        };
+        let body = || r#"<sheetData><row r="1"><c r="A1" s="1"><v>1</v></c><c r="B1"><f>CELL("prefix",A1)</f><v>x</v></c></row></sheetData>"#;
+        let good = styled(body(), &styles("left"));
+        assert!(
+            verify_noncell_refs(&good, &good).is_none(),
+            "identical inherited alignment must certify"
+        );
+        // Re-align the PARENT style left -> right: CELL("prefix") flips ' -> " for every
+        // inheriting cell with no cell/child-xf diff.
+        let realigned = styled(body(), &styles("right"));
+        assert_eq!(
+            verify_noncell_refs(&good, &realigned).expect("a named-style re-alignment must refuse")
+                ["reason"],
+            "cell_prefix_mismatch"
+        );
+    }
+
+    #[test]
+    fn named_style_lock_and_numfmt_inheritance_is_resolved() {
+        // REGRESSION (round-66 Theme A): the lock and numFmt backstops must likewise fold the
+        // cellStyleXfs parent in when the child xf omits the property.
+        // LOCKED: xf 1 inherits protection locked="0" from its named style.
+        let locked_styles =
+            br#"<styleSheet><cellStyleXfs count="2"><xf/><xf><protection locked="0"/></xf></cellStyleXfs><cellXfs count="2"><xf/><xf xfId="1" applyProtection="1"/></cellXfs></styleSheet>"#;
+        assert_eq!(cellxfs_locked(locked_styles), vec![true, false]);
+        // Editing only the PARENT re-locks every inheriting child.
+        let relocked_styles =
+            br#"<styleSheet><cellStyleXfs count="2"><xf/><xf/></cellStyleXfs><cellXfs count="2"><xf/><xf xfId="1" applyProtection="1"/></cellXfs></styleSheet>"#;
+        assert_eq!(cellxfs_locked(relocked_styles), vec![true, true]);
+        // An explicit CHILD protection still wins over the parent.
+        let explicit_child =
+            br#"<styleSheet><cellStyleXfs count="2"><xf/><xf><protection locked="0"/></xf></cellStyleXfs><cellXfs count="2"><xf/><xf xfId="1"><protection locked="1"/></xf></cellXfs></styleSheet>"#;
+        assert_eq!(cellxfs_locked(explicit_child), vec![true, true]);
+        // NUMFMT: xf 1 inherits numFmtId 14 from its named style.
+        let inherited_fmt =
+            br#"<styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="0.000"/></numFmts><cellStyleXfs count="2"><xf/><xf numFmtId="164"/></cellStyleXfs><cellXfs count="3"><xf/><xf xfId="1"/><xf numFmtId="14"/></cellXfs></styleSheet>"#;
+        let codes = cellxfs_numfmt_codes(inherited_fmt);
+        assert_eq!(codes[0], "General");
+        assert_eq!(
+            codes[1], "0.000",
+            "the child inherits the named style's custom code"
+        );
+        assert_eq!(codes[2], "mm-dd-yy", "an explicit child id still wins");
     }
 
     #[test]
