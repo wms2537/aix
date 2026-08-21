@@ -1,8 +1,8 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `22d6d88` (pushed to origin, **NOT merged to main**)
-**Last updated:** 2026-08-21, end of round 68
-**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **406 tests** pass
+**Branch:** `xlq-reference-completeness` @ `0f943f4` (pushed to origin, **NOT merged to main**)
+**Last updated:** 2026-08-21, end of round 69
+**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **407 tests** pass
 **Totals:** ~286 defects fixed over 69 rounds
 
 ---
@@ -42,12 +42,13 @@ The round-N script lives at `/tmp/claude-1000/-home-soh-aix/<session>/scratchpad
 is produced by copying the previous script and rewriting the "ROUND N JUST ADDED" block to weight the
 newest code plus any known residuals.
 
-## 3. Progress this session (rounds 60–68)
+## 3. Progress this session (rounds 60–69)
 
-54 fixes across 29 commits. Newest first:
+56 fixes across 32 commits. Newest first:
 
 | Round | Commits | Confirmed | Headline defects |
 |---|---|---|---|
+| 69 | `f57c5e8`, `58b831c` | 2 | pivot `<item @n>` custom-label swap across fields (label lived only in the pooled multiset); LITERAL chart data points (`numLit`/`strLit` — typed-in values, authoritative forever) uncompared. Closing sweep over all rounds-66-69 comparators came back clean (2 empty agent sweeps + manual verification: pt-idx staleness benign, folding resolves at end, col-range consistency) |
 | 68 | `bf71a4e`, `e8e7ab6`, `ed31a3a` | 4 | form-control binding swap pooled across parts AND within a sheet (incl. VML FmlaMacro = which button runs which macro); cross-TABLE autoFilter-block swap (constant owner "table"); linked-object `<xdr:f>` source cells pooled within one drawing; workbook `<webPublishItem>` source repoint uncompared |
 | 67 | `dc58530`, `a58b054`, `4bc13fb`, `16eb73b` | 6 | self-closed `<numFmts/>` leaked the dxf-map gate (r61 vector via one-byte encoding); OLAP calculatedMember's expression lives in `@mdx` — read by nothing; intra-chart series ref/name swap (pooled `<f>` list permutation-invariant WITHIN a part); row/col inherited styles invisible to per-cell CELL() backstops (+ target-xf content edit); CELL("width") blind to defaultColWidth/hidden cols; internal drawing image/chart bindings + xl/media bytes uncompared (logo substitution) |
 | 66 | `0b5996e`, `de76d1c`, `e3367bb`, `8ffa144` | 6 (5 fixed + Theme E assessed not-a-defect) | data-table `<f>` NON-self-closing Start arm stale under Op::Move (silent-wrong); cross-part drawing macro=/textlink= swap via same-named shapes — **confirmed by the retained probe** (+ its charts twin); CELL() backstops never followed `xfId` → `<cellStyleXfs>` inheritance (4-lens convergence; e2e repro'd); slicer/timeline selection state uncompared; Theme E assessed CLOSED BY CONSTRUCTION (see §6) |
@@ -126,9 +127,10 @@ The 8 candidates from the aborted run collapsed to 5 themes; all processed:
 
 1. **Round 69**: fresh workflow. Rounds 67-68 lenses came back DRY on oracle-soundness,
    external-rels/security, refshift/structural coverage, and invalid-output — weight the next
-   run toward: **(a)** chart numCache/strCache point values (open residual, self-repairs on
-   refresh); **(b)** any NEW surface from rounds 66-69 comparators. (The pivot `<item @n>`
-   label-swap lead was fixed first thing in round 69: `n` joined the per-field ordered sigs.)
+   run toward: a FULL fresh workflow (all lenses) — rounds 67-69 were increasingly targeted;
+   the two dedicated new-comparator sweep agents returned EMPTY twice (retry with fresh agents
+   or run the lenses directly). Cell-linked chart caches stay a documented non-defect residual
+   (self-repair on refresh); literal points are now compared.
 2. **Accepted residuals** (documented, not defects): chart numCache/strCache point values are
    deliberately uncompared (self-repairs on refresh; re-derivation is common faithful behavior);
    chained cellStyleXfs→cellStyleXfs inheritance folds one hop only (exotic construct);
