@@ -497,6 +497,19 @@ fn verify_noncell_refs_named(
                        reads it — a resize changes that formula's value with no cell/formula diff",
         }));
     }
+    // Slicer / timeline widgets are byte-allowlisted parts whose persisted FILTER SELECTION no
+    // other comparator reads — yet a deselection / date-range change re-filters the bound pivot
+    // on refresh (a materially different output the current cached cells do not reflect).
+    // Compare their selection/binding semantics (round-66 Theme D).
+    if slicer_timeline_sigs(expected) != slicer_timeline_sigs(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "slicer_selection_mismatch",
+            "detail": "a slicer/timeline widget's selection state, item set, or pivot/cache \
+                       binding differs from xlq's transform — a filter change that re-aggregates \
+                       the pivot on refresh while its cached cells still show the old output",
+        }));
+    }
     // Tokens the engine NORMALIZES AWAY on load — the required `_xlfn.` prefix on post-2007
     // functions (dropping it makes Excel show `#NAME?`) and the implicit-intersection `@`
     // operator (`@A1:A10` scalar vs the bare `A1:A10` spilling array) — are invisible to the
@@ -1566,6 +1579,117 @@ fn column_widths(bytes: &[u8]) -> Vec<String> {
             }
             buf.clear();
         }
+    }
+    out.sort();
+    out
+}
+
+/// The SELECTION/BINDING semantics of every slicer / timeline widget across
+/// `xl/slicerCaches/*`, `xl/slicers/*`, `xl/timelineCaches/*` and `xl/timelines/*`, sorted, each
+/// signature prefixed with its OWNING PART (the cross-part pooling class). These parts are
+/// byte-allowlisted (no shiftable A1 coordinate), but their persisted FILTER SELECTION is read by
+/// no other comparator — and a deselection / date-range change RE-FILTERS the bound pivot on the
+/// next refresh, a materially different output the current cached pivot cells do not yet reflect
+/// (round-66 Theme D). Captured per part:
+/// - slicer cache: identity (`name`, `sourceName`), the pivot binding (`tabular pivotTables`),
+///   each item's selection state keyed by its item index `x` (unique within the cache, so a
+///   sibling swap cannot survive: `<i>` s/nd are normalized bools with ECMA defaults s=TRUE,
+///   nd=FALSE), and an OLAP cache's level/pivot attrs (ancestor-path qualified).
+/// - slicer / timeline visual part: the widget's name and its CACHE BINDING (`cache` r:id) —
+///   re-pointing a widget at another cache re-filters a different pivot.
+/// - timeline cache: identity plus the `<state>` selection (selectionType / start / end dates).
+fn slicer_timeline_sigs(bytes: &[u8]) -> Vec<String> {
+    let names = structural::archive_names(bytes).unwrap_or_default();
+    let mut out = Vec::new();
+    for n in &names {
+        let low = n.to_ascii_lowercase();
+        if !low.ends_with(".xml") {
+            continue;
+        }
+        let (is_cache, is_visual, is_tl_cache) = (
+            low.starts_with("xl/slicercaches/"),
+            low.starts_with("xl/slicers/") || low.starts_with("xl/timelines/"),
+            low.starts_with("xl/timelinecaches/"),
+        );
+        if !(is_cache || is_visual || is_tl_cache) {
+            continue;
+        }
+        let Ok(x) = crate::ooxml::read_part(bytes, n) else {
+            continue;
+        };
+        let mut sigs = if is_visual {
+            structural::element_attr_semantics(&x, &[b"slicer", b"timeline"])
+                .iter()
+                .map(|(tag, attrs)| format!("{tag}|{attrs}"))
+                .collect::<Vec<_>>()
+        } else {
+            // Cache definitions: root identity + binding/selection surface.
+            let mut s = if is_cache {
+                structural::element_attr_semantics(&x, &[b"slicerCacheDefinition", b"tabular"])
+            } else {
+                structural::element_attr_semantics(&x, &[b"timelineCacheDefinition", b"state"])
+            }
+            .iter()
+            .map(|(tag, attrs)| format!("{tag}|{attrs}"))
+            .collect::<Vec<_>>();
+            // Tabular slicer items: position-keyed by the item index x (element_attr_semantics
+            // sorts, so two sibling <i> entries could otherwise swap s flags invisibly).
+            if is_cache {
+                s.extend(slicer_cache_item_sigs(&x));
+                // OLAP variant: hierarchy/level/pivot attrs, ancestor-path qualified.
+                s.extend(
+                    structural::element_attr_semantics(
+                        &x,
+                        &[b"olap", b"pivots", b"pivot", b"hierarchies", b"levelData"],
+                    )
+                    .iter()
+                    .map(|(tag, attrs)| format!("{tag}|{attrs}")),
+                );
+            }
+            s
+        };
+        for sig in &mut sigs {
+            *sig = format!("{low}|{sig}");
+        }
+        out.extend(sigs);
+    }
+    out.sort();
+    out
+}
+
+/// Per-item selection signatures for a TABULAR slicer cache (`<tabular><items><i x="0" s="1"/>`),
+/// keyed by the item index `x`. Defaults folded per ECMA-376: `s` (selected) defaults TRUE,
+/// `nd` (no data) defaults FALSE — so a faithful re-serialization writing explicit defaults
+/// compares equal to the omitted form.
+fn slicer_cache_item_sigs(xml: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if structural::local_of(e.name().as_ref()) == b"i" =>
+            {
+                let attr = |k: &[u8]| attr_local(&e, k);
+                let Some(x) = attr(b"x") else {
+                    continue; // malformed item without an index: nothing to bind
+                };
+                let flag = |v: Option<String>, default: bool| match v {
+                    None => default,
+                    Some(v) => v != "0" && !v.eq_ignore_ascii_case("false"),
+                };
+                out.push(format!(
+                    "item|x={x}|s={}|nd={}",
+                    flag(attr(b"s"), true),
+                    flag(attr(b"nd"), false),
+                ));
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
     }
     out.sort();
     out
@@ -6467,6 +6591,119 @@ mod tests {
             "the child inherits the named style's custom code"
         );
         assert_eq!(codes[2], "mm-dd-yy", "an explicit child id still wins");
+    }
+
+    #[test]
+    fn slicer_selection_deselect_is_caught() {
+        // REGRESSION (round-66 Theme D, false-certify): slicer/timeline parts are byte-allowlisted
+        // and their persisted filter selection was read by NO comparator — deselecting a slicer
+        // item re-filters the bound pivot on refresh while the cached pivot cells still show the
+        // old output, so the tamper certified. The selection/binding comparator catches it.
+        let cache = |items: &str| {
+            format!(
+                r#"<slicerCacheDefinition xmlns="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" name="Slicer_Region" sourceName="Region"><tabular pivotTables="PivotTable1"><items count="2">{items}</items></tabular></slicerCacheDefinition>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[(
+                "xl/slicerCaches/slicerCache1.xml",
+                cache(r#"<i x="0"/><i x="1"/>"#).as_str(),
+            )],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // Deselect item 1 (s defaults TRUE, so s="0" is the only difference).
+        let deselected = wb(
+            "",
+            &[(
+                "xl/slicerCaches/slicerCache1.xml",
+                cache(r#"<i x="0"/><i x="1" s="0"/>"#).as_str(),
+            )],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &deselected).expect("a slicer deselection must refuse")
+                ["reason"],
+            "slicer_selection_mismatch"
+        );
+        // An explicit-defaults re-serialization (s="1") is the SAME selection: no over-refusal.
+        let explicit = wb(
+            "",
+            &[(
+                "xl/slicerCaches/slicerCache1.xml",
+                cache(r#"<i x="0" s="1"/><i x="1" s="1"/>"#).as_str(),
+            )],
+        );
+        assert!(
+            verify_noncell_refs(&good, &explicit).is_none(),
+            "explicit default flags must not refuse"
+        );
+        // A sibling SWAP of two items' flags is caught too (x-keyed, not pooled).
+        let swapped = wb(
+            "",
+            &[(
+                "xl/slicerCaches/slicerCache1.xml",
+                cache(r#"<i x="0" s="0"/><i x="1"/>"#).as_str(),
+            )],
+        );
+        assert!(
+            verify_noncell_refs(&good, &swapped).is_some(),
+            "swapping which item carries the deselection must be caught"
+        );
+        // The pivot BINDING and cross-part identity are compared as well.
+        let rebound = wb(
+            "",
+            &[(
+                "xl/slicerCaches/slicerCache1.xml",
+                r#"<slicerCacheDefinition xmlns="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" name="Slicer_Region" sourceName="Region"><tabular pivotTables="PivotTable2"><items count="2"><i x="0"/><i x="1"/></items></tabular></slicerCacheDefinition>"#,
+            )],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &rebound).expect("a pivot rebind must refuse")["reason"],
+            "slicer_selection_mismatch"
+        );
+    }
+
+    #[test]
+    fn timeline_range_and_slicer_cache_rebind_are_caught() {
+        // REGRESSION (round-66 Theme D twins): a timeline's selected date RANGE and a visual
+        // widget's CACHE BINDING are the same uncompared surface.
+        let tcache = |start: &str, end: &str| {
+            format!(
+                r#"<timelineCacheDefinition xmlns="http://schemas.microsoft.com/office/spreadsheetml/2010/11/main" name="Timeline_Month" sourceName="Month"><state minimumDate="2024-01-01T00:00:00" startDate="{start}" endDate="{end}" maximumDate="2024-12-31T00:00:00" selectionType="date-range"/></timelineCacheDefinition>"#
+            )
+        };
+        let tgood = wb(
+            "",
+            &[(
+                "xl/timelineCaches/timelineCache1.xml",
+                tcache("2024-01-01T00:00:00", "2024-06-30T00:00:00").as_str(),
+            )],
+        );
+        assert!(verify_noncell_refs(&tgood, &tgood).is_none());
+        let widened = wb(
+            "",
+            &[(
+                "xl/timelineCaches/timelineCache1.xml",
+                tcache("2024-01-01T00:00:00", "2024-12-31T00:00:00").as_str(),
+            )],
+        );
+        assert_eq!(
+            verify_noncell_refs(&tgood, &widened).expect("a timeline range change must refuse")
+                ["reason"],
+            "slicer_selection_mismatch"
+        );
+        // A visual widget re-pointed at ANOTHER slicer cache (which drives a different pivot).
+        let widget = |rid: &str| {
+            format!(
+                r#"<slicers xmlns="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><slicer name="Region" cache="{rid}" caption="Region" rowHeight="241300" columnCount="2"/></slicers>"#
+            )
+        };
+        let wgood = wb("", &[("xl/slicers/slicer1.xml", widget("rId1").as_str())]);
+        let wswap = wb("", &[("xl/slicers/slicer1.xml", widget("rId2").as_str())]);
+        assert_eq!(
+            verify_noncell_refs(&wgood, &wswap).expect("a widget rebind must refuse")["reason"],
+            "slicer_selection_mismatch"
+        );
     }
 
     #[test]
