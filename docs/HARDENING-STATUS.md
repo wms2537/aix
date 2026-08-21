@@ -126,8 +126,12 @@ The 8 candidates from the aborted run collapsed to 5 themes; all processed:
 
 1. **Round 69**: fresh workflow. Rounds 67-68 lenses came back DRY on oracle-soundness,
    external-rels/security, refshift/structural coverage, and invalid-output — weight the next
-   run toward pivot per-field `<item h>` pooling (declared done r64 but position-blind across
-   fields), chart caches (open residual), and any NEW surface from rounds 66-68 comparators.
+   run toward: **(a)** pivot `<item @n>` custom-label swaps — pivot_ordered_sigs keys
+   x/h/t/sd per-field (verified r64 holds), but the LABEL attr `n` lives only in pivot_refs'
+   pooled multiset, so transposing two same-shaped items' labels ACROSS fields certifies
+   (MED; fix = add n to the ordered-sig format); **(b)** chart numCache/strCache point values
+   (open residual, self-repairs on refresh); **(c)** any NEW surface from rounds 66-68
+   comparators.
 2. **Accepted residuals** (documented, not defects): chart numCache/strCache point values are
    deliberately uncompared (self-repairs on refresh; re-derivation is common faithful behavior);
    chained cellStyleXfs→cellStyleXfs inheritance folds one hop only (exotic construct);
