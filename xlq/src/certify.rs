@@ -7703,7 +7703,6 @@ mod tests {
         // no comparator — re-pointing an item's sourceRef publishes a different range to the
         // target on the next export, certified.
         let build = |workbook_xml: &str| -> Vec<u8> {
-            let ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
             let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
             let pkg = "http://schemas.openxmlformats.org/package/2006/relationships";
             let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
