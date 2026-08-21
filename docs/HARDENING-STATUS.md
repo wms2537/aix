@@ -1,7 +1,7 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `16eb73b` (pushed to origin, **NOT merged to main**)
-**Last updated:** 2026-08-21, end of round 67
+**Branch:** `xlq-reference-completeness` @ `94c3f15` (pushed to origin, **NOT merged to main**)
+**Last updated:** 2026-08-21, end of round 67 + round-68 mini-sweep
 **Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **402 tests** pass
 **Totals:** ~280 defects fixed over 67 rounds
 
