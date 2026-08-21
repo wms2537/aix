@@ -588,6 +588,20 @@ fn verify_noncell_refs_named(
                        a value/behavior change the cell diff cannot see",
         }));
     }
+    // INTERNAL drawing bindings (which image a pic embeds, which chart part a graphicFrame
+    // displays) plus xl/media/* content fingerprints — internal rels are deliberately skipped by
+    // external_rels_targets and media was byte-allowlisted, so an image/chart transposition or an
+    // in-place media substitution certified (round-67 candidate F3).
+    if drawing_internal_bindings(expected) != drawing_internal_bindings(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "internal_drawing_binding_mismatch",
+            "detail": "a picture's embedded image, a graphicFrame's chart binding, or an \
+                       embedded media part's CONTENT differs from xlq's transform — which image \
+                       or chart renders where changed (or the image bytes were swapped) with no \
+                       cell/formula diff",
+        }));
+    }
     // The VBA macro binary is executable code the transform preserves verbatim. The cell
     // diff never sees it, so a foreign edit that injects or swaps it (arbitrary macro code)
     // would otherwise be certified — a security laundering. Compare the bytes and presence.
@@ -1867,6 +1881,88 @@ fn slicer_timeline_sigs(bytes: &[u8]) -> Vec<String> {
             *sig = format!("{low}|{sig}");
         }
         out.extend(sigs);
+    }
+    out.sort();
+    out
+}
+
+/// The INTERNAL image/chart bindings of every drawing part, plus a fingerprint of every embedded
+/// media part. `<a:blip r:embed/r:link>` (which picture a pic shows) and `<c:chart r:id>` (which
+/// chart part a graphicFrame displays) resolve through the drawing's rels to targets that
+/// external_rels_targets deliberately skips when INTERNAL (TargetMode != External) — so swapping
+/// two pics' embed ids, transposing two graphicFrames' chart refs, or substituting attacker art
+/// into an xl/media/* part (byte-allowlisted until now) flipped which image/chart rendered where
+/// with every other signature unchanged (round-67 candidate F3: invoice/logo substitution).
+/// Bindings are keyed by the owning shape's stable identity (`cNvPr name#occ`, round-65) within
+/// the owning drawing part; each xl/media/* part contributes `{name}|{len}|{content-hash}`.
+fn drawing_internal_bindings(bytes: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    use std::hash::{Hash, Hasher};
+    let names = structural::archive_names(bytes).unwrap_or_default();
+    let mut out = Vec::new();
+    for n in &names {
+        let low = n.to_ascii_lowercase();
+        if low.starts_with("xl/media/") {
+            if let Ok(b) = crate::ooxml::read_part(bytes, n) {
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                b.hash(&mut h);
+                out.push(format!("{low}|{}|{:016x}", b.len(), h.finish()));
+            }
+            continue;
+        }
+        if !(low.starts_with("xl/drawings/") && low.ends_with(".xml")) {
+            continue;
+        }
+        let Ok(x) = crate::ooxml::read_part(bytes, n) else {
+            continue;
+        };
+        let rels = rels_targets(bytes, n);
+        let mut reader = quick_xml::Reader::from_reader(x.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        // Owning-shape identity + per-name occurrence index (two same-named shapes collide
+        // otherwise — cNvPr name is per-sheet unique only).
+        let mut cur_name = String::from("#anon");
+        let mut occ: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                    match structural::local_of(e.name().as_ref()) {
+                        b"cNvPr" => {
+                            let name = attr_local(&e, b"name").unwrap_or_default();
+                            let c = occ.entry(name.clone()).or_insert(0);
+                            let id = *c;
+                            *c += 1;
+                            cur_name = format!("{name}#{id}");
+                        }
+                        local => {
+                            let binding_of = if local == b"blip" {
+                                Some("blip")
+                            } else if local == b"chart" {
+                                Some("chart")
+                            } else {
+                                None
+                            };
+                            if let Some(kind) = binding_of {
+                                for k in ["embed", "link", "id"] {
+                                    if let Some(rid) = attr_local(&e, k.as_bytes()) {
+                                        // Resolve through the drawing's OWN rels; an unknown rId
+                                        // stays as-is (a dangling ref is a difference too).
+                                        let target = rels.get(&rid).cloned().unwrap_or_default();
+                                        out.push(format!(
+                                            "{n}|{cur_name}|{kind}:{k}={rid}->{target}"
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
     }
     out.sort();
     out
@@ -7202,6 +7298,50 @@ mod tests {
         assert_eq!(
             verify_noncell_refs(&good, &hidden).expect("a hide must refuse")["reason"],
             "cell_width_mismatch"
+        );
+    }
+
+    #[test]
+    fn internal_drawing_image_and_media_swap_is_caught() {
+        // REGRESSION (round-67 F3, security): <a:blip r:embed> and <c:chart r:id> resolve to
+        // INTERNAL rel targets that external_rels_targets skips, and xl/media/* bytes were
+        // allowlisted — swapping two pics' images (or the media bytes in place) certified.
+        let drawing = |e1: &str, e2: &str| {
+            format!(
+                r#"<xdr:wsDr xmlns:xdr="urn:xdr" xmlns:a="urn:a" xmlns:r="urn:r"><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="1" name="Logo"/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="{e1}"/></xdr:blipFill></xdr:pic><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="Stamp"/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="{e2}"/></xdr:blipFill></xdr:pic></xdr:wsDr>"#
+            )
+        };
+        let drels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="x/image" Target="../media/image1.png"/><Relationship Id="rId2" Type="x/image" Target="../media/image2.png"/></Relationships>"#;
+        let media: &[(&str, &str)] = &[
+            ("xl/media/image1.png", "PNGDATA-logo"),
+            ("xl/media/image2.png", "PNGDATA-stamp"),
+        ];
+        let build = |dxml: &str, m1: &str, m2: &str| {
+            wb(
+                "",
+                &[
+                    ("xl/drawings/drawing1.xml", dxml),
+                    ("xl/drawings/_rels/drawing1.xml.rels", drels),
+                    ("xl/media/image1.png", m1),
+                    ("xl/media/image2.png", m2),
+                ],
+            )
+        };
+        let good = build(&drawing("rId1", "rId2"), media[0].1, media[1].1);
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // (a) Transpose the two pics' embed ids.
+        let embeds_swapped = build(&drawing("rId2", "rId1"), media[0].1, media[1].1);
+        assert_eq!(
+            verify_noncell_refs(&good, &embeds_swapped)
+                .expect("an r:embed transposition must refuse")["reason"],
+            "internal_drawing_binding_mismatch"
+        );
+        // (b) Leave every binding alone; substitute the MEDIA BYTES instead.
+        let media_substituted = build(&drawing("rId1", "rId2"), "PNGDATA-attacker-art", media[1].1);
+        assert_eq!(
+            verify_noncell_refs(&good, &media_substituted)
+                .expect("an in-place media substitution must refuse")["reason"],
+            "internal_drawing_binding_mismatch"
         );
     }
 
