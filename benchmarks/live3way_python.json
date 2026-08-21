@@ -1,0 +1,85 @@
+{
+  "experiment": "LIVE-AGENT 3-way (certifier=python): a real agent rewrites formula references for insert-row@2; its OWN edit is scored by the certify-or-refuse guard + INDEPENDENT LibreOffice oracle",
+  "files_scored": 10,
+  "na": 2,
+  "GUARDED": {
+    "task_completed_certified": 1,
+    "safely_refused": 9,
+    "silently_corrupted_FALSE_CERT": 0
+  },
+  "UNGUARDED_would_silently_corrupt": 9,
+  "agent_error_rate": 0.9,
+  "headline": "agent erred on 9/10; GUARDED: 1 completed+certified, 9 safely refused, 0 silent corruptions. UNGUARDED those 9 errors ship silently.",
+  "per_file": [
+    {
+      "file": "calc_tests/DATABASE/DAVERAGE.xlsx",
+      "oracle": "faithful",
+      "certifier": "CERTIFIED",
+      "guarded_outcome": "task_completed_certified"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/DATE.xlsx",
+      "oracle": "na",
+      "certifier": "REFUSED"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/DATE_DAY_MONTH_YEAR.xlsx",
+      "oracle": "corrupted",
+      "certifier": "REFUSED",
+      "guarded_outcome": "safely_refused"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/EOMONTH.xlsx",
+      "oracle": "na",
+      "certifier": "REFUSED"
+    },
+    {
+      "file": "calc_tests/DATE_AND_TIME/YEARFRAC.xlsx",
+      "oracle": "corrupted",
+      "certifier": "REFUSED",
+      "guarded_outcome": "safely_refused"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/BESSEL.xlsx",
+      "oracle": "corrupted",
+      "certifier": "REFUSED",
+      "guarded_outcome": "safely_refused"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/BITs.xlsx",
+      "oracle": "corrupted",
+      "certifier": "REFUSED",
+      "guarded_outcome": "safely_refused"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/ERFs.xlsx",
+      "oracle": "corrupted",
+      "certifier": "REFUSED",
+      "guarded_outcome": "safely_refused"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/GESTEP_DELTA.xlsx",
+      "oracle": "corrupted",
+      "certifier": "REFUSED",
+      "guarded_outcome": "safely_refused"
+    },
+    {
+      "file": "calc_tests/ENGINEERING/NUMBER_SYSTEMS.xlsx",
+      "oracle": "corrupted",
+      "certifier": "REFUSED",
+      "guarded_outcome": "safely_refused"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/ACCRINT_ACCRINTM.xlsx",
+      "oracle": "corrupted",
+      "certifier": "REFUSED",
+      "guarded_outcome": "safely_refused"
+    },
+    {
+      "file": "calc_tests/FINANCIAL/ACCRINT_extended.xlsx",
+      "oracle": "corrupted",
+      "certifier": "REFUSED",
+      "guarded_outcome": "safely_refused"
+    }
+  ]
+}
