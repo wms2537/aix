@@ -3,7 +3,7 @@
 **Branch:** `xlq-reference-completeness` @ `22d6d88` (pushed to origin, **NOT merged to main**)
 **Last updated:** 2026-08-21, end of round 68
 **Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **406 tests** pass
-**Totals:** ~284 defects fixed over 68 rounds
+**Totals:** ~285 defects fixed over 69 rounds
 
 ---
 
@@ -126,12 +126,9 @@ The 8 candidates from the aborted run collapsed to 5 themes; all processed:
 
 1. **Round 69**: fresh workflow. Rounds 67-68 lenses came back DRY on oracle-soundness,
    external-rels/security, refshift/structural coverage, and invalid-output — weight the next
-   run toward: **(a)** pivot `<item @n>` custom-label swaps — pivot_ordered_sigs keys
-   x/h/t/sd per-field (verified r64 holds), but the LABEL attr `n` lives only in pivot_refs'
-   pooled multiset, so transposing two same-shaped items' labels ACROSS fields certifies
-   (MED; fix = add n to the ordered-sig format); **(b)** chart numCache/strCache point values
-   (open residual, self-repairs on refresh); **(c)** any NEW surface from rounds 66-68
-   comparators.
+   run toward: **(a)** chart numCache/strCache point values (open residual, self-repairs on
+   refresh); **(b)** any NEW surface from rounds 66-69 comparators. (The pivot `<item @n>`
+   label-swap lead was fixed first thing in round 69: `n` joined the per-field ordered sigs.)
 2. **Accepted residuals** (documented, not defects): chart numCache/strCache point values are
    deliberately uncompared (self-repairs on refresh; re-derivation is common faithful behavior);
    chained cellStyleXfs→cellStyleXfs inheritance folds one hop only (exotic construct);

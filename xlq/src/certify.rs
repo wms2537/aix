@@ -2514,10 +2514,11 @@ fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
                 *pf_idx += 1;
             }
             // A pivotField `<item>`: `x` = the sharedItems index it displays, `h` = hidden (manual
-            // filter), `t` = type (data/grand/…), `sd` = show-detail. Its ORDER is the manual display
-            // sort, and a swap of two items re-orders the rendered rows on refresh — position-blind in
-            // pivot_refs, so a sibling swap was invisible (round-64 defect 2). Keyed by owning field +
-            // ordinal here.
+            // filter), `t` = type (data/grand/…), `sd` = show-detail, `n` = custom display label.
+            // Its ORDER is the manual display sort, and a swap of two items re-orders the rendered
+            // rows on refresh — position-blind in pivot_refs, so a sibling swap was invisible
+            // (round-64 defect 2). Keyed by owning field + ordinal here; `n` joined round 69
+            // (two same-shaped items across DIFFERENT fields could otherwise transpose labels).
             b"item" if in_pf => {
                 let owner = pf_idx.saturating_sub(1);
                 // Fold the SAME defaults as the pivot_refs item arm (h false, sd true, t "data") so a
@@ -2539,10 +2540,11 @@ fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
                     .filter(|v| !v.is_empty())
                     .unwrap_or_else(|| "data".into());
                 out.push(format!(
-                    "pivotField[{owner}].item[{item_idx}]|x={}|h={}|t={t}|sd={}",
+                    "pivotField[{owner}].item[{item_idx}]|x={}|h={}|t={t}|sd={}|n={}",
                     attr_local(e, b"x").unwrap_or_default(),
                     boolish(b"h", false),
                     boolish(b"sd", true),
+                    attr_local(e, b"n").unwrap_or_default(),
                 ));
                 *item_idx += 1;
             }
@@ -7739,6 +7741,34 @@ mod tests {
             verify_noncell_refs(&good, &repointed)
                 .expect("a web-publish source repoint must refuse")["reason"],
             "web_publish_item_mismatch"
+        );
+    }
+
+    #[test]
+    fn pivot_item_custom_label_swap_across_fields_is_caught() {
+        // REGRESSION (round-69, false-certify): pivot_ordered_sigs keyed x/h/t/sd by owning
+        // field + ordinal, but the custom display LABEL (`<item n=…>`) was captured only in
+        // pivot_refs' POOLED multiset — two same-shaped items under different fields could
+        // transpose their labels and certify, re-labeling the wrong rows on refresh.
+        let pt = |n0: &str, n1: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="urn:x" name="P"><pivotFields count="2"><pivotField axis="axisRow"><items count="2"><item x="0" n="{n0}"/><item x="1" n="{n1}"/></items></pivotField><pivotField dataField="1"><items count="2"><item x="0"/><item x="1"/></items></pivotField></pivotFields><rowFields count="1"><field x="0"/></rowFields><dataFields count="1"><dataField fld="1" name="V"/></dataFields></pivotTableDefinition>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[("xl/pivotTables/pivotTable1.xml", &pt("Alpha", "Beta"))],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // Transpose the labels between field 0's items AND give field 1 matching shapes —
+        // only the per-field keyed sigs can see it.
+        let swapped = wb(
+            "",
+            &[("xl/pivotTables/pivotTable1.xml", &pt("Beta", "Alpha"))],
+        );
+        assert!(
+            verify_noncell_refs(&good, &swapped).is_some(),
+            "a cross-item custom-label swap must be caught"
         );
     }
 
