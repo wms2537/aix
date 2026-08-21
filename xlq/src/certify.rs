@@ -219,7 +219,11 @@ pub fn run(
     // the CODE, so that restyle DOES change the formula's value — compare the resolved per-cell
     // format codes directly and disqualify a mismatch when such a formula is present.
     if cell_reads_format
-        && cell_number_formats(&expected_bytes) != cell_number_formats(&edited_bytes)
+        && (cell_number_formats(&expected_bytes) != cell_number_formats(&edited_bytes)
+            || row_column_style_surfaces(&expected_bytes)
+                != row_column_style_surfaces(&edited_bytes)
+            || (!row_column_style_surfaces(&expected_bytes).is_empty()
+                && cellxfs_tables_differ(&expected_bytes, &edited_bytes)))
     {
         format_disqualifying += 1;
     }
@@ -251,6 +255,27 @@ pub fn run(
     }))
 }
 
+/// True when any of the three resolved cellXf tables (locked / horizontal / numFmt code) differs
+/// between the two workbooks. Used ONLY alongside the CELL()-info gates when a row/column style
+/// surface exists: a cell with no explicit `@s` INHERITS its effective style from `<col style>`/
+/// `<row customFormat>`, so editing the CONTENT of the targeted xf flips every inheriting cell's
+/// CELL() value while the per-cell backstops (which resolve only explicit `@s`) stay identical.
+/// Gated this tightly because a raw-table compare would otherwise refuse benign edits to xfs no
+/// consumer reaches.
+fn cellxfs_tables_differ(expected: &[u8], edited: &[u8]) -> bool {
+    match (
+        crate::ooxml::read_part(expected, "xl/styles.xml"),
+        crate::ooxml::read_part(edited, "xl/styles.xml"),
+    ) {
+        (Ok(se), Ok(sd)) => {
+            cellxfs_locked(&se) != cellxfs_locked(&sd)
+                || cellxfs_horizontal(&se) != cellxfs_horizontal(&sd)
+                || cellxfs_numfmt_codes(&se) != cellxfs_numfmt_codes(&sd)
+        }
+        _ => false,
+    }
+}
+
 /// Verify the reference-bearing content diff::snapshot (sheet cells only) does not
 /// compare. Returns Some(refusal) if the foreign edit's defined names differ from
 /// xlq's transform, or if the workbook carries a reference-bearing part certify cannot
@@ -271,6 +296,13 @@ fn verify_noncell_refs_named(
     expected_name: &str,
     edited_name: &str,
 ) -> Option<Value> {
+    // A row/column style surface (`<col style>` / `<row customFormat>`) means cells WITHOUT an
+    // explicit @s inherit their effective style — so a tamper confined to the TARGET xf's content
+    // is invisible to the per-cell backstops and needs a raw-table compare (round-67 candidate C).
+    let style_inheritance_present = !row_column_style_surfaces(expected).is_empty()
+        || !row_column_style_surfaces(edited).is_empty();
+    let inherited_tables_differ =
+        style_inheritance_present && cellxfs_tables_differ(expected, edited);
     // defined names must match xlq's proven transform exactly (name -> refers-to)
     if defined_names(expected) != defined_names(edited) {
         return Some(json!({
@@ -457,7 +489,9 @@ fn verify_noncell_refs_named(
     // unlocked-cell set only when such a formula is present (a rare, targeted check).
     if (workbook_has_cell_info_fn(expected, &["protect"])
         || workbook_has_cell_info_fn(edited, &["protect"]))
-        && cell_lock_states(expected) != cell_lock_states(edited)
+        && (cell_lock_states(expected) != cell_lock_states(edited)
+            || row_column_style_surfaces(expected) != row_column_style_surfaces(edited)
+            || inherited_tables_differ)
     {
         return Some(json!({
             "status": "REFUSED",
@@ -473,7 +507,9 @@ fn verify_noncell_refs_named(
     // per-cell alignment only when such a formula is present (round-65 defect 8).
     if (workbook_has_cell_info_fn(expected, &["prefix"])
         || workbook_has_cell_info_fn(edited, &["prefix"]))
-        && cell_horizontal_alignments(expected) != cell_horizontal_alignments(edited)
+        && (cell_horizontal_alignments(expected) != cell_horizontal_alignments(edited)
+            || row_column_style_surfaces(expected) != row_column_style_surfaces(edited)
+            || inherited_tables_differ)
     {
         return Some(json!({
             "status": "REFUSED",
@@ -1643,6 +1679,9 @@ fn cell_horizontal_alignments(bytes: &[u8]) -> Vec<String> {
 /// The (sheet, column-range, width) of every explicitly-sized `<col width>`, sorted — compared ONLY
 /// when a `CELL("width", …)` formula reads it. A column-width change flips that formula's value with
 /// no cell/formula diff, and the styles/`<col>` surface is otherwise on the benign passthrough.
+/// Also captured (round-67 candidate D): each sheet's `<sheetFormatPr defaultColWidth>` — the
+/// effective width of EVERY column without an explicit entry, which Excel's CELL("width") reports —
+/// and width-less `<col hidden="1">` ranges, which report 0.
 fn column_widths(bytes: &[u8]) -> Vec<String> {
     use quick_xml::events::Event;
     let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
@@ -1658,15 +1697,96 @@ fn column_widths(bytes: &[u8]) -> Vec<String> {
         let mut buf = Vec::new();
         loop {
             match reader.read_event_into(&mut buf) {
-                Ok(Event::Start(e)) | Ok(Event::Empty(e))
-                    if structural::local_of(e.name().as_ref()) == b"col" =>
-                {
-                    if let Some(w) = attr_local(&e, b"width") {
-                        out.push(format!(
-                            "{name}|{}-{}|{w}",
-                            attr_local(&e, b"min").unwrap_or_default(),
-                            attr_local(&e, b"max").unwrap_or_default(),
-                        ));
+                Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                    match structural::local_of(e.name().as_ref()) {
+                        b"col" => {
+                            let hidden = matches!(
+                                attr_local(&e, b"hidden").as_deref(),
+                                Some("1") | Some("true")
+                            );
+                            if let Some(w) = attr_local(&e, b"width") {
+                                out.push(format!(
+                                    "{name}|{}-{}|{w}",
+                                    attr_local(&e, b"min").unwrap_or_default(),
+                                    attr_local(&e, b"max").unwrap_or_default(),
+                                ));
+                            } else if hidden {
+                                // A width-less HIDDEN column reports width 0 in Excel — a value
+                                // CELL("width") reads; without this it flips invisibly.
+                                out.push(format!(
+                                    "{name}|hidden|{}-{}",
+                                    attr_local(&e, b"min").unwrap_or_default(),
+                                    attr_local(&e, b"max").unwrap_or_default(),
+                                ));
+                            }
+                        }
+                        b"sheetFormatPr" => {
+                            if let Some(w) = attr_local(&e, b"defaultColWidth") {
+                                out.push(format!("{name}|defaultColWidth|{w}"));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The ROW/COLUMN style surface of every sheet: every `<col style="n">` range and every
+/// `<row s="n" customFormat="1">`, keyed by sheet + coordinates, sorted. A cell with NO explicit
+/// `@s` inherits its format/lock/alignment from these surfaces (cell > row customFormat > col),
+/// so an edit confined to them — restyling a whole COLUMN, unlocking via `<row>`/`<col>` styles,
+/// or styling cells that carry no `<c>` element at all — flips the EFFECTIVE value behind
+/// `CELL("format"/"protect"/"prefix")` while the per-cell backstops (which read only `<c @s>`)
+/// stay identical (round-67 candidate C). Compared alongside those backstops under the same
+/// CELL-info gates; xlq copies rows/cols verbatim, so only a genuine restyle differs.
+fn row_column_style_surfaces(bytes: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let Ok(sheets) = crate::ooxml::all_sheets(bytes) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (name, part) in sheets {
+        let Ok(xml) = crate::ooxml::read_part(bytes, &part) else {
+            continue;
+        };
+        let mut reader = quick_xml::Reader::from_reader(xml.as_slice());
+        reader.config_mut().expand_empty_elements = false;
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                    match structural::local_of(e.name().as_ref()) {
+                        b"col" => {
+                            if let Some(s) = attr_local(&e, b"style") {
+                                out.push(format!(
+                                    "{name}|col|{}-{}|s={s}",
+                                    attr_local(&e, b"min").unwrap_or_default(),
+                                    attr_local(&e, b"max").unwrap_or_default(),
+                                ));
+                            }
+                        }
+                        b"row" => {
+                            // The row style applies ONLY when customFormat is set (ECMA-376);
+                            // capturing bare `s` would refuse benign re-serializations.
+                            if let (Some(s), Some(cf)) =
+                                (attr_local(&e, b"s"), attr_local(&e, b"customFormat"))
+                            {
+                                if cf == "1" || cf.eq_ignore_ascii_case("true") {
+                                    out.push(format!(
+                                        "{name}|row|{}|s={s}",
+                                        attr_local(&e, b"r").unwrap_or_default()
+                                    ));
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 Ok(Event::Eof) | Err(_) => break,
@@ -6935,6 +7055,155 @@ mod tests {
         assert!(
             verify_noncell_refs(&good, &names_swapped).is_some(),
             "a literal series-NAME swap must be caught"
+        );
+    }
+
+    #[test]
+    fn row_column_style_surface_tamper_is_caught() {
+        // REGRESSION (round-67 candidate C, false-certify): a cell with NO explicit @s inherits
+        // its effective style from <col style>/<row customFormat>, so a tamper confined to the
+        // style surface (rebinding a column's style, or editing the TARGET xf's content) flipped
+        // every inheriting cell's CELL() value while the per-cell backstops stayed identical.
+        let build = |body: &str, styles: &str| -> Vec<u8> {
+            let ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+            let pkg = "http://schemas.openxmlformats.org/package/2006/relationships";
+            let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let o = zip::write::SimpleFileOptions::default();
+            let mut put = |n: &str, b: &str| {
+                z.start_file(n, o).unwrap();
+                z.write_all(b.as_bytes()).unwrap();
+            };
+            put(
+                "[Content_Types].xml",
+                r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>"#,
+            );
+            put(
+                "_rels/.rels",
+                &format!(
+                    r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/officeDocument" Target="xl/workbook.xml"/></Relationships>"#
+                ),
+            );
+            put(
+                "xl/workbook.xml",
+                &format!(
+                    r#"<?xml version="1.0"?><workbook xmlns="{ns}" xmlns:r="{r}"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>"#
+                ),
+            );
+            put(
+                "xl/_rels/workbook.xml.rels",
+                &format!(
+                    r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#
+                ),
+            );
+            put(
+                "xl/worksheets/sheet1.xml",
+                &format!(r#"<?xml version="1.0"?><worksheet xmlns="{ns}">{body}</worksheet>"#),
+            );
+            put("xl/styles.xml", styles);
+            z.finish().unwrap().into_inner()
+        };
+        let ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        // A1 carries NO @s; its alignment comes from the COLUMN style -> xf 1.
+        let body = format!(
+            r#"<cols><col min="1" max="1" style="1"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>CELL("prefix",A1)</f><v>x</v></c></row></sheetData>"#
+        );
+        let styles = |h1: &str, h2: &str| {
+            format!(
+                r#"<styleSheet xmlns="{ns}"><cellXfs count="3"><xf/><xf><alignment horizontal="{h1}"/></xf><xf><alignment horizontal="{h2}"/></xf></cellXfs></styleSheet>"#
+            )
+        };
+        // (a) REBIND the column to a differently-aligned xf.
+        let good = build(&body, &styles("left", "right"));
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let rebound = build(
+            r#"<cols><col min="1" max="1" style="2"/></cols><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>CELL("prefix",A1)</f><v>x</v></c></row></sheetData>"#,
+            &styles("left", "right"),
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &rebound).expect("a col-style rebind must refuse")["reason"],
+            "cell_prefix_mismatch"
+        );
+        // (b) keep the binding, edit the TARGET xf's content instead.
+        let retargeted = build(&body, &styles("right", "right"));
+        assert_eq!(
+            verify_noncell_refs(&good, &retargeted)
+                .expect("an inherited-xf content edit must refuse")["reason"],
+            "cell_prefix_mismatch"
+        );
+        // No inheritance surface anywhere -> an xf-table-only edit is NOT refused by these gates
+        // (no consumer can reach it invisibly; per-cell @s backstops still cover referenced xfs).
+        let plain = r#"<sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>"#;
+        assert!(verify_noncell_refs(
+            &build(plain, &styles("left", "left")),
+            &build(plain, &styles("right", "right"))
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn width_defaults_and_hidden_columns_are_caught() {
+        // REGRESSION (round-67 candidate D): CELL("width") reports defaultColWidth for columns
+        // without an explicit entry and 0 for hidden width-less ones — both were uncompared.
+        let build = |body: &str| -> Vec<u8> {
+            let ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+            let pkg = "http://schemas.openxmlformats.org/package/2006/relationships";
+            let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let o = zip::write::SimpleFileOptions::default();
+            let mut put = |n: &str, b: &str| {
+                z.start_file(n, o).unwrap();
+                z.write_all(b.as_bytes()).unwrap();
+            };
+            put(
+                "[Content_Types].xml",
+                r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>"#,
+            );
+            put(
+                "_rels/.rels",
+                &format!(
+                    r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/officeDocument" Target="xl/workbook.xml"/></Relationships>"#
+                ),
+            );
+            put(
+                "xl/workbook.xml",
+                &format!(
+                    r#"<?xml version="1.0"?><workbook xmlns="{ns}" xmlns:r="{r}"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>"#
+                ),
+            );
+            put(
+                "xl/_rels/workbook.xml.rels",
+                &format!(
+                    r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#
+                ),
+            );
+            put(
+                "xl/worksheets/sheet1.xml",
+                &format!(r#"<?xml version="1.0"?><worksheet xmlns="{ns}">{body}</worksheet>"#),
+            );
+            z.finish().unwrap().into_inner()
+        };
+        let body = |extra: &str| {
+            format!(
+                r#"{extra}<sheetData><row r="1"><c r="B1"><f>CELL("width",A1)</f><v>8</v></c></row></sheetData>"#
+            )
+        };
+        let good = build(&body(r#"<sheetFormatPr defaultColWidth="8.9"/>"#));
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // Widen the DEFAULT width — no <col> entry exists at all.
+        let wider_default = build(&body(r#"<sheetFormatPr defaultColWidth="15"/>"#));
+        assert_eq!(
+            verify_noncell_refs(&good, &wider_default)
+                .expect("a defaultColWidth change must refuse")["reason"],
+            "cell_width_mismatch"
+        );
+        // Hide column A via a width-less hidden <col>.
+        let hidden = build(&body(
+            r#"<cols><col min="1" max="1" hidden="1"/></cols><sheetFormatPr defaultColWidth="8.9"/>"#,
+        ));
+        assert_eq!(
+            verify_noncell_refs(&good, &hidden).expect("a hide must refuse")["reason"],
+            "cell_width_mismatch"
         );
     }
 
