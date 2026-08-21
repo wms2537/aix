@@ -1132,6 +1132,102 @@ fn chart_hyperlink_sigs(
 /// chart/drawing parts, as two sorted lists (keyed by neither part name nor sheet, so a
 /// foreign tool renumbering parts does not false-refuse). The transform shifts chart refs
 /// and preserves drawing anchors, so a faithful edit matches and a mangle differs.
+/// Per-SERIES signatures for a chart part: each `<c:f>` ref keyed by its `<c:ser>` document-order
+/// index AND its role (the ser's immediate child element holding it — tx/cat/val/xVal/yVal/…),
+/// plus literal series names (`<c:tx><c:v>`), plus a bare pooled entry for any `<f>` outside a
+/// series. The previously-pooled sorted `<f>` list was permutation-invariant WITHIN one part:
+/// transposing two series' refs between ser #0 and #1 left the multiset identical while "Revenue"
+/// plotted Costs' range on refresh (round-67 candidate C1 — the intra-part twin of the round-66
+/// cross-part prefix); a literal `<c:tx><c:v>` name was read by no comparator at all, so swapping
+/// two series' legend names certified (C2). Cached `<c:v>` points (numCache/strCache) are
+/// deliberately NOT compared here beyond the tx name (a stale cache self-repairs on refresh and
+/// re-deriving caches is a common faithful-editor behavior — over-refusal risk outweighs the
+/// display-only gain). Leaves are reassembled across Text + GeneralRef like every other body
+/// reader; `f` bodies are sheet-quote canonicalized.
+fn chart_series_sigs(xml: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut path: Vec<String> = Vec::new();
+    let mut ser_count = 0usize;
+    // Currently-open leaf capture: ("f"|"v", accumulated raw text).
+    let mut leaf: Option<(String, String)> = None;
+    // Build one signature from the ancestor stack + captured text. `path` still INCLUDES the
+    // leaf itself as its last element.
+    let emit = |path: &[String], kind: &str, text: &str, ser: usize, out: &mut Vec<String>| {
+        let ancestors = &path[..path.len().saturating_sub(1)];
+        let canon = |t: &str| {
+            if kind == "f" {
+                structural::canonicalize_sheet_quotes(t)
+            } else {
+                t.to_string()
+            }
+        };
+        match ancestors.iter().rposition(|p| p == "ser") {
+            Some(p) => {
+                let role = ancestors.get(p + 1).cloned().unwrap_or_default();
+                if kind == "v" && role != "tx" {
+                    return; // cached point value: deliberately uncompared (see doc above)
+                }
+                out.push(format!("ser#{ser}|{role}|{kind}|{}", canon(text)));
+            }
+            None => out.push(format!("chartf|{kind}|{}", canon(text))),
+        }
+    };
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let local = structural::local_of(e.name().as_ref()).to_vec();
+                if local == b"ser" {
+                    ser_count += 1;
+                } else if local == b"f" || local == b"v" {
+                    leaf = Some((String::from_utf8_lossy(&local).into_owned(), String::new()));
+                }
+                path.push(String::from_utf8_lossy(&local).into_owned());
+            }
+            Ok(Event::Empty(e)) => {
+                let local = structural::local_of(e.name().as_ref()).to_vec();
+                if local == b"f" || local == b"v" {
+                    emit(
+                        &path,
+                        &String::from_utf8_lossy(&local),
+                        "",
+                        ser_count,
+                        &mut out,
+                    );
+                }
+            }
+            Ok(Event::Text(t)) if leaf.is_some() => {
+                leaf.as_mut()
+                    .unwrap()
+                    .1
+                    .push_str(&String::from_utf8_lossy(t.as_ref()));
+            }
+            Ok(Event::GeneralRef(g)) if leaf.is_some() => {
+                leaf.as_mut()
+                    .unwrap()
+                    .1
+                    .push_str(&String::from_utf8_lossy(g.as_ref()));
+            }
+            Ok(Event::End(e)) => {
+                let local = structural::local_of(e.name().as_ref()).to_vec();
+                if leaf.is_some() && (local == b"f" || local == b"v") {
+                    let (kind, text) = leaf.take().unwrap();
+                    emit(&path, &kind, &text, ser_count, &mut out);
+                }
+                path.pop();
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    out.sort();
+    out
+}
+
 fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
     let names = structural::archive_names(bytes).unwrap_or_default();
     let mut charts = Vec::new();
@@ -1145,11 +1241,10 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                 // semantically identical, so the raw compare spuriously refused a faithful chart
                 // edit. (Same normalization already applied on the defined-name/CF/DV surfaces.)
                 let part_start = charts.len();
-                charts.extend(
-                    structural::element_text_semantics(&x, &[b"f"])
-                        .iter()
-                        .map(|s| structural::canonicalize_sheet_quotes(s)),
-                );
+                // Per-SERIES keyed refs + literal names (round-67 C1/C2) — replaces the bare
+                // pooled <f> text list, which was permutation-invariant across series WITHIN one
+                // part. Out-of-series <f> elements keep pooled coverage via chartf| entries.
+                charts.extend(chart_series_sigs(&x));
                 // A chart element's hyperlink (`<a:hlinkClick r:id>`) resolves through the chart's
                 // rels to a target — a phishing repoint the .rels-only external comparator can't
                 // attribute to its owning element.
@@ -1718,45 +1813,60 @@ fn cellxfs_numfmt_codes(styles: &[u8]) -> Vec<String> {
     let mut in_cellstylexfs = false;
     let mut in_numfmts = false;
     loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+        let ev = reader.read_event_into(&mut buf);
+        // A SELF-CLOSED container (`<numFmts/>`; expand_empty_elements = false) fires ONE
+        // Empty event and never an End — arming `in_numfmts` there leaked the flag across the
+        // rest of the document, so a later `<dxf><numFmt>` was ingested into the cell map and
+        // MASKED a genuine cell number-format change from the CELL("format") comparison (the
+        // round-61 vector through a one-byte encoding change of the gate's own marker).
+        // Container flags are therefore armed ONLY on Start; an Empty container is an EMPTY
+        // section (enter+leave, a no-op). REGRESSION round-67 candidate B.
+        let (e, enter_containers) = match ev {
+            Ok(Event::Start(e)) => (e, true),
+            Ok(Event::Empty(e)) => (e, false),
+            Ok(Event::End(e)) => {
                 match structural::local_of(e.name().as_ref()) {
-                    // Only a `<numFmts>` child defines the workbook's custom numFmtId->code map. A
-                    // `<dxf><numFmt>` is a CONDITIONAL-FORMAT differential — ingesting it let a dxf
-                    // numFmt (same numFmtId) OVERWRITE the real cell format in the map and MASK a
-                    // genuine cell number-format change from the CELL("format") comparison (round-61).
-                    b"numFmt" if in_numfmts => {
-                        if let (Some(id), Some(code)) = (
-                            attr_local(&e, b"numFmtId").and_then(|v| v.parse::<u32>().ok()),
-                            attr_local(&e, b"formatCode"),
-                        ) {
-                            custom.insert(id, code);
-                        }
-                    }
-                    b"numFmts" => in_numfmts = true,
-                    b"cellXfs" => in_cellxfs = true,
-                    b"cellStyleXfs" => in_cellstylexfs = true,
-                    b"xf" if in_cellxfs => children.push((
-                        attr_local(&e, b"xfId")
-                            .and_then(|v| v.parse().ok())
-                            .unwrap_or(0),
-                        attr_local(&e, b"numFmtId").and_then(|v| v.parse().ok()),
-                    )),
-                    b"xf" if in_cellstylexfs => parent_ids.push(
-                        attr_local(&e, b"numFmtId")
-                            .and_then(|v| v.parse().ok())
-                            .unwrap_or(0),
-                    ),
+                    b"cellXfs" => in_cellxfs = false,
+                    b"cellStyleXfs" => in_cellstylexfs = false,
+                    b"numFmts" => in_numfmts = false,
                     _ => {}
                 }
+                buf.clear();
+                continue;
             }
-            Ok(Event::End(e)) => match structural::local_of(e.name().as_ref()) {
-                b"cellXfs" => in_cellxfs = false,
-                b"cellStyleXfs" => in_cellstylexfs = false,
-                b"numFmts" => in_numfmts = false,
-                _ => {}
-            },
             Ok(Event::Eof) | Err(_) => break,
+            _ => {
+                buf.clear();
+                continue;
+            }
+        };
+        match structural::local_of(e.name().as_ref()) {
+            // Only a `<numFmts>` child defines the workbook's custom numFmtId->code map. A
+            // `<dxf><numFmt>` is a CONDITIONAL-FORMAT differential — ingesting it let a dxf
+            // numFmt (same numFmtId) OVERWRITE the real cell format in the map and MASK a
+            // genuine cell number-format change from the CELL("format") comparison (round-61).
+            b"numFmt" if in_numfmts => {
+                if let (Some(id), Some(code)) = (
+                    attr_local(&e, b"numFmtId").and_then(|v| v.parse::<u32>().ok()),
+                    attr_local(&e, b"formatCode"),
+                ) {
+                    custom.insert(id, code);
+                }
+            }
+            b"numFmts" => in_numfmts = enter_containers,
+            b"cellXfs" => in_cellxfs = enter_containers,
+            b"cellStyleXfs" => in_cellstylexfs = enter_containers,
+            b"xf" if in_cellxfs => children.push((
+                attr_local(&e, b"xfId")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0),
+                attr_local(&e, b"numFmtId").and_then(|v| v.parse().ok()),
+            )),
+            b"xf" if in_cellstylexfs => parent_ids.push(
+                attr_local(&e, b"numFmtId")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0),
+            ),
             _ => {}
         }
         buf.clear();
@@ -2548,6 +2658,24 @@ fn pivot_calc_formula_sigs(xml: &[u8]) -> Vec<String> {
                 // Only a cacheField WITH a formula is a calculated field; a plain source column has
                 // none. calculatedItem/Member always carry one.
                 if kind == "cacheField" && formula.is_none() {
+                    buf.clear();
+                    continue;
+                }
+                // An OLAP `calculatedMember` carries its expression in @mdx (there IS no @formula
+                // on that element) plus evaluation-order/structure attrs — reading only @formula
+                // emitted an EMPTY expression for every member, so rewriting the MDX (or swapping
+                // two members' expressions) re-computed every dependent measure cell on refresh,
+                // certified. REGRESSION round-67 candidate A.
+                if kind == "calculatedMember" {
+                    out.push(format!(
+                        "{kind}|name={}|mdx={}|solveOrder={}|hierarchy={}|parent={}|set={}",
+                        attr_local(&e, b"name").unwrap_or_default(),
+                        attr_local(&e, b"mdx").unwrap_or_default(),
+                        attr_local(&e, b"solveOrder").unwrap_or_default(),
+                        attr_local(&e, b"hierarchy").unwrap_or_default(),
+                        attr_local(&e, b"parent").unwrap_or_default(),
+                        attr_local(&e, b"set").unwrap_or_default(),
+                    ));
                     buf.clear();
                     continue;
                 }
@@ -5595,6 +5723,64 @@ mod tests {
     }
 
     #[test]
+    fn pivot_olap_calculated_member_mdx_is_compared() {
+        // REGRESSION (round-67 candidate A, false-certify): an OLAP calculatedMember carries its
+        // expression in @mdx — there IS no @formula on that element — so the old sig emitted an
+        // EMPTY expression for every member and rewriting the MDX (re-computing every dependent
+        // measure cell on refresh) certified. The mdx/solveOrder/set surface is now compared.
+        let member = |mdx: &str| {
+            format!(
+                r#"<pivotCacheDefinition xmlns="urn:x"><calculatedMember name="[Measures].[Margin]" mdx="{mdx}" solveOrder="1"/></pivotCacheDefinition>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &member("[Measures].[Sales]-[Measures].[Cost]"),
+            )],
+        );
+        assert_eq!(pivot_refs(&good), pivot_refs(&good));
+        let evil = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &member("[Measures].[Sales]*0-[Measures].[Cost]"),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&good),
+            pivot_refs(&evil),
+            "an MDX rewrite must be caught"
+        );
+        // Swapping two members' expressions is caught too (name-keyed sigs).
+        let two = |a: &str, b: &str| {
+            format!(
+                r#"<pivotCacheDefinition xmlns="urn:x"><calculatedMember name="[Measures].[A]" mdx="{a}"/><calculatedMember name="[Measures].[B]" mdx="{b}"/></pivotCacheDefinition>"#
+            )
+        };
+        let tgood = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &two("1+1", "2+2"),
+            )],
+        );
+        let tswap = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheDefinition1.xml",
+                &two("2+2", "1+1"),
+            )],
+        );
+        assert_ne!(
+            pivot_refs(&tgood),
+            pivot_refs(&tswap),
+            "swapping two members' MDX must be caught"
+        );
+    }
+
+    #[test]
     fn pivot_filter_surface_is_compared() {
         // REGRESSION (round-47): a manual item filter (`<item h="1">`), a page filter, and a field's
         // axis placement re-aggregate the pivot on refresh — pivot_refs must compare them, not just
@@ -6707,6 +6893,52 @@ mod tests {
     }
 
     #[test]
+    fn intra_chart_series_ref_and_name_swap_is_caught() {
+        // REGRESSION (round-67 C1 HIGH false-certify): the pooled sorted <f> list was
+        // permutation-invariant WITHIN one chart part — transposing two series' refs between
+        // ser #0 and #1 certified while "Revenue" plotted Costs' range on refresh. And (C2) a
+        // literal <c:tx><c:v> series NAME was read by no comparator at all, so swapping two
+        // legend names certified. Keying each ref/name by ser index + role catches both.
+        let chart = |rev: &str, cost: &str, rev_name: &str, cost_name: &str| {
+            format!(
+                r#"<c:chartSpace xmlns:c="urn:c"><c:chart><c:plotArea><c:ser><c:idx val="0"/><c:tx><c:v>{rev_name}</c:v></c:tx><c:val><c:numRef><c:f>{rev}</c:f></c:numRef></c:val></c:ser><c:ser><c:idx val="1"/><c:tx><c:v>{cost_name}</c:v></c:tx><c:val><c:numRef><c:f>{cost}</c:f></c:numRef></c:val></c:ser></c:plotArea></c:chart></c:chartSpace>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[(
+                "xl/charts/chart1.xml",
+                &chart("S1!$B$2:$B$5", "S1!$C$2:$C$5", "Revenue", "Costs"),
+            )],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        // Transpose ONLY the refs between the two sers (names stay put).
+        let refs_swapped = wb(
+            "",
+            &[(
+                "xl/charts/chart1.xml",
+                &chart("S1!$C$2:$C$5", "S1!$B$2:$B$5", "Revenue", "Costs"),
+            )],
+        );
+        assert!(
+            verify_noncell_refs(&good, &refs_swapped).is_some(),
+            "an intra-chart series REF swap must be caught"
+        );
+        // Transpose ONLY the literal names.
+        let names_swapped = wb(
+            "",
+            &[(
+                "xl/charts/chart1.xml",
+                &chart("S1!$B$2:$B$5", "S1!$C$2:$C$5", "Costs", "Revenue"),
+            )],
+        );
+        assert!(
+            verify_noncell_refs(&good, &names_swapped).is_some(),
+            "a literal series-NAME swap must be caught"
+        );
+    }
+
+    #[test]
     fn poison_diff_excludes_a_probe_crafted_source_dependent() {
         // REGRESSION (round-56 defect 1, HIGH false-certify): a formula crafted to be invariant
         // under the OLD fixed poison constants (1234567 / -98765.4321) but different for the source's
@@ -7596,6 +7828,20 @@ mod tests {
         assert_eq!(
             codes[0], "General",
             "the cell's numFmt 164 is General; the dxf numFmt 164=\"0\" must NOT overwrite it"
+        );
+    }
+
+    #[test]
+    fn self_closed_numfmts_does_not_leak_the_dxf_map() {
+        // REGRESSION (round-67 candidate B, false-certify): a SELF-CLOSED <numFmts/> fires one
+        // Empty event and never an End, so the in_numfmts gate leaked across the rest of
+        // styles.xml and a later <dxf><numFmt> was ingested into the id->code map — re-opening
+        // the round-61 masking vector through a one-byte encoding change of the section marker.
+        let styles = br#"<styleSheet><numFmts count="0"/><fonts count="1"><font/></fonts><fills count="1"><fill/></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="1"><xf numFmtId="164"/></cellXfs><dxfs count="1"><dxf><numFmt numFmtId="164" formatCode="0"/></dxf></dxfs></styleSheet>"#;
+        let codes = cellxfs_numfmt_codes(styles);
+        assert_eq!(
+            codes[0], "builtin:164",
+            "the dxf numFmt must NOT define the cell's code"
         );
     }
 
