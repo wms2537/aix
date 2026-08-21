@@ -8484,6 +8484,120 @@ mod tests {
     }
 
     #[test]
+    fn scratch_fuzz_invalid_output() {
+        use quick_xml::events::Event as Ev;
+        use quick_xml::Reader as Rd;
+        // Check a rewritten worksheet part for structural validity.
+        fn check(label: &str, out: &[u8]) {
+            // 1) well-formed
+            let mut rdr = Rd::from_reader(out);
+            rdr.config_mut().expand_empty_elements = false;
+            let mut buf = Vec::new();
+            // 2) collect duplicate detection + empty containers + empty refs
+            let mut cur_row: Option<String> = None;
+            let mut row_rs: Vec<String> = Vec::new();
+            let mut cells_in_row: Vec<String> = Vec::new();
+            let mut stack: Vec<String> = Vec::new();
+            let mut last_open: Option<String> = None;
+            let s = String::from_utf8_lossy(out).into_owned();
+            assert!(!s.contains("ref=\"\""), "{label}: empty ref: {s}");
+            assert!(!s.contains("sqref=\"\""), "{label}: empty sqref: {s}");
+            assert!(!s.contains("r1=\"\""), "{label}: empty r1: {s}");
+            assert!(!s.contains("r2=\"\""), "{label}: empty r2: {s}");
+            for c in ["mergeCells", "dataValidations", "hyperlinks"] {
+                let empty = format!("<{c}></{c}>");
+                assert!(!s.contains(&empty), "{label}: empty {c}: {s}");
+            }
+            loop {
+                match rdr.read_event_into(&mut buf) {
+                    Ok(Ev::Eof) => break,
+                    Ok(Ev::Start(e)) => {
+                        let n = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                        if n == "row" {
+                            let r = attr_by_local(&e, b"r").unwrap_or_default();
+                            row_rs.push(r.clone());
+                            cur_row = Some(r);
+                            cells_in_row.clear();
+                        }
+                        last_open = Some(n.clone());
+                        stack.push(n);
+                    }
+                    Ok(Ev::Empty(e)) => {
+                        let n = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                        if n == "row" {
+                            let r = attr_by_local(&e, b"r").unwrap_or_default();
+                            row_rs.push(r);
+                        } else if n == "c" {
+                            let r = attr_by_local(&e, b"r").unwrap_or_default();
+                            assert!(
+                                !cells_in_row.contains(&r),
+                                "{label}: DUP cell {r} in row {cur_row:?}: {s}"
+                            );
+                            cells_in_row.push(r);
+                        }
+                        let _ = last_open;
+                    }
+                    Ok(Ev::End(e)) => {
+                        let n = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                        if n == "row" {
+                            cur_row = None;
+                        }
+                        stack.pop();
+                    }
+                    Ok(_) => {}
+                    Err(err) => panic!("{label}: NOT well-formed: {err}: {s}"),
+                }
+                buf.clear();
+            }
+            // duplicate rows
+            let mut seen = std::collections::BTreeSet::new();
+            for r in &row_rs {
+                assert!(seen.insert(r.clone()), "{label}: DUP row {r}: {s}");
+            }
+            // mergeCells count consistency
+            if let Some(c) = container_child_count(out, b"mergeCells", b"mergeCell") {
+                let want = format!("count=\"{c}\"");
+                if s.contains("<mergeCells") {
+                    // find the mergeCells start tag count
+                    if let Some(i) = s.find("<mergeCells") {
+                        let tag = &s[i..i + s[i..].find('>').unwrap()];
+                        if tag.contains("count=") {
+                            assert!(tag.contains(&want), "{label}: mergeCells count mismatch (actual {c}): {tag}");
+                        }
+                    }
+                }
+            }
+        }
+
+        let base = br#"<worksheet xmlns:r="urn:r"><dimension ref="A1:D6"/><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>A1+1</f></c><c r="D1"><v>4</v></c></row><row r="2"><c r="A2"><v>2</v></c></row><row r="3"><c r="A3"><f>SUM(A1:A2)</f></c><c r="C3"><v>9</v></c></row><row r="5"><c r="A5"><v>5</v></c><c r="B5"><v>6</v></c></row><row r="6"><c r="A6"><v>7</v></c></row></sheetData><mergeCells count="2"><mergeCell ref="A5:B5"/><mergeCell ref="C3:D3"/></mergeCells><dataValidations count="1"><dataValidation type="whole" sqref="A5:A6"><formula1>1</formula1></dataValidation></dataValidations><hyperlinks><hyperlink ref="A6" r:id="rId1"/></hyperlinks></worksheet>"#;
+
+        let mut cases: Vec<StructuralEdit> = Vec::new();
+        for at in 1..=8u32 {
+            for count in 1..=3u32 {
+                cases.push(edit("Sheet1", Axis::Row, Op::Insert, at, count));
+                cases.push(edit("Sheet1", Axis::Row, Op::Delete, at, count));
+                cases.push(edit("Sheet1", Axis::Col, Op::Insert, at, count));
+                cases.push(edit("Sheet1", Axis::Col, Op::Delete, at, count));
+                for dest in 1..=9u32 {
+                    cases.push(move_edit("Sheet1", at, count, dest));
+                }
+            }
+        }
+        for e in &cases {
+            let mut report = StructuralReport::default();
+            let out = match e.op {
+                Op::Move => rewrite_edited_sheet_move(base, e, "s", &mut report),
+                _ => rewrite_edited_sheet(base, e, "s", &mut report),
+            };
+            let out = out.unwrap_or_else(|err| panic!("{e:?}: err {err}"));
+            // Only assert validity if the edit was NOT refused (residual-free).
+            if report.residuals.is_empty() {
+                check(&format!("{e:?}"), &out);
+            }
+        }
+    }
+
+    #[test]
     fn container_child_count_ignores_prefixed_x14_twin() {
         // REGRESSION (round-62 defect 5, invalid-output): a worksheet's legacy <dataValidations>
         // (2 children) plus its x14 extLst TWIN <x14:dataValidations> (1 child) must count as 2 for

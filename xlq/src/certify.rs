@@ -7360,6 +7360,58 @@ mod tests {
     }
 
     #[test]
+    fn audit_cross_part_macro_swap_probe() {
+        // AUDIT PROBE: two drawing parts, each a shape named "Btn" with a macro= binding. Swap the
+        // macro between the two parts (routine collision after a sheet copy — shape names are
+        // per-sheet unique, not per-workbook). If verify_noncell_refs returns None, the pooled
+        // sorted multiset in chart_drawing_refs is permutation-invariant across parts → FALSE-CERTIFY.
+        let shape = |mac: &str| {
+            format!(
+                r#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:sp macro="{mac}"><xdr:nvSpPr><xdr:cNvPr id="1" name="Btn"/></xdr:nvSpPr></xdr:sp></xdr:wsDr>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[
+                ("xl/drawings/drawing1.xml", shape("Module1.SafeExport").as_str()),
+                ("xl/drawings/drawing2.xml", shape("Module1.DeleteAllData").as_str()),
+            ],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let swapped = wb(
+            "",
+            &[
+                ("xl/drawings/drawing1.xml", shape("Module1.DeleteAllData").as_str()),
+                ("xl/drawings/drawing2.xml", shape("Module1.SafeExport").as_str()),
+            ],
+        );
+        let res = verify_noncell_refs(&good, &swapped);
+        eprintln!("AUDIT cross-part macro swap result = {res:?}");
+        // Also textlink variant (a pure cell re-point, no VBA needed).
+        let tshape = |cell: &str| {
+            format!(
+                r#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:sp textlink="{cell}"><xdr:nvSpPr><xdr:cNvPr id="1" name="TextBox 1"/></xdr:nvSpPr></xdr:sp></xdr:wsDr>"#
+            )
+        };
+        let tgood = wb(
+            "",
+            &[
+                ("xl/drawings/drawing1.xml", tshape("Sheet1!$A$1").as_str()),
+                ("xl/drawings/drawing2.xml", tshape("Sheet2!$Z$9").as_str()),
+            ],
+        );
+        let tswap = wb(
+            "",
+            &[
+                ("xl/drawings/drawing1.xml", tshape("Sheet2!$Z$9").as_str()),
+                ("xl/drawings/drawing2.xml", tshape("Sheet1!$A$1").as_str()),
+            ],
+        );
+        let tres = verify_noncell_refs(&tgood, &tswap);
+        eprintln!("AUDIT cross-part textlink swap result = {tres:?}");
+    }
+
+    #[test]
     fn drawing_hyperlink_swap_between_shapes_is_caught() {
         // REGRESSION (round-59 defect 5, security): two shapes' hyperlink targets, keyed by a flat
         // multiset, were permutation-invariant — swapping the r:ids so the "Download" button points

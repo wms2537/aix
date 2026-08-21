@@ -2,7 +2,7 @@
 
 **Branch:** `xlq-reference-completeness` @ `ab76abb` (pushed to origin, **NOT merged to main**)
 **Last updated:** 2026-07-24, end of round 65 / round 66 aborted
-**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -D warnings`, **389 committed tests** pass
+**Gate:** green (391 tests incl. 2 retained audit probes) — `cargo fmt --check`, `cargo clippy --all-targets -D warnings`, **389 committed tests** pass
 **Totals:** ~268 defects fixed over 65 adversarial rounds
 
 ---
@@ -93,10 +93,14 @@ walk** instead — see `autofilter_criteria` (round 64) and `pivot_ordered_sigs`
 directory* (not a worktree) and leak scratch test functions. Both additions are test-only (`mod tests`),
 purely additive, and currently compile and pass (they are `eprintln!` audit probes with no assertions):
 
-- `certify.rs::audit_cross_part_macro_swap_probe` — probes round-66 candidate C (below)
-- `structural.rs::scratch_fuzz_invalid_output` — a scratch structural-validity fuzzer
+- `certify.rs::audit_cross_part_macro_swap_probe` — probes round-66 candidate C (below).
+  **It has now been run and it CONFIRMS the defect** (see Theme C), so it is retained as evidence
+  rather than deleted; convert it to a real regression test (`assert!(... .is_some())`) once the fix
+  lands.
+- `structural.rs::scratch_fuzz_invalid_output` — a scratch structural-validity fuzzer; currently
+  passes, retained pending the round-66 invalid-output assessment.
 
-**Action:** delete both functions before the next commit. **Do NOT `git checkout` the files** — see §8.
+Both are committed as clearly-labelled probes. **Do NOT `git checkout` the files** — see §8.
 
 Also untracked (pre-existing, unrelated): `benchmarks/live3way_python.json`, `formal/corpus_formulas.txt`.
 
@@ -141,8 +145,14 @@ owning-part key**, so two drawing parts each holding a shape named `Btn` (routin
 `cNvPr` names are per-sheet unique, not per-workbook) can have their `macro=`/`textlink=` bindings
 swapped invisibly. The owning-part prefix was applied to `external_rels_targets` (r61),
 `opaque_target_signature` (r62) and `pivot_refs` (r64) — **`chart_drawing_refs` is the un-fixed twin.**
-*Assessment: very likely real; matches the recurring "twin not fixed" pattern exactly. The leftover
-debris probe in §5 was written to test precisely this — run it and read the `eprintln!` output.*
+***CONFIRMED REAL (2026-07-24).*** The retained probe
+`certify.rs::audit_cross_part_macro_swap_probe` was executed: swapping `Module1.SafeExport` with
+`Module1.DeleteAllData` between two drawing parts whose shapes are both named `Btn` yields
+`verify_noncell_refs(...) == None` — i.e. **CERTIFIED**. The `textlink=` variant (a pure cell re-point,
+no VBA required) likewise returns `None`. This is a HIGH security false-certify: a macro re-point that
+survives certify. Fix: prefix `chart_drawing_refs`'s drawing signatures with the owning part, matching
+the three sibling comparators. The probe must then be converted into a real regression test asserting
+`.is_some()`.*
 
 **Theme D — slicer / timeline selection state uncompared** *(pivot)*
 Slicer and timeline caches are allowlisted as certify-safe but read by **no** signature. A deselect
@@ -166,9 +176,10 @@ repro closely — poison-and-diff may already handle the direct case.*
 2. **Fix Theme B** (verified real, small) — route a data-table `<f>` through `transform_tag_move` in the
    `Event::Start` arm of `rewrite_edited_sheet_move`; add a regression test with a non-self-closing
    `<f t="dataTable" …></f>`; commit.
-3. **Assess Theme C directly** — run the debris probe's logic before deleting it (or re-add as a real
-   test). If confirmed, prefix `chart_drawing_refs`'s drawing signatures with the owning part, matching
-   the three sibling comparators. Commit.
+3. **Fix Theme C** — *already confirmed real by the retained probe*, so no assessment needed: prefix
+   `chart_drawing_refs`'s drawing signatures with the owning part (matching `external_rels_targets`,
+   `opaque_target_signature` and `pivot_refs`), then convert
+   `audit_cross_part_macro_swap_probe` into a regression test asserting refusal. Commit.
 4. **Assess Theme A** — read `vendor/upstream/base` to determine whether the importer resolves the
    `xfId` inheritance chain. If it does and xlq's backstops do not, implement inheritance resolution in
    `cellxfs_horizontal` / `cellxfs_locked` / `cellxfs_numfmt_codes`. Commit.
