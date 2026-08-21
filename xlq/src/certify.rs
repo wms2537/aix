@@ -1248,8 +1248,10 @@ fn chart_hyperlink_sigs(
 /// transposing two series' refs between ser #0 and #1 left the multiset identical while "Revenue"
 /// plotted Costs' range on refresh (round-67 candidate C1 — the intra-part twin of the round-66
 /// cross-part prefix); a literal `<c:tx><c:v>` name was read by no comparator at all, so swapping
-/// two series' legend names certified (C2). Cached `<c:v>` points (numCache/strCache) are
-/// deliberately NOT compared here beyond the tx name (a stale cache self-repairs on refresh and
+/// two series' legend names certified (C2). LITERAL data points (`<c:numLit>`/`<c:strLit>` —
+/// typed into the chart, never refreshed) ARE compared keyed by pt idx (round-69). Cached
+/// `<c:v>` points (numCache/strCache) of CELL-LINKED series are deliberately NOT compared here
+/// beyond the tx name (a stale cache self-repairs on refresh and
 /// re-deriving caches is a common faithful-editor behavior — over-refusal risk outweighs the
 /// display-only gain). Leaves are reassembled across Text + GeneralRef like every other body
 /// reader; `f` bodies are sheet-quote canonicalized.
@@ -1263,9 +1265,16 @@ fn chart_series_sigs(xml: &[u8]) -> Vec<String> {
     let mut ser_count = 0usize;
     // Currently-open leaf capture: ("f"|"v", accumulated raw text).
     let mut leaf: Option<(String, String)> = None;
+    // Index of the enclosing `<c:pt>` (its `idx` attribute), for literal data points.
+    let mut cur_pt_idx = String::new();
     // Build one signature from the ancestor stack + captured text. `path` still INCLUDES the
     // leaf itself as its last element.
-    let emit = |path: &[String], kind: &str, text: &str, ser: usize, out: &mut Vec<String>| {
+    let emit = |path: &[String],
+                kind: &str,
+                text: &str,
+                ser: usize,
+                pt_idx: &str,
+                out: &mut Vec<String>| {
         let ancestors = &path[..path.len().saturating_sub(1)];
         let canon = |t: &str| {
             if kind == "f" {
@@ -1277,10 +1286,23 @@ fn chart_series_sigs(xml: &[u8]) -> Vec<String> {
         match ancestors.iter().rposition(|p| p == "ser") {
             Some(p) => {
                 let role = ancestors.get(p + 1).cloned().unwrap_or_default();
-                if kind == "v" && role != "tx" {
-                    return; // cached point value: deliberately uncompared (see doc above)
+                // LITERAL data points (`<c:numLit>`/`<c:strLit>` — values typed into the chart,
+                // never refreshed from cells) are authoritative forever, so they ARE compared,
+                // keyed by their pt idx. Cached points (numCache/strCache) of cell-linked series
+                // stay deliberately uncompared (self-repair on refresh; see fn doc above).
+                let is_literal_pt = kind == "v"
+                    && role != "tx"
+                    && ancestors.iter().any(|a| {
+                        a.eq_ignore_ascii_case("numlit") || a.eq_ignore_ascii_case("strlit")
+                    });
+                if kind == "v" && role != "tx" && !is_literal_pt {
+                    return;
                 }
-                out.push(format!("ser#{ser}|{role}|{kind}|{}", canon(text)));
+                if is_literal_pt {
+                    out.push(format!("ser#{ser}|{role}|pt[{pt_idx}]|v={}", canon(text)));
+                } else {
+                    out.push(format!("ser#{ser}|{role}|{kind}|{}", canon(text)));
+                }
             }
             None => out.push(format!("chartf|{kind}|{}", canon(text))),
         }
@@ -1291,6 +1313,8 @@ fn chart_series_sigs(xml: &[u8]) -> Vec<String> {
                 let local = structural::local_of(e.name().as_ref()).to_vec();
                 if local == b"ser" {
                     ser_count += 1;
+                } else if local == b"pt" {
+                    cur_pt_idx = attr_local(&e, b"idx").unwrap_or_default();
                 } else if local == b"f" || local == b"v" {
                     leaf = Some((String::from_utf8_lossy(&local).into_owned(), String::new()));
                 }
@@ -1308,6 +1332,7 @@ fn chart_series_sigs(xml: &[u8]) -> Vec<String> {
                         &String::from_utf8_lossy(&local),
                         "",
                         ser_count,
+                        &cur_pt_idx,
                         &mut out,
                     );
                 }
@@ -1328,7 +1353,7 @@ fn chart_series_sigs(xml: &[u8]) -> Vec<String> {
                 let local = structural::local_of(e.name().as_ref()).to_vec();
                 if leaf.is_some() && (local == b"f" || local == b"v") {
                     let (kind, text) = leaf.take().unwrap();
-                    emit(&path, &kind, &text, ser_count, &mut out);
+                    emit(&path, &kind, &text, ser_count, &cur_pt_idx, &mut out);
                 }
                 path.pop();
             }
@@ -7769,6 +7794,29 @@ mod tests {
         assert!(
             verify_noncell_refs(&good, &swapped).is_some(),
             "a cross-item custom-label swap must be caught"
+        );
+    }
+
+    #[test]
+    fn chart_literal_data_point_tamper_is_caught() {
+        // REGRESSION (round-69 residual, false-certify): a series whose values are LITERAL
+        // (<c:numLit>/<c:strLit> — typed into the chart, never refreshed from cells) is
+        // authoritative forever, but the point values were read by no comparator: tampering
+        // 42 -> 999 re-rendered every future draw of that point, certified. Literal points are
+        // now compared keyed by pt idx; cell-linked series' numCache/strCache stay deliberately
+        // uncompared (self-repair on refresh).
+        let chart = |p0: &str, p1: &str| {
+            format!(
+                r#"<c:chartSpace xmlns:c="urn:c"><c:chart><c:plotArea><c:ser><c:idx val="0"/><c:val><c:numLit><c:pt idx="0"><c:v>{p0}</c:v></c:pt><c:pt idx="1"><c:v>{p1}</c:v></c:pt></c:numLit></c:val></c:ser></c:plotArea></c:chart></c:chartSpace>"#
+            )
+        };
+        let good = wb("", &[("xl/charts/chart1.xml", &chart("42", "43"))]);
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let evil = wb("", &[("xl/charts/chart1.xml", &chart("42", "999"))]);
+        assert_eq!(
+            verify_noncell_refs(&good, &evil).expect("a literal data-point rewrite must refuse")
+                ["reason"],
+            "chart_drawing_mismatch"
         );
     }
 
