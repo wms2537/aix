@@ -1,9 +1,9 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `94c3f15` (pushed to origin, **NOT merged to main**)
-**Last updated:** 2026-08-21, end of round 67 + round-68 mini-sweep
-**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **402 tests** pass
-**Totals:** ~280 defects fixed over 67 rounds
+**Branch:** `xlq-reference-completeness` @ `22d6d88` (pushed to origin, **NOT merged to main**)
+**Last updated:** 2026-08-21, end of round 68
+**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **406 tests** pass
+**Totals:** ~284 defects fixed over 68 rounds
 
 ---
 
@@ -42,12 +42,13 @@ The round-N script lives at `/tmp/claude-1000/-home-soh-aix/<session>/scratchpad
 is produced by copying the previous script and rewriting the "ROUND N JUST ADDED" block to weight the
 newest code plus any known residuals.
 
-## 3. Progress this session (rounds 60–67)
+## 3. Progress this session (rounds 60–68)
 
-50 fixes across 25 commits. Newest first:
+54 fixes across 29 commits. Newest first:
 
 | Round | Commits | Confirmed | Headline defects |
 |---|---|---|---|
+| 68 | `bf71a4e`, `e8e7ab6`, `ed31a3a` | 4 | form-control binding swap pooled across parts AND within a sheet (incl. VML FmlaMacro = which button runs which macro); cross-TABLE autoFilter-block swap (constant owner "table"); linked-object `<xdr:f>` source cells pooled within one drawing; workbook `<webPublishItem>` source repoint uncompared |
 | 67 | `dc58530`, `a58b054`, `4bc13fb`, `16eb73b` | 6 | self-closed `<numFmts/>` leaked the dxf-map gate (r61 vector via one-byte encoding); OLAP calculatedMember's expression lives in `@mdx` — read by nothing; intra-chart series ref/name swap (pooled `<f>` list permutation-invariant WITHIN a part); row/col inherited styles invisible to per-cell CELL() backstops (+ target-xf content edit); CELL("width") blind to defaultColWidth/hidden cols; internal drawing image/chart bindings + xl/media bytes uncompared (logo substitution) |
 | 66 | `0b5996e`, `de76d1c`, `e3367bb`, `8ffa144` | 6 (5 fixed + Theme E assessed not-a-defect) | data-table `<f>` NON-self-closing Start arm stale under Op::Move (silent-wrong); cross-part drawing macro=/textlink= swap via same-named shapes — **confirmed by the retained probe** (+ its charts twin); CELL() backstops never followed `xfId` → `<cellStyleXfs>` inheritance (4-lens convergence; e2e repro'd); slicer/timeline selection state uncompared; Theme E assessed CLOSED BY CONSTRUCTION (see §6) |
 | 65 | `5ac8071`, `5292bd0`, `ab76abb` | 6 | 3D-span defined name → engine `#NAME?` laundered via IFERROR (found by **4 lenses**); same-named drawing shapes collide (`cNvPr name` is not unique → `name#occ`); swap of two same-fld/same-name pivot dataFields' aggregation; `Op::Move` left data-table `<f>` r1/r2/ref stale (dead-code dispatch); two same-text runs' hyperlink swap; **new class** — `CELL("prefix")`/`CELL("width")` style backstops |
@@ -123,9 +124,10 @@ The 8 candidates from the aborted run collapsed to 5 themes; all processed:
 
 ## 7. Next steps (in order)
 
-1. **Round 68**: fresh workflow, weighting the round-67 NEW surface (chart_series_sigs,
-   slicer_timeline_sigs, drawing_internal_bindings, row_column_style_surfaces /
-   cellxfs_tables_differ) — per the standing lesson, every new comparator creates fresh surface.
+1. **Round 69**: fresh workflow. Rounds 67-68 lenses came back DRY on oracle-soundness,
+   external-rels/security, refshift/structural coverage, and invalid-output — weight the next
+   run toward pivot per-field `<item h>` pooling (declared done r64 but position-blind across
+   fields), chart caches (open residual), and any NEW surface from rounds 66-68 comparators.
 2. **Accepted residuals** (documented, not defects): chart numCache/strCache point values are
    deliberately uncompared (self-repairs on refresh; re-derivation is common faithful behavior);
    chained cellStyleXfs→cellStyleXfs inheritance folds one hop only (exotic construct);
