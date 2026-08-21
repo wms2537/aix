@@ -1326,11 +1326,10 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                 // moves one and copies the drawing verbatim otherwise, so a foreign RE-POINT
                 // (mirroring a different cell) must differ. The cell diff never sees them.
                 let part_start = drawings.len();
-                drawings.extend(
-                    structural::element_text_semantics(&x, &[b"f"])
-                        .iter()
-                        .map(|s| structural::canonicalize_sheet_quotes(s)),
-                );
+                // Linked-object SOURCE CELLS (`<xdr:f>`) are captured by
+                // drawing_internal_bindings below, keyed by the owning shape's identity — a bare
+                // pooled text list here was permutation-invariant across two linked objects in
+                // one part (round-68 candidate 3), so it is deliberately NOT also emitted.
                 // A linked-shape `textlink`, an "Assign Macro" `macro`, and a shape hyperlink
                 // (`<a:hlinkClick r:id>` resolved through the drawing rels to an external URL) — each
                 // keyed by the owning shape's stable identity so a SWAP of two shapes' targets differs
@@ -1928,9 +1927,14 @@ fn drawing_internal_bindings(bytes: &[u8]) -> Vec<String> {
         // otherwise — cNvPr name is per-sheet unique only).
         let mut cur_name = String::from("#anon");
         let mut occ: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        // A linked OLE/picture object's SOURCE CELL (`<xdr:f>` under its graphicFrame), keyed by
+        // the owning shape's identity like every other binding: the bare pooled text list was
+        // permutation-invariant across two linked objects in one part (round-68 candidate 3).
+        let mut in_f_leaf = false;
+        let mut f_raw = String::new();
         loop {
             match reader.read_event_into(&mut buf) {
-                Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                Ok(Event::Start(e)) => {
                     match structural::local_of(e.name().as_ref()) {
                         b"cNvPr" => {
                             let name = attr_local(&e, b"name").unwrap_or_default();
@@ -1939,27 +1943,41 @@ fn drawing_internal_bindings(bytes: &[u8]) -> Vec<String> {
                             *c += 1;
                             cur_name = format!("{name}#{id}");
                         }
-                        local => {
-                            let binding_of = if local == b"blip" {
-                                Some("blip")
-                            } else if local == b"chart" {
-                                Some("chart")
-                            } else {
-                                None
-                            };
-                            if let Some(kind) = binding_of {
-                                for k in ["embed", "link", "id"] {
-                                    if let Some(rid) = attr_local(&e, k.as_bytes()) {
-                                        // Resolve through the drawing's OWN rels; an unknown rId
-                                        // stays as-is (a dangling ref is a difference too).
-                                        let target = rels.get(&rid).cloned().unwrap_or_default();
-                                        out.push(format!(
-                                            "{n}|{cur_name}|{kind}:{k}={rid}->{target}"
-                                        ));
-                                    }
-                                }
-                            }
+                        b"f" => {
+                            // Start-of-body leaf: reassemble Text+GeneralRef, emit at </f>.
+                            in_f_leaf = true;
+                            f_raw.clear();
                         }
+                        local => {
+                            emit_drawing_attr_binding(&mut out, n, &cur_name, &rels, local, &e)
+                        }
+                    }
+                }
+                Ok(Event::Empty(e)) => match structural::local_of(e.name().as_ref()) {
+                    b"cNvPr" => {
+                        let name = attr_local(&e, b"name").unwrap_or_default();
+                        let c = occ.entry(name.clone()).or_insert(0);
+                        let id = *c;
+                        *c += 1;
+                        cur_name = format!("{name}#{id}");
+                    }
+                    b"f" => out.push(format!("{n}|{cur_name}|f=")),
+                    local => emit_drawing_attr_binding(&mut out, n, &cur_name, &rels, local, &e),
+                },
+                Ok(Event::Text(t)) if in_f_leaf => {
+                    f_raw.push_str(&String::from_utf8_lossy(t.as_ref()));
+                }
+                Ok(Event::GeneralRef(g)) if in_f_leaf => {
+                    f_raw.push_str(&String::from_utf8_lossy(g.as_ref()));
+                }
+                Ok(Event::End(e)) => {
+                    if in_f_leaf && structural::local_of(e.name().as_ref()) == b"f" {
+                        in_f_leaf = false;
+                        let raw = std::mem::take(&mut f_raw);
+                        out.push(format!(
+                            "{n}|{cur_name}|f={}",
+                            structural::canonicalize_sheet_quotes(&raw)
+                        ));
                     }
                 }
                 Ok(Event::Eof) | Err(_) => break,
@@ -1970,6 +1988,34 @@ fn drawing_internal_bindings(bytes: &[u8]) -> Vec<String> {
     }
     out.sort();
     out
+}
+
+/// Emit one drawing element's rId-carrying attribute bindings (`<a:blip r:embed/r:link>`,
+/// `<c:chart r:id>`), resolved through the drawing's own rels. Shared by the Start and Empty
+/// arms of `drawing_internal_bindings`.
+fn emit_drawing_attr_binding(
+    out: &mut Vec<String>,
+    part: &str,
+    shape: &str,
+    rels: &std::collections::BTreeMap<String, String>,
+    local: &[u8],
+    e: &quick_xml::events::BytesStart,
+) {
+    let kind = if local == b"blip" {
+        "blip"
+    } else if local == b"chart" {
+        "chart"
+    } else {
+        return;
+    };
+    for k in ["embed", "link", "id"] {
+        if let Some(rid) = attr_local(e, k.as_bytes()) {
+            // Resolve through the drawing's OWN rels; an unknown rId stays as-is (a dangling
+            // ref is a difference too).
+            let target = rels.get(&rid).cloned().unwrap_or_default();
+            out.push(format!("{part}|{shape}|{kind}:{k}={rid}->{target}"));
+        }
+    }
 }
 
 /// Per-item selection signatures for a TABULAR slicer cache (`<tabular><items><i x="0" s="1"/>`),
@@ -2930,26 +2976,122 @@ fn control_bindings(bytes: &[u8]) -> Vec<String> {
         {
             // Worksheet controlPr bindings AND modern `xl/ctrlProps/*` <formControlPr> bindings
             // (fmlaLink/fmlaRange/…) — the allowlist marks ctrlProps known-safe only because its
-            // bindings are compared here.
+            // bindings are compared here. Each sig is prefixed by its OWNING PART and a doc-order
+            // occurrence index of its bearing element: transposing two controls' bindings across
+            // parts (or within one sheet) previously survived as one pooled multiset (round-68
+            // candidate 1) — including which button runs which macro.
             if let Ok(x) = crate::ooxml::read_part(bytes, n) {
-                out.extend(structural::control_binding_attrs(&x));
+                out.extend(
+                    structural::control_binding_sigs(&x)
+                        .into_iter()
+                        .map(|s| format!("{low}|{s}")),
+                );
             }
         } else if low.ends_with(".vml") {
             if let Ok(x) = crate::ooxml::read_part(bytes, n) {
-                for t in structural::element_text_semantics(
-                    &x,
-                    &[
-                        b"FmlaLink",
-                        b"FmlaMacro",
-                        b"FmlaRange",
-                        b"FmlaTxbx",
-                        b"FmlaGroup",
-                    ],
-                ) {
-                    out.push(format!("vml:{t}"));
-                }
+                out.extend(
+                    vml_control_fmla_sigs(&x)
+                        .into_iter()
+                        .map(|s| format!("{low}|{s}")),
+                );
             }
         }
+    }
+    out.sort();
+    out
+}
+
+/// The legacy VML form-control formulas (`<x:FmlaLink>` / `FmlaMacro` / `FmlaRange` /
+/// `FmlaTxbx` / `FmlaGroup`), each keyed by its enclosing `<x:ClientData ObjectType="…">`
+/// control instance's doc-order occurrence — so swapping two buttons' cell links or macro
+/// assignments differs instead of surviving the flat multiset. A Fmla* outside any ClientData
+/// keeps a bare pooled entry (coverage preserved).
+fn vml_control_fmla_sigs(xml: &[u8]) -> Vec<String> {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+    let mut cd_count = 0usize;
+    // Currently-open <x:ClientData>: (occurrence, ObjectType).
+    let mut cur_cd: Option<(usize, String)> = None;
+    // Currently-open Fmla* leaf: (kind, accumulated text across Text+GeneralRef).
+    let mut leaf: Option<(String, String)> = None;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let local = structural::local_of(e.name().as_ref()).to_vec();
+                if local.eq_ignore_ascii_case(b"clientdata") {
+                    cd_count += 1;
+                    let ot = e
+                        .attributes()
+                        .flatten()
+                        .find_map(|a| {
+                            let k = structural::local_of(a.key.as_ref()).to_vec();
+                            if k.eq_ignore_ascii_case(b"objecttype") {
+                                Some(String::from_utf8_lossy(&a.value).into_owned())
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_default();
+                    cur_cd = Some((cd_count, ot));
+                } else if matches!(
+                    local.as_slice(),
+                    b"FmlaLink" | b"FmlaMacro" | b"FmlaRange" | b"FmlaTxbx" | b"FmlaGroup"
+                ) {
+                    leaf = Some((String::from_utf8_lossy(&local).into_owned(), String::new()));
+                }
+            }
+            Ok(Event::Empty(e)) => {
+                let local = structural::local_of(e.name().as_ref()).to_vec();
+                if local.eq_ignore_ascii_case(b"clientdata") {
+                    // Self-closed control block: counts as an instance but cannot hold formulas.
+                    cd_count += 1;
+                } else if matches!(
+                    local.as_slice(),
+                    b"FmlaLink" | b"FmlaMacro" | b"FmlaRange" | b"FmlaTxbx" | b"FmlaGroup"
+                ) {
+                    // Self-closed formula leaf: empty body still marks presence.
+                    let kind = String::from_utf8_lossy(&local).into_owned();
+                    match &cur_cd {
+                        Some((n_, ot)) => out.push(format!("cd#{n_}({ot})|{kind}=")),
+                        None => out.push(format!("vml|{kind}=")),
+                    }
+                }
+            }
+            Ok(Event::Text(t)) if leaf.is_some() => {
+                leaf.as_mut()
+                    .unwrap()
+                    .1
+                    .push_str(&String::from_utf8_lossy(t.as_ref()));
+            }
+            Ok(Event::GeneralRef(g)) if leaf.is_some() => {
+                leaf.as_mut()
+                    .unwrap()
+                    .1
+                    .push_str(&String::from_utf8_lossy(g.as_ref()));
+            }
+            Ok(Event::End(e)) => {
+                let local = structural::local_of(e.name().as_ref()).to_vec();
+                if matches!(
+                    local.as_slice(),
+                    b"FmlaLink" | b"FmlaMacro" | b"FmlaRange" | b"FmlaTxbx" | b"FmlaGroup"
+                ) {
+                    if let Some((kind, text)) = leaf.take() {
+                        match &cur_cd {
+                            Some((n_, ot)) => out.push(format!("cd#{n_}({ot})|{kind}={text}")),
+                            None => out.push(format!("vml|{kind}={text}")),
+                        }
+                    }
+                } else if local.eq_ignore_ascii_case(b"clientdata") {
+                    cur_cd = None;
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
     }
     out.sort();
     out
@@ -3178,29 +3320,53 @@ fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
             }
         }
     }
-    // Table autoFilters, keyed by CLASS ("table") not part name so a benign renumber does not
-    // false-refuse (a real filter change still differs within the sorted set). Pivot filters carry
-    // the SAME nested `<autoFilter><filterColumn><customFilter operator val>` predicate under a
-    // `<filter>` (CT_PivotFilter) — the value/label THRESHOLD that decides which rows the pivot
-    // materializes on refresh — so scan pivotTable parts with the same proven comparator instead of
-    // re-implementing predicate parsing in pivot_refs.
+    // Table autoFilters, keyed by the table's stable IDENTITY (displayName — unique in a
+    // workbook, the handle structured references resolve through) so transposing two tables'
+    // whole <autoFilter> blocks between parts differs; the CLASS constant "table" discarded
+    // which table owned which filter, and no other comparator reads a table's autoFilter
+    // (round-68 candidate 2). Pivot filters keep the class owner: their cross-part surface is
+    // already covered by pivot_refs' owning-part-prefixed <filter> signatures.
     for n in structural::archive_names(bytes).unwrap_or_default() {
         let low = n.to_ascii_lowercase();
         if low.ends_with(".xml") {
-            let owner = if low.starts_with("xl/tables/") {
-                "table"
+            let owner: String = if low.starts_with("xl/tables/") {
+                match crate::ooxml::read_part(bytes, &n) {
+                    Ok(x) => table_display_name(&x),
+                    Err(_) => continue,
+                }
             } else if low.starts_with("xl/pivottables/") {
-                "pivot"
+                "pivot".to_string()
             } else {
                 continue;
             };
             if let Ok(x) = crate::ooxml::read_part(bytes, &n) {
-                extract(owner, &x);
+                extract(&owner, &x);
             }
         }
     }
     out.sort();
     out
+}
+
+/// The `<table displayName="…">` root attribute of a table part (empty when absent).
+fn table_display_name(xml: &[u8]) -> String {
+    use quick_xml::events::Event;
+    let mut reader = quick_xml::Reader::from_reader(xml);
+    reader.config_mut().expand_empty_elements = false;
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e))
+                if structural::local_of(e.name().as_ref()) == b"table" =>
+            {
+                return attr_local(&e, b"displayName").unwrap_or_default();
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    String::new()
 }
 
 /// The bytes of every `xl/vbaProject*` part (macro binary + signature), keyed by name,
@@ -6124,14 +6290,15 @@ mod tests {
             verify_noncell_refs(&base, &wb("", &[(n2, b.as_str())])).is_none(),
             "a value-neutral anchor re-encode must NOT refuse"
         );
-        // A re-pointed graphic-frame source cell IS caught.
+        // A re-pointed graphic-frame source cell IS caught — since round-68 candidate 3 it lives
+        // in drawing_internal_bindings, keyed by owning shape (was: pooled chart_drawing_mismatch).
         let (n3, evil) = draw(
             r#"<xdr:oneCellAnchor><xdr:from><xdr:col>7</xdr:col><xdr:row>2</xdr:row></xdr:from><xdr:graphicFrame><xdr:f>Data!$Z$99</xdr:f></xdr:graphicFrame></xdr:oneCellAnchor>"#,
         );
         assert_eq!(
             verify_noncell_refs(&base, &wb("", &[(n3, evil.as_str())]))
                 .expect("a re-pointed drawing ref must be caught")["reason"],
-            "chart_drawing_mismatch"
+            "internal_drawing_binding_mismatch"
         );
     }
 
@@ -7346,6 +7513,113 @@ mod tests {
             verify_noncell_refs(&good, &media_substituted)
                 .expect("an in-place media substitution must refuse")["reason"],
             "internal_drawing_binding_mismatch"
+        );
+    }
+
+    #[test]
+    fn control_binding_swap_between_controls_is_caught() {
+        // REGRESSION (round-68 candidate 1, HIGH): control_bindings pooled every binding into
+        // one multiset with no control/part identity — transposing which checkbox links which
+        // cell across two ctrlProps parts certified (and swapping legacy VML FmlaMacro = which
+        // button runs which macro). Occurrence-indexed sigs with owning-part prefixes catch it.
+        let pr = |cell: &str| {
+            format!(
+                r#"<formControlPr xmlns="urn:x" objectType="CheckBox" checked="1" fmlaLink="{cell}" lockText="1" noThreeD="0"/> "#
+            )
+        };
+        let good = wb(
+            "",
+            &[
+                (
+                    "xl/ctrlProps/ctrlProps1.xml",
+                    pr("Sheet1!$H$2").trim_end().to_string().as_str(),
+                ),
+                (
+                    "xl/ctrlProps/ctrlProps2.xml",
+                    pr("Sheet1!$I$5").trim_end().to_string().as_str(),
+                ),
+            ],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let swapped = wb(
+            "",
+            &[
+                (
+                    "xl/ctrlProps/ctrlProps1.xml",
+                    pr("Sheet1!$I$5").trim_end().to_string().as_str(),
+                ),
+                (
+                    "xl/ctrlProps/ctrlProps2.xml",
+                    pr("Sheet1!$H$2").trim_end().to_string().as_str(),
+                ),
+            ],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &swapped)
+                .expect("a cross-control fmlaLink swap must refuse")["reason"],
+            "control_binding_mismatch"
+        );
+    }
+
+    #[test]
+    fn vml_macro_assignment_swap_is_caught() {
+        // REGRESSION (round-68 candidate 1 twin): two VML buttons' FmlaMacro assignments swapped
+        // — which button runs which macro — survived the flat multiset.
+        let vml = |m1: &str, m2: &str| {
+            format!(
+                r#"<xml xmlns:x="urn:x"><x:ClientData ObjectType="Button"><x:FmlaMacro>{m1}</x:FmlaMacro></x:ClientData><x:ClientData ObjectType="Button"><x:FmlaMacro>{m2}</x:FmlaMacro></x:ClientData></xml>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[(
+                "xl/drawings/vmlDrawing1.vml",
+                vml("[0]!Module1.SafeExport", "[0]!Module1.WipeData").as_str(),
+            )],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let swapped = wb(
+            "",
+            &[(
+                "xl/drawings/vmlDrawing1.vml",
+                vml("[0]!Module1.WipeData", "[0]!Module1.SafeExport").as_str(),
+            )],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &swapped)
+                .expect("a macro-assignment swap between buttons must refuse")["reason"],
+            "control_binding_mismatch"
+        );
+    }
+
+    #[test]
+    fn table_filter_block_swap_is_caught() {
+        // REGRESSION (round-68 candidate 2, HIGH): autofilter_criteria keyed ALL table parts
+        // under the constant owner "table", so transposing two tables' whole <autoFilter>
+        // blocks certified while Excel would hide different rows on refresh.
+        let table = |name: &str, val: &str| {
+            format!(
+                r#"<table xmlns="urn:x" id="1" name="{name}" displayName="{name}" ref="A1:C9"><autoFilter ref="A1:C9"><filterColumn colId="0"><filters><filter val="{val}"/></filters></filterColumn></autoFilter><tableColumns count="1"><tableColumn id="1" name="Region"/></tableColumns></table>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[
+                ("xl/tables/table1.xml", &table("Sales2023", "North")),
+                ("xl/tables/table2.xml", &table("Sales2024", "South")),
+            ],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let swapped = wb(
+            "",
+            &[
+                ("xl/tables/table1.xml", &table("Sales2023", "South")),
+                ("xl/tables/table2.xml", &table("Sales2024", "North")),
+            ],
+        );
+        assert!(
+            verify_noncell_refs(&good, &swapped).is_some(),
+            "a cross-table filter swap must be caught"
         );
     }
 

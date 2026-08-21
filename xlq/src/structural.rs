@@ -2645,14 +2645,21 @@ pub(crate) fn table_semantics(xml: &[u8]) -> Vec<String> {
 /// `linkedCell` / `fmlaLink` / `listFillRange` / `sourceRef` attribute (the cell a control
 /// reads/writes), sorted. certify compares these so a foreign edit that RE-POINTS a control's
 /// binding (a value/behavior change the cell diff never sees) is caught.
-pub(crate) fn control_binding_attrs(xml: &[u8]) -> Vec<String> {
+/// Like `control_binding_attrs`, but every binding is keyed by a document-order occurrence
+/// index of its BEARING element, so two controls' bindings cannot transpose invisibly: with the
+/// flat multiset, swapping which checkbox links `Sheet1!$H$2` vs `Sheet1!$I$5` (or which button's
+/// macro assignment) left the emitted set identical (round-68 candidate 1). A faithful edit
+/// preserves element order, so only a genuine re-point differs.
+pub(crate) fn control_binding_sigs(xml: &[u8]) -> Vec<String> {
     let mut reader = Reader::from_reader(xml);
     reader.config_mut().expand_empty_elements = false;
     let mut buf = Vec::new();
     let mut out = Vec::new();
+    let mut occ = 0usize;
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                let mut hits: Vec<String> = Vec::new();
                 for key in [
                     b"linkedCell".as_slice(),
                     b"fmlaLink".as_slice(),
@@ -2660,15 +2667,18 @@ pub(crate) fn control_binding_attrs(xml: &[u8]) -> Vec<String> {
                     b"fmlaRange".as_slice(),
                     b"sourceRef".as_slice(),
                     b"link".as_slice(),
-                    // Option-button-GROUP cell link and edit-box (textbox) cell link — genuine
-                    // CT_FormControlPr cell references (the modern mirror of VML FmlaGroup/FmlaTxbx,
-                    // compared below). A foreign RE-POINT of either writes/reads a different cell.
                     b"fmlaGroup".as_slice(),
                     b"fmlaTxbx".as_slice(),
                 ] {
                     if let Some(v) = attr_by_local(&e, key) {
-                        out.push(format!("{}={}", String::from_utf8_lossy(key), v));
+                        hits.push(format!("{}={}", String::from_utf8_lossy(key), v));
                     }
+                }
+                if !hits.is_empty() {
+                    for h in hits {
+                        out.push(format!("{occ}|{h}"));
+                    }
+                    occ += 1;
                 }
             }
             Ok(Event::Eof) | Err(_) => break,
@@ -7280,15 +7290,15 @@ mod tests {
             br#"<formControlPr fmlaLink="'Other Sheet'!$A$8"/>"#,
             &e2
         ));
-        // And control_binding_attrs (certify's compare surface) captures them, so a re-point is
+        // And control_binding_sigs (certify's compare surface) captures them, so a re-point is
         // caught rather than false-certified.
-        let g1 = control_binding_attrs(br#"<formControlPr fmlaGroup="Sheet2!$B$1"/>"#);
-        let g2 = control_binding_attrs(br#"<formControlPr fmlaGroup="Sheet2!$Z$9"/>"#);
+        let g1 = control_binding_sigs(br#"<formControlPr fmlaGroup="Sheet2!$B$1"/>"#);
+        let g2 = control_binding_sigs(br#"<formControlPr fmlaGroup="Sheet2!$Z$9"/>"#);
         assert!(
             !g1.is_empty() && g1 != g2,
             "fmlaGroup re-point must change the binding key"
         );
-        let t1 = control_binding_attrs(br#"<formControlPr fmlaTxbx="Sheet2!$B$1"/>"#);
+        let t1 = control_binding_sigs(br#"<formControlPr fmlaTxbx="Sheet2!$B$1"/>"#);
         assert!(!t1.is_empty(), "fmlaTxbx must be captured");
     }
 
