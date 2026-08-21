@@ -4295,6 +4295,21 @@ fn rewrite_edited_sheet_move(
 
             // ---- formula-bearing element: TEXT carries A1 refs ----
             Event::Start(e) if is_formula_tag(e.name().as_ref()) => {
+                // A what-if DATA-TABLE `<f>` written NON-SELF-CLOSING (`<f t="dataTable" …></f>`,
+                // expand_empty_elements = false) arrives here as Start+End, and this arm's verbatim
+                // write would leave its attribute-carried ref/r1/r2 STALE under Op::Move (silent
+                // value corruption) — the same round-65 d4 hole, one serialization away. Route it
+                // through transform_tag_move's datatable dispatch like the Empty arm, and do NOT
+                // arm `in_f`: a data table has no A1 body to shift at </f>.
+                if is_datatable_f(&e) {
+                    let tag = transform_tag_move(&e, &sheet, edit, report);
+                    match row_buf.as_mut() {
+                        Some((_, w)) => w.write_event(Event::Start(tag))?,
+                        None => main.write_event(Event::Start(tag))?,
+                    }
+                    buf.clear();
+                    continue;
+                }
                 in_f = true;
                 f_residual = detect_residual(&e).is_some();
                 f_raw.clear();
@@ -7139,6 +7154,34 @@ mod tests {
         assert!(
             s.contains(r#"t="dataTable""#) && !s.contains(r#"r1="""#),
             "the shifted data-table <f> is well-formed (no empty r1): {s}"
+        );
+    }
+
+    #[test]
+    fn datatable_f_start_arm_is_shifted_under_move() {
+        // REGRESSION (round-66 Theme B): the round-65 fix patched only the Empty `<f>` arm. A
+        // data-table <f> written NON-SELF-CLOSING (<f t="dataTable" …></f>) arrived at the
+        // Start arm instead, which set in_f and wrote the tag VERBATIM — r1/ref left stale
+        // under Op::Move (silent value corruption), one serialization away from the fixed path.
+        let xml = br#"<worksheet><sheetData><row r="2"><c r="C2"><f t="dataTable" ref="C2:C5" dt2D="0" dtr="0" r1="A8" ca="1"></f><v>1</v></c></row></sheetData></worksheet>"#;
+        let e = StructuralEdit {
+            axis: Axis::Row,
+            at: 4,
+            count: 2,
+            op: Op::Move,
+            sheet: "Sheet1".into(),
+            dest: 10,
+        };
+        let mut report = StructuralReport::default();
+        let out = rewrite_edited_sheet_move(xml, &e, "s", &mut report).unwrap();
+        let s = String::from_utf8_lossy(&out);
+        assert!(
+            !s.contains(r#"r1="A8""#),
+            "the non-self-closing data-table input cell must NOT be left stale under Move: {s}"
+        );
+        assert!(
+            s.contains(r#"t="dataTable""#) && !s.contains(r#"r1="""#),
+            "the shifted non-self-closing data-table <f> is well-formed (no empty r1): {s}"
         );
     }
 
