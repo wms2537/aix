@@ -1,9 +1,9 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `ab76abb` (pushed to origin, **NOT merged to main**)
-**Last updated:** 2026-07-24, end of round 65 / round 66 aborted
-**Gate:** green (391 tests incl. 2 retained audit probes) — `cargo fmt --check`, `cargo clippy --all-targets -D warnings`, **389 committed tests** pass
-**Totals:** ~268 defects fixed over 65 adversarial rounds
+**Branch:** `xlq-reference-completeness` @ `8ffa144` (pushed to origin, **NOT merged to main**)
+**Last updated:** 2026-08-21, end of round 66 (the aborted run's 5 themes all processed)
+**Gate:** green (397 tests) — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **397 committed tests** pass
+**Totals:** ~274 defects fixed over 66 rounds
 
 ---
 
@@ -42,12 +42,13 @@ The round-N script lives at `/tmp/claude-1000/-home-soh-aix/<session>/scratchpad
 is produced by copying the previous script and rewriting the "ROUND N JUST ADDED" block to weight the
 newest code plus any known residuals.
 
-## 3. Progress this session (rounds 60–65)
+## 3. Progress this session (rounds 60–66)
 
-38 fixes across 16 commits. Newest first:
+44 fixes across 20 commits. Newest first:
 
 | Round | Commits | Confirmed | Headline defects |
 |---|---|---|---|
+| 66 | `0b5996e`, `de76d1c`, `e3367bb`, `8ffa144` | 6 (5 fixed + Theme E assessed not-a-defect) | data-table `<f>` NON-self-closing Start arm stale under Op::Move (silent-wrong); cross-part drawing macro=/textlink= swap via same-named shapes — **confirmed by the retained probe** (+ its charts twin); CELL() backstops never followed `xfId` → `<cellStyleXfs>` inheritance (4-lens convergence; e2e repro'd); slicer/timeline selection state uncompared; Theme E assessed CLOSED BY CONSTRUCTION (see §6) |
 | 65 | `5ac8071`, `5292bd0`, `ab76abb` | 6 | 3D-span defined name → engine `#NAME?` laundered via IFERROR (found by **4 lenses**); same-named drawing shapes collide (`cNvPr name` is not unique → `name#occ`); swap of two same-fld/same-name pivot dataFields' aggregation; `Op::Move` left data-table `<f>` r1/r2/ref stale (dead-code dispatch); two same-text runs' hyperlink swap; **new class** — `CELL("prefix")`/`CELL("width")` style backstops |
 | 64 | `5b7379c`, `6f7ab02` | 7 | **new class** — engine cannot evaluate non-plain-ref defined names (named constant/formula/dynamic OFFSET) → `#NAME?` laundered; pivotField `<item>` display-order swap; cross-part pivot cacheSource connection swap; pivotField sortType/showAll/subtotalTop; autofilter predicate swap between filterColumns; delete consuming `<pane topLeftCell>` → empty ref |
 | 63 | `6e560c8` | 4 | static reachability cannot follow **OFFSET/INDIRECT** or an unquoted non-ASCII sheet qualifier (fail-closed drop); pivotField Top-N AutoShow filter; `drawing_shape_links` dropped `<a:hlinkHover>` |
@@ -82,113 +83,51 @@ round-61's name-mediated gap → round-62's 3D-span interior → round-63's runt
 order). Any comparator needing a parent↔child or ordinal binding must do a **stateful ancestor-tracking
 walk** instead — see `autofilter_criteria` (round 64) and `pivot_ordered_sigs`.
 
-## 5. Current working-tree state ⚠️
+## 5. Working tree
 
-```
- M xlq/src/certify.rs      (+52)
- M xlq/src/structural.rs   (+114)
-```
+Clean. The round-66 debris probes were committed (407e532), the Theme C probe has been
+converted into a real regression test (`cross_part_macro_and_textlink_swap_is_caught`).
+Still untracked (pre-existing, unrelated): `formal/corpus_formulas.txt`.
 
-**This is finder-agent debris, not work in progress.** Workflow finder agents run in the *main working
-directory* (not a worktree) and leak scratch test functions. Both additions are test-only (`mod tests`),
-purely additive, and currently compile and pass (they are `eprintln!` audit probes with no assertions):
+## 6. Round 66 — COMPLETE (2026-08-21)
 
-- `certify.rs::audit_cross_part_macro_swap_probe` — probes round-66 candidate C (below).
-  **It has now been run and it CONFIRMS the defect** (see Theme C), so it is retained as evidence
-  rather than deleted; convert it to a real regression test (`assert!(... .is_some())`) once the fix
-  lands.
-- `structural.rs::scratch_fuzz_invalid_output` — a scratch structural-validity fuzzer; currently
-  passes, retained pending the round-66 invalid-output assessment.
+The 8 candidates from the aborted run collapsed to 5 themes; all processed:
 
-Both are committed as clearly-labelled probes. **Do NOT `git checkout` the files** — see §8.
-
-Also untracked (pre-existing, unrelated): `benchmarks/live3way_python.json`, `formal/corpus_formulas.txt`.
-
-## 6. Round 66 — ABORTED, findings UNVERIFIED ⚠️
-
-The round-66 workflow hit the **weekly usage limit**: 24 of 34 agents errored. Nine finder lenses
-completed, but **only 1 of 24 verify agents ran**. The result JSON reports all 8 candidates as
-"rejected 0/3" — **this is an artifact of the verifiers never executing, not a refutation.**
-
-> **Treat all 8 round-66 candidates as UNVERIFIED-BUT-OPEN.** They must be re-verified (or assessed
-> directly) before being dismissed. Precedent: round 65's first run aborted the same way, its single
-> "0/3 rejected" candidate turned out to be a **real HIGH security defect**, and the completed re-run
-> then produced 8 confirmed findings.
-
-**Weekly limit resets Jul 29, 8am (Asia/Kuala_Lumpur)** — no workflow/subagent capacity until then.
-Direct main-loop work is unaffected.
-
-### The 8 candidates, grouped into 5 themes
-
-**Theme A — `cellXf → cellStyleXfs` (xfId) style inheritance is never followed** *(4 lenses converged:
-date-reachability, styles-numfmt, refshift, tables-comments)*
-The `CELL()` backstops (`cellxfs_horizontal`, `cellxfs_locked`, `cellxfs_numfmt_codes`) read only the
-`<cellXfs><xf>` entry. If alignment / lock / number-format is set on the **parent named cell style**
-(`<xf xfId="N">` inheriting from `<cellStyleXfs>`), the effective value is missed → a change to the
-named style is invisible → false-certify of a `CELL("prefix"/"protect"/"format")` value change.
-*Assessment: highest-priority. 4-lens convergence is the strongest signal this loop produces (it is
-exactly how round-65's 3D-span and round-61's name-mediated gap surfaced). Needs a repro confirming
-the vendored engine actually resolves the inheritance (if the engine also ignores xfId, the oracle and
-the backstop agree and there may be no divergence).*
-
-**Theme B — non-self-closing data-table `<f>` still stale under `Op::Move`** *(structural-residual)*
-**VERIFIED REAL by direct inspection during this handoff.** The round-65 fix patched only the
-`Event::Empty(e) if e.name() == b"f"` arm of `rewrite_edited_sheet_move`. The
-`Event::Start(e) if is_formula_tag(..)` arm (a `<f t="dataTable" …></f>` written non-self-closing)
-still writes verbatim, so `r1`/`r2`/`ref` are left stale → silent value corruption.
-*Assessment: real, small, self-contained. Fix: apply the same `is_datatable_f` routing in the Start arm
-(and do not set `in_f`, since a data table has no A1 body). Cheapest high-value next fix.*
-
-**Theme C — cross-part `macro=` / `textlink` swap in `chart_drawing_refs`** *(chart-drawing)*
-`drawing_shape_links` output is pooled into `chart_drawing_refs`'s `drawings` list **without an
-owning-part key**, so two drawing parts each holding a shape named `Btn` (routine after a sheet copy —
-`cNvPr` names are per-sheet unique, not per-workbook) can have their `macro=`/`textlink=` bindings
-swapped invisibly. The owning-part prefix was applied to `external_rels_targets` (r61),
-`opaque_target_signature` (r62) and `pivot_refs` (r64) — **`chart_drawing_refs` is the un-fixed twin.**
-***CONFIRMED REAL (2026-07-24).*** The retained probe
-`certify.rs::audit_cross_part_macro_swap_probe` was executed: swapping `Module1.SafeExport` with
-`Module1.DeleteAllData` between two drawing parts whose shapes are both named `Btn` yields
-`verify_noncell_refs(...) == None` — i.e. **CERTIFIED**. The `textlink=` variant (a pure cell re-point,
-no VBA required) likewise returns `None`. This is a HIGH security false-certify: a macro re-point that
-survives certify. Fix: prefix `chart_drawing_refs`'s drawing signatures with the owning part, matching
-the three sibling comparators. The probe must then be converted into a real regression test asserting
-`.is_some()`.*
-
-**Theme D — slicer / timeline selection state uncompared** *(pivot)*
-Slicer and timeline caches are allowlisted as certify-safe but read by **no** signature. A deselect
-re-filters the pivot on refresh → materially different output.
-*Assessment: plausible new class; needs a repro proving the parts are genuinely allowlisted and
-uncompared.*
-
-**Theme E — `IFERROR`/`ISERROR` laundering of an **error-valued** source** *(oracle-soundness)*
-The boundary-discriminating class (round-60 defect 1, round-62 defect 6) was closed by reference
-reachability for *deterministic-wrong* sources, but **error-valued** sources (UDF/RTD/unsupported) still
-rely on value-diff. `IFERROR(bad, 999)` is flat under any poison, so the engine's masked value may be
-vouched.
-*Assessment: needs care. Round-62 deliberately excluded error-valued sources from the reachability drop
-to avoid reintroducing the round-36 workbook-wide over-refusal. Any fix must preserve that. Verify the
-repro closely — poison-and-diff may already handle the direct case.*
+- **Theme A — FIXED (`e3367bb`, 3 HIGH).** Assessment confirmed the class: the vendored
+  engine's `fn_cell` returns `#VALUE!` for prefix/protect/format/width, so xlq's XML
+  backstops ARE the semantics; Excel folds unset cellXf properties through `xfId` ->
+  `<cellStyleXfs>` (ECMA-376 merging) but the backstops read only the child `<xf>`.
+  Editing only the parent named style flipped every inheriting cell's effective
+  CELL("prefix"/"protect"/"format") invisibly. Fix: fold the parent entry in when the
+  child omits the property (explicit child wins; absent xfId = 0 per ECMA/vendor importer).
+- **Theme B — FIXED (`0b5996e`, 1 HIGH silent-wrong).** Same round-65 d4 hole one
+  serialization away: a non-self-closing `<f t="dataTable">` hit the Start arm and was
+  written verbatim under Op::Move. Routed through transform_tag_move without arming in_f.
+- **Theme C — FIXED (`de76d1c`, 1 HIGH security + charts twin).** The retained probe had
+  CONFIRMED the cross-part macro/textlink swap. chart_drawing_refs now prefixes every
+  chart AND drawing signature with its owning part; probe converted to a regression test.
+- **Theme D — FIXED (`8ffa144`, 1 HIGH).** Slicer/timeline parts were byte-allowlisted with
+  their filter SELECTION read by no comparator — a deselect re-filters the bound pivot on
+  refresh while cached cells show the old output. New owning-part-prefixed
+  `slicer_timeline_sigs` comparator (item selection x-keyed, pivot/cache bindings, timeline
+  state range; ECMA defaults folded so an explicit-defaults re-serialize does not refuse).
+- **Theme E — ASSESSED, NOT A DEFECT (closed by construction).** IFERROR laundering of an
+  ERROR-valued source cannot land: any dependent that CONSUMES the poisoned value is flat
+  under no numeric poison (poison-and-diff drops it → unvouchable); a dependent that only
+  discriminates the error axis (IF(ISERROR(src),K1,K2)) ignores its input entirely, so it
+  yields exactly {engine K1, faithful K2}, and unvouched present caches are compared DIRECTLY
+  expected-vs-edited (`unverified_formula_caches`) — an injected wrong-path cache differs from
+  xlq's preserved faithful one and is refused. Round-62's deliberate exclusion of error-valued
+  sources from the reachability drop therefore stays sound: unvouched ≠ unchecked.
 
 ## 7. Next steps (in order)
 
-1. **Clean the debris** — delete `audit_cross_part_macro_swap_probe` (certify.rs) and
-   `scratch_fuzz_invalid_output` (structural.rs) by targeted edit. Re-run the gate.
-2. **Fix Theme B** (verified real, small) — route a data-table `<f>` through `transform_tag_move` in the
-   `Event::Start` arm of `rewrite_edited_sheet_move`; add a regression test with a non-self-closing
-   `<f t="dataTable" …></f>`; commit.
-3. **Fix Theme C** — *already confirmed real by the retained probe*, so no assessment needed: prefix
-   `chart_drawing_refs`'s drawing signatures with the owning part (matching `external_rels_targets`,
-   `opaque_target_signature` and `pivot_refs`), then convert
-   `audit_cross_part_macro_swap_probe` into a regression test asserting refusal. Commit.
-4. **Assess Theme A** — read `vendor/upstream/base` to determine whether the importer resolves the
-   `xfId` inheritance chain. If it does and xlq's backstops do not, implement inheritance resolution in
-   `cellxfs_horizontal` / `cellxfs_locked` / `cellxfs_numfmt_codes`. Commit.
-5. **Assess Themes D and E** with repros; fix if confirmed.
-6. **After Jul 29, 8am** (weekly reset): re-run the *complete* round-66 review as a **fresh run, not a
-   resume** (errored agents are not cached), to (a) properly verify anything left from §6 and (b) find
-   what the truncated run missed. Then continue the loop toward two dry rounds.
-7. Update `~/.claude/projects/-home-soh-aix/memory/xlq-reference-completeness-hardening.md` with the
-   round-66 ledger entry once the round actually completes.
+1. **Run round 67 as a fresh full workflow** (weekly limit reset long ago): same protocol,
+   weighting the newest code (styles-inheritance folding, slicer/timeline comparator,
+   chart/drawing owning-part prefixes, data-table Start arm) plus known residuals.
+2. Continue the loop toward two consecutive genuinely-dry rounds.
+3. Update `~/.claude/projects/-home-soh-aix/memory/xlq-reference-completeness-hardening.md`
+   after each completed round.
 
 ## 8. Hard-won operational lessons
 
