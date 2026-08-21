@@ -1131,6 +1131,7 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                 // QUOTED (`'Data'!$D$3`) while Excel/LibreOffice write it unquoted (`Data!$D$3`) —
                 // semantically identical, so the raw compare spuriously refused a faithful chart
                 // edit. (Same normalization already applied on the defined-name/CF/DV surfaces.)
+                let part_start = charts.len();
                 charts.extend(
                     structural::element_text_semantics(&x, &[b"f"])
                         .iter()
@@ -1141,6 +1142,12 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                 // attribute to its owning element.
                 let rels = rels_targets(bytes, n);
                 charts.extend(chart_hyperlink_sigs(&x, &rels));
+                // Prefix every chart signature with its OWNING PART (same cross-part-swap class as
+                // the drawings arm below): two chart parts' series refs / element hyperlinks
+                // transposed wholesale would otherwise survive the sorted pooled multiset.
+                for s in &mut charts[part_start..] {
+                    *s = format!("{low}|{s}");
+                }
             }
         } else if low.starts_with("xl/drawings/") && low.ends_with(".xml") {
             if let Ok(x) = crate::ooxml::read_part(bytes, n) {
@@ -1156,6 +1163,7 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                 // LIVE cell references the shape mirrors. The transform refuses an edit that
                 // moves one and copies the drawing verbatim otherwise, so a foreign RE-POINT
                 // (mirroring a different cell) must differ. The cell diff never sees them.
+                let part_start = drawings.len();
                 drawings.extend(
                     structural::element_text_semantics(&x, &[b"f"])
                         .iter()
@@ -1167,6 +1175,17 @@ fn chart_drawing_refs(bytes: &[u8]) -> (Vec<String>, Vec<String>) {
                 // (a phishing retarget the cell diff / worksheet hyperlink scan never see).
                 let rels = rels_targets(bytes, n);
                 drawings.extend(drawing_shape_links(&x, &rels));
+                // Every drawing signature is prefixed with its OWNING PART below: `cNvPr name`
+                // uniqueness is per-sheet, not per-workbook, so two drawing parts (routine after a
+                // sheet copy) can each hold a shape with the SAME name/identity — and the pooled
+                // sorted multiset would silently absorb swapping which part's button runs
+                // `Module1.SafeExport` vs `Module1.DeleteAllData` (macro=), or which part's textbox
+                // mirrors which cell (textlink=) (round-66 Theme C; twin of the owning-part prefixes
+                // already applied to external_rels_targets/opaque_target_signature/pivot_refs).
+                // Accepts the same benign-part-renumber over-refusal those comparators take.
+                for s in &mut drawings[part_start..] {
+                    *s = format!("{low}|{s}");
+                }
             }
         }
     }
@@ -7360,11 +7379,14 @@ mod tests {
     }
 
     #[test]
-    fn audit_cross_part_macro_swap_probe() {
-        // AUDIT PROBE: two drawing parts, each a shape named "Btn" with a macro= binding. Swap the
-        // macro between the two parts (routine collision after a sheet copy — shape names are
-        // per-sheet unique, not per-workbook). If verify_noncell_refs returns None, the pooled
-        // sorted multiset in chart_drawing_refs is permutation-invariant across parts → FALSE-CERTIFY.
+    fn cross_part_macro_and_textlink_swap_is_caught() {
+        // REGRESSION (round-66 Theme C, HIGH security, CONFIRMED by the retained audit probe):
+        // chart_drawing_refs pooled every drawing's shape links into ONE sorted multiset with no
+        // owning-part key. Two drawing parts each holding a shape named "Btn" (routine after a
+        // sheet copy — cNvPr names are per-sheet unique, not per-workbook) could have their macro=/
+        // textlink= bindings SWAPPED across parts invisibly — e.g. which button runs
+        // Module1.SafeExport vs Module1.DeleteAllData. Prefixing each signature with its owning
+        // part (twin of external_rels_targets/opaque_target_signature/pivot_refs) catches it.
         let shape = |mac: &str| {
             format!(
                 r#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:sp macro="{mac}"><xdr:nvSpPr><xdr:cNvPr id="1" name="Btn"/></xdr:nvSpPr></xdr:sp></xdr:wsDr>"#
@@ -7397,9 +7419,11 @@ mod tests {
                 ),
             ],
         );
-        let res = verify_noncell_refs(&good, &swapped);
-        eprintln!("AUDIT cross-part macro swap result = {res:?}");
-        // Also textlink variant (a pure cell re-point, no VBA needed).
+        assert!(
+            verify_noncell_refs(&good, &swapped).is_some(),
+            "a cross-part macro swap between same-named shapes must be caught"
+        );
+        // The textlink variant (a pure cell re-point, no VBA needed) likewise.
         let tshape = |cell: &str| {
             format!(
                 r#"<xdr:wsDr xmlns:xdr="urn:xdr"><xdr:sp textlink="{cell}"><xdr:nvSpPr><xdr:cNvPr id="1" name="TextBox 1"/></xdr:nvSpPr></xdr:sp></xdr:wsDr>"#
@@ -7412,6 +7436,7 @@ mod tests {
                 ("xl/drawings/drawing2.xml", tshape("Sheet2!$Z$9").as_str()),
             ],
         );
+        assert!(verify_noncell_refs(&tgood, &tgood).is_none());
         let tswap = wb(
             "",
             &[
@@ -7419,8 +7444,41 @@ mod tests {
                 ("xl/drawings/drawing2.xml", tshape("Sheet1!$A$1").as_str()),
             ],
         );
-        let tres = verify_noncell_refs(&tgood, &tswap);
-        eprintln!("AUDIT cross-part textlink swap result = {tres:?}");
+        assert!(
+            verify_noncell_refs(&tgood, &tswap).is_some(),
+            "a cross-part textlink swap between same-named shapes must be caught"
+        );
+    }
+
+    #[test]
+    fn cross_part_chart_series_swap_is_caught() {
+        // REGRESSION (round-66 Theme C twin): the CHARTS arm of chart_drawing_refs had the same
+        // pooling hole — two chart parts' series <f> refs transposed wholesale survive a sorted
+        // multiset. The owning-part prefix catches the swap; an identical copy still certifies.
+        let chart = |sheet: &str| {
+            format!(
+                r#"<c:chartSpace xmlns:c="urn:c"><c:chart><c:plotArea><c:ser><c:f>{sheet}!$D$3:$D$9</c:f></c:ser></c:plotArea></c:chart></c:chartSpace>"#
+            )
+        };
+        let good = wb(
+            "",
+            &[
+                ("xl/charts/chart1.xml", chart("Revenue").as_str()),
+                ("xl/charts/chart2.xml", chart("Costs").as_str()),
+            ],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let swapped = wb(
+            "",
+            &[
+                ("xl/charts/chart1.xml", chart("Costs").as_str()),
+                ("xl/charts/chart2.xml", chart("Revenue").as_str()),
+            ],
+        );
+        assert!(
+            verify_noncell_refs(&good, &swapped).is_some(),
+            "a cross-part chart series swap must be caught"
+        );
     }
 
     #[test]
