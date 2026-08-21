@@ -7559,6 +7559,21 @@ mod tests {
                 .expect("a cross-control fmlaLink swap must refuse")["reason"],
             "control_binding_mismatch"
         );
+        // Same-part twins: two controls inside ONE worksheet swapping their cell links is
+        // caught only by the occurrence index (the part prefix is identical).
+        let ws = |a: &str, b: &str| {
+            format!(
+                r#"<worksheet xmlns="urn:x"><controls><control shapeId="1"><controlPr objectType="CheckBox" checked="1" fmlaLink="{a}" lockText="1" noThreeD="0"/></control><control shapeId="2"><controlPr objectType="CheckBox" checked="1" fmlaLink="{b}" lockText="1" noThreeD="0"/></control></controls></worksheet>"#
+            )
+        };
+        let wgood = wb(&ws("Sheet1!$H$2", "Sheet1!$I$5"), &[]);
+        assert!(verify_noncell_refs(&wgood, &wgood).is_none());
+        let wswap = wb(&ws("Sheet1!$I$5", "Sheet1!$H$2"), &[]);
+        assert_eq!(
+            verify_noncell_refs(&wgood, &wswap)
+                .expect("a same-sheet twin-control swap must refuse")["reason"],
+            "control_binding_mismatch"
+        );
     }
 
     #[test]
