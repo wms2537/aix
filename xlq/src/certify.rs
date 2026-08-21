@@ -1240,8 +1240,12 @@ fn chart_series_sigs(xml: &[u8]) -> Vec<String> {
             Ok(Event::Empty(e)) => {
                 let local = structural::local_of(e.name().as_ref()).to_vec();
                 if local == b"f" || local == b"v" {
+                    // path does NOT yet include the leaf (push happens on Start only), so
+                    // extend it here — emit() strips path.last() expecting the leaf itself.
+                    let mut full = path.clone();
+                    full.push(String::from_utf8_lossy(&local).into_owned());
                     emit(
-                        &path,
+                        &full,
                         &String::from_utf8_lossy(&local),
                         "",
                         ser_count,
