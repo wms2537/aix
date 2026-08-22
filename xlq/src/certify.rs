@@ -666,10 +666,12 @@ fn verify_noncell_refs_named(
         }));
     }
     // INTERNAL drawing bindings (which image a pic embeds, which chart part a graphicFrame
-    // displays) plus xl/media/* content fingerprints — internal rels are deliberately skipped by
+    // displays) plus byte-exact xl/media/* comparison — internal rels are deliberately skipped by
     // external_rels_targets and media was byte-allowlisted, so an image/chart transposition or an
     // in-place media substitution certified (round-67 candidate F3).
-    if drawing_internal_bindings(expected) != drawing_internal_bindings(edited) {
+    if drawing_internal_bindings(expected) != drawing_internal_bindings(edited)
+        || media_parts(expected) != media_parts(edited)
+    {
         return Some(json!({
             "status": "REFUSED",
             "reason": "internal_drawing_binding_mismatch",
@@ -1991,6 +1993,23 @@ fn slicer_timeline_sigs(bytes: &[u8]) -> Vec<String> {
     out
 }
 
+/// Every `xl/media/*` part, byte-exact (name, bytes), sorted — compared like vba_parts.
+/// The round-67 fingerprint (len + unkeyed 64-bit SipHash) was deterministic but FORGEABLE:
+/// an adversary crafting same-length same-hash media blobs (~2^32 birthday work) could
+/// substitute attacker art past the comparator — squarely this arm's own threat model
+/// (round-72 advisory). Exact byte comparison has no collision budget at all; xlq copies
+/// media verbatim, so only a genuine substitution differs.
+fn media_parts(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+    let names = structural::archive_names(bytes).unwrap_or_default();
+    let mut out: Vec<(String, Vec<u8>)> = names
+        .into_iter()
+        .filter(|n| n.to_ascii_lowercase().starts_with("xl/media/"))
+        .filter_map(|n| crate::ooxml::read_part(bytes, &n).ok().map(|b| (n, b)))
+        .collect();
+    out.sort();
+    out
+}
+
 /// The INTERNAL image/chart bindings of every drawing part, plus a fingerprint of every embedded
 /// media part. `<a:blip r:embed/r:link>` (which picture a pic shows) and `<c:chart r:id>` (which
 /// chart part a graphicFrame displays) resolve through the drawing's rels to targets that
@@ -1999,21 +2018,15 @@ fn slicer_timeline_sigs(bytes: &[u8]) -> Vec<String> {
 /// into an xl/media/* part (byte-allowlisted until now) flipped which image/chart rendered where
 /// with every other signature unchanged (round-67 candidate F3: invoice/logo substitution).
 /// Bindings are keyed by the owning shape's stable identity (`cNvPr name#occ`, round-65) within
-/// the owning drawing part; each xl/media/* part contributes `{name}|{len}|{content-hash}`.
+/// the owning drawing part. Media parts themselves are byte-compared by `media_parts`.
 fn drawing_internal_bindings(bytes: &[u8]) -> Vec<String> {
     use quick_xml::events::Event;
-    use std::hash::{Hash, Hasher};
     let names = structural::archive_names(bytes).unwrap_or_default();
     let mut out = Vec::new();
     for n in &names {
         let low = n.to_ascii_lowercase();
         if low.starts_with("xl/media/") {
-            if let Ok(b) = crate::ooxml::read_part(bytes, n) {
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                b.hash(&mut h);
-                out.push(format!("{low}|{}|{:016x}", b.len(), h.finish()));
-            }
-            continue;
+            continue; // compared BYTE-EXACT by media_parts (round-72: fingerprints are forgeable)
         }
         if !(low.starts_with("xl/drawings/") && low.ends_with(".xml")) {
             continue;
