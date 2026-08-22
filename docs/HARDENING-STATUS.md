@@ -1,9 +1,9 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `3f1b36a` (pushed to origin, **NOT merged to main**)
-**Last updated:** end of round 71
-**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **410 tests** pass
-**Totals:** ~291 defects fixed over 71 rounds
+**Branch:** `xlq-reference-completeness` @ `c7dc588` (pushed to origin, **NOT merged to main**)
+**Last updated:** end of round 72
+**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **410 tests** pass (no new tests — hardening of an existing arm)
+**Totals:** ~291 defects fixed over 72 rounds (r72 = advisory hardening)
 
 ---
 
@@ -48,6 +48,7 @@ newest code plus any known residuals.
 
 | Round | Commits | Confirmed | Headline defects |
 |---|---|---|---|
+| 72 | `c7dc588` | 0 defects + 1 advisory hardening | explore-type agents WORK where general agents return empty: full audit of all r66-69 comparators came back CLEAN per function; acted on the one advisory — xl/media fingerprint (unkeyed 64-bit SipHash, forgeable ~2^32) replaced with BYTE-EXACT comparison via media_parts (mirrors vba_parts) |
 | 71 | `3f1b36a` | 1 | asymmetric precision-as-displayed format gate: format_disqualifying checked only EDITED's fullPrecision — expected-side PaD + foreign numFmt change with preserved caches certified though files recalc differently. Gate extracted to symmetric format_diffs_disqualify(). Oracle-gate questions answered by direct inspection (agent channel returned empty a 5th time): intersection_cells is the r51 range-intersection exclusion set from EXPECTED only; injected cells caught as "added" |
 | 70 | `ecb4851` | 4 | pivotCacheRecords allowlisted with ZERO readers (byte-fingerprint now); intra-pivot whole `<filter fld>` swap (fld-keyed element + predicate sigs); `<autoSortScope>` rank-by re-point uncompared; root caption/error strings materialized on refresh joined the root sig. Pivot lens productive; new-comparators + oracle-gates lenses returned EMPTY again (agent channel unreliable — empty ≠ dry) |
 | 69 | `f57c5e8`, `58b831c` | 2 | pivot `<item @n>` custom-label swap across fields (label lived only in the pooled multiset); LITERAL chart data points (`numLit`/`strLit` — typed-in values, authoritative forever) uncompared. Closing sweep over all rounds-66-69 comparators came back clean (2 empty agent sweeps + manual verification: pt-idx staleness benign, folding resolves at end, col-range consistency) |
@@ -130,9 +131,9 @@ The 8 candidates from the aborted run collapsed to 5 themes; all processed:
 1. **Round 69**: fresh workflow. Rounds 67-68 lenses came back DRY on oracle-soundness,
    external-rels/security, refshift/structural coverage, and invalid-output — weight the next
    run toward: a FULL fresh workflow (all lenses) — rounds 67-69 were increasingly targeted;
-   the two dedicated new-comparator sweep agents returned EMPTY twice (retry with fresh agents
-   or run the lenses directly). Cell-linked chart caches stay a documented non-defect residual
-   (self-repair on refresh); literal points are now compared.
+   the general-agent channel returns EMPTY ~5x in a row — USE explore-TYPE AGENTS instead
+   (worked first try in r72). Cell-linked chart caches stay a documented non-defect residual
+   (self-repair on refresh); literal points and media bytes are now compared byte-exact.
 2. **Accepted residuals** (documented, not defects): chart numCache/strCache point values are
    deliberately uncompared (self-repairs on refresh; re-derivation is common faithful behavior);
    chained cellStyleXfs→cellStyleXfs inheritance folds one hop only (exotic construct);
