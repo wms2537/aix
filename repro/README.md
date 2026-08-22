@@ -52,11 +52,8 @@ code is 0 only when there are no FAILs (SKIPs are listed separately).
   - Lean 4 via elan (`~/.elan/bin` is added to PATH automatically):
     `curl https://elan.lean-lang.org/elan-init.sh -sSf | sh`
   - `pip install z3-solver` (a venv is fine; run the script with that python).
-- Run from anywhere; paths resolve relative to the repo root
-  (`repro/..`). Note `formal/differential_check.py` imports
-  `experiments/generality/{core,router}.py` via an absolute repo path
-  (`/home/soh/aix`) — on a differently-located checkout that one check needs
-  the path at the top of that script adjusted.
+- Run from anywhere; paths resolve relative to the repository containing each
+  script, so no checkout-location edits are required.
 
 Verified state at package creation: **102/102 PASS** with lean + z3
 available; **101 PASS / 1 SKIP** (the move-σ Z3 claim) without z3. No paper

@@ -14,14 +14,17 @@ on leaves and containment (injected nodes) — cases here are constructed so tho
 extra checks are neutral (O transported faithfully, no injections), isolating
 the shared graph premise. Verdict agreement on this battery is evidence of
 implementation fidelity, not a proof of it."""
-import os, random, subprocess, sys
+import os, random, subprocess, sys, tempfile
+from pathlib import Path
 
-sys.path.insert(0, "/home/soh/aix/experiments/generality")
+ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(ROOT / "experiments" / "generality"))
 from core import Artifact
 from router import certify_edit
 
-LEAN_HEADER = open("/home/soh/aix/formal/Checker.lean").read().split("/-! ## Executable demos")[0]
-WORK = "/tmp/claude-1000/-home-soh-aix/a1b7f99e-cc58-4254-b95a-10d56f89029d/scratchpad/diffcheck"
+LEAN_HEADER = (ROOT / "formal" / "Checker.lean").read_text().split("/-! ## Executable demos")[0]
+WORK = os.path.join(tempfile.gettempdir(), "aix-formal-diffcheck")
 N_CASES = 30
 SEED = 20260709
 

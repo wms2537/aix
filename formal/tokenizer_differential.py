@@ -19,14 +19,17 @@ Inputs: formal/corpus_formulas.txt (deduped corpus formulas) + a generated
 battery (defect shapes, edge cases). Outputs: formal/tokenizer_differential.json
 """
 import json, os, random, re, subprocess, sys
-sys.path.insert(0, "/home/soh/aix/benchmarks")
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "benchmarks"))
 from shift_correctness_real import WHOLECOL, WHOLEROW   # the committed gates
 
 LEAN = os.path.expanduser("~/.elan/bin/lean")
-TOKENIZER = "/home/soh/aix/formal/Tokenizer.lean"
-XLQ = "/home/soh/aix/xlq/target/release/xlq"
-CORPUS = "/home/soh/aix/formal/corpus_formulas.txt"
-OUT = "/home/soh/aix/formal/tokenizer_differential.json"
+TOKENIZER = str(ROOT / "formal" / "Tokenizer.lean")
+XLQ = str(ROOT / "xlq" / "target" / "release" / "xlq")
+CORPUS = str(ROOT / "formal" / "corpus_formulas.txt")
+OUT = str(ROOT / "formal" / "tokenizer_differential.json")
 EDITS = [("row", "insert", 2, 1), ("row", "delete", 4, 1),
          ("col", "insert", 2, 1), ("col", "delete", 3, 1)]
 CAP = int(sys.argv[1]) if len(sys.argv) > 1 else 20000   # formulas (sorted prefix + battery)
