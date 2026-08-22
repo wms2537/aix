@@ -11,7 +11,6 @@ repository = "https://github.com/wms2537/aix"
 description = "Vendored, locally-hardened fork of ironcalc (the IronCalc spreadsheet engine) used by xlq"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-exclude = ["src/bin/test.rs"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -39,6 +38,9 @@ path = "src/lib.rs"
 
 [features]
 devtools = []
+
+## The inherited upstream utility is not built by default, so ordinary installs
+## do not receive an executable named `test`; opt-in development builds still do.
 
 [[bin]]
 name = "test"

@@ -67,18 +67,20 @@ cd vendor/upstream/xlsx && cargo test
 ```
 
 Fresh evidence on Linux/Rust 1.96: base 2,233 passed / 8 ignored, xlsx layer
-268 passed / 0 failed including doc-tests, and `xlq-ironcalc-base v0.7.1`
-packaged successfully in dry-run mode.
+268 passed / 0 failed including doc-tests, `xlq-ironcalc-base v0.7.1` packaged
+successfully in dry-run mode, and both lockfiles passed `cargo audit` with no
+known vulnerability matches (`time` upgraded to 0.3.47).
 
 ## Notes
 
 - **Version scheme.** The forks keep version `0.7.1` under their new names (a
   fresh namespace, so the number is free). The `+e50ccea8 (vendored master)`
   build metadata in the provenance string records the exact upstream commit.
-- **The inherited `test` bin is release-gated.** Its source is excluded from
-  the published crate and the target is behind the non-default `devtools`
-  feature, so `cargo install`/`cargo publish` ship the library and normal
-  tooling without installing a binary named `test`.
+- **The inherited `test` bin is release-gated.** The target is behind the
+  non-default `devtools` feature, so default `cargo install`/`cargo publish`
+  ship the library and normal tooling without installing a binary named
+  `test`, while opt-in development builds remain functional from the published
+  source.
 - **Local development is unaffected.** `cargo build` / `cargo test --features
   devtools` / `cargo install --path xlq` all resolve the engine from
   `vendor/upstream/*` via the local `path`; the crates.io `version` is used only
