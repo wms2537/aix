@@ -1,7 +1,7 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `c7dc588` (pushed to origin, **NOT merged to main**)
-**Last updated:** end of round 72
+**Branch:** `xlq-reference-completeness` @ `ef1d887` (pushed to origin, **NOT merged to main**)
+**Last updated:** end of round 73
 **Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **410 tests** pass (no new tests — hardening of an existing arm)
 **Totals:** ~291 defects fixed over 72 rounds (r72 = advisory hardening)
 
@@ -48,6 +48,7 @@ newest code plus any known residuals.
 
 | Round | Commits | Confirmed | Headline defects |
 |---|---|---|---|
+| 73 | — (no code changes) | 0 defects | DRY ROUND #1. Oracle-gates lens (via explore): all five pipeline seams verified CLEAN with citations (forced-recalc zeroes only cache term; intersection cells = poison sources fail-closed; manual/auto asymmetric volatile branches sound by design; both-sides PaD forces format identity, no cell-level precision override exists in xlsx; expected-only CELL readers always constitute refused drops). Caption-completeness tail closed inline: the six r70 attrs are the complete materialized-text set; remaining root attrs are layout/display-only (documented rationale) |
 | 72 | `c7dc588` | 0 defects + 1 advisory hardening | explore-type agents WORK where general agents return empty: full audit of all r66-69 comparators came back CLEAN per function; acted on the one advisory — xl/media fingerprint (unkeyed 64-bit SipHash, forgeable ~2^32) replaced with BYTE-EXACT comparison via media_parts (mirrors vba_parts) |
 | 71 | `3f1b36a` | 1 | asymmetric precision-as-displayed format gate: format_disqualifying checked only EDITED's fullPrecision — expected-side PaD + foreign numFmt change with preserved caches certified though files recalc differently. Gate extracted to symmetric format_diffs_disqualify(). Oracle-gate questions answered by direct inspection (agent channel returned empty a 5th time): intersection_cells is the r51 range-intersection exclusion set from EXPECTED only; injected cells caught as "added" |
 | 70 | `ecb4851` | 4 | pivotCacheRecords allowlisted with ZERO readers (byte-fingerprint now); intra-pivot whole `<filter fld>` swap (fld-keyed element + predicate sigs); `<autoSortScope>` rank-by re-point uncompared; root caption/error strings materialized on refresh joined the root sig. Pivot lens productive; new-comparators + oracle-gates lenses returned EMPTY again (agent channel unreliable — empty ≠ dry) |
