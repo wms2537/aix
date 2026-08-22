@@ -54,14 +54,31 @@ Verify each step offline first with `cargo publish --dry-run` (already confirmed
 green for `xlq-ironcalc-base`; the later two can only dry-run once their
 dependency is live).
 
+## Release verification gate
+
+Run the engine suites with an explicit 64 MiB worker stack. Some CI and macOS
+hosts use an 8 MiB thread default; without this setting, the parser depth-guard
+test can exhaust the test thread's stack before it reaches its 256-level cap.
+The guard is correct; this only gives the test harness enough headroom:
+
+```sh
+RUST_MIN_STACK=$((64 * 1024 * 1024)) cargo test --manifest-path vendor/upstream/base/Cargo.toml --lib
+cd vendor/upstream/xlsx && cargo test
+```
+
+Fresh evidence on Linux/Rust 1.96: base 2,233 passed / 8 ignored, xlsx layer
+268 passed / 0 failed including doc-tests, and `xlq-ironcalc-base v0.7.1`
+packaged successfully in dry-run mode.
+
 ## Notes
 
 - **Version scheme.** The forks keep version `0.7.1` under their new names (a
   fresh namespace, so the number is free). The `+e50ccea8 (vendored master)`
   build metadata in the provenance string records the exact upstream commit.
-- **`xlq-ironcalc` ships a `test` bin** (`src/bin/test.rs`, inherited from
-  upstream). It is harmless but you may wish to remove or gate it before
-  publishing the fork.
+- **The inherited `test` bin is release-gated.** Its source is excluded from
+  the published crate and the target is behind the non-default `devtools`
+  feature, so `cargo install`/`cargo publish` ship the library and normal
+  tooling without installing a binary named `test`.
 - **Local development is unaffected.** `cargo build` / `cargo test --features
   devtools` / `cargo install --path xlq` all resolve the engine from
   `vendor/upstream/*` via the local `path`; the crates.io `version` is used only

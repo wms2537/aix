@@ -11,6 +11,7 @@ repository = "https://github.com/wms2537/aix"
 description = "Vendored, locally-hardened fork of ironcalc (the IronCalc spreadsheet engine) used by xlq"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
+exclude = ["src/bin/test.rs"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -36,6 +37,10 @@ uuid = { version = "1.2.2", features = ["serde", "v4"] }
 name = "ironcalc"
 path = "src/lib.rs"
 
+[features]
+devtools = []
+
 [[bin]]
 name = "test"
 path = "src/bin/test.rs"
+required-features = ["devtools"]
