@@ -495,6 +495,19 @@ fn verify_noncell_refs_named(
     // source and preserves the rest, so a faithful edit matches and a mangle (a repointed
     // source, a moved render extent, a re-bound connection) differs. COMPARED, not
     // presence-refused — refusing on presence rejected xlq's own transform of ANY pivot workbook.
+    // Pivot cache RECORDS: the allowlisted cached source rows are what the pivot aggregates
+    // from on any re-layout (drag a field, clear a filter) WITHOUT an explicit refresh — and
+    // no scanner reads a records part's <r>/<x v>/<n v> items. A byte-fingerprint per part
+    // catches any tamper (xlq copies records verbatim; the transform never rewrites them).
+    if pivot_cache_records(expected) != pivot_cache_records(edited) {
+        return Some(json!({
+            "status": "REFUSED",
+            "reason": "pivot_cache_records_mismatch",
+            "detail": "a pivot cache RECORDS part differs from xlq's transform — pivots \
+                       re-aggregate from these cached rows on re-layout before/without a source \
+                       refresh, so tampered records change materialized output",
+        }));
+    }
     if pivot_refs(expected) != pivot_refs(edited) {
         return Some(json!({
             "status": "REFUSED",
@@ -2472,6 +2485,11 @@ fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
     let mut item_idx = 0i64;
     // (container local name, ordered child keys)
     let mut container: Option<(&'static str, Vec<String>)> = None;
+    // Inside `<autoSortScope>` of the current pivotField: the ordered `<x v>` values name WHICH
+    // field/measure the auto-sort ranks by — a re-point flips the row order on refresh while
+    // sortType itself is unchanged. Nothing read this subtree before (round-70).
+    let mut in_auto_sort = false;
+    let mut as_idx = 0i64;
     // Handle a leaf (pivotField / field / dataField / item), for both Start and Empty events.
     let leaf = |e: &quick_xml::events::BytesStart,
                 in_pf: bool,
@@ -2605,6 +2623,18 @@ fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) => match structural::local_of(e.name().as_ref()) {
                 b"pivotFields" => in_pivotfields = true,
+                b"autoSortScope" if in_pivotfields => {
+                    in_auto_sort = true;
+                    as_idx = 0;
+                }
+                b"x" if in_auto_sort => {
+                    out.push(format!(
+                        "pivotField[{}].autoSortScope.x[{as_idx}]={}",
+                        pf_idx.saturating_sub(1),
+                        attr_local(&e, b"v").unwrap_or_default()
+                    ));
+                    as_idx += 1;
+                }
                 b"rowFields" => container = Some(("rowFields", Vec::new())),
                 b"colFields" => container = Some(("colFields", Vec::new())),
                 b"pageFields" => container = Some(("pageFields", Vec::new())),
@@ -2618,16 +2648,28 @@ fn pivot_ordered_sigs(xml: &[u8]) -> Vec<String> {
                     &mut out,
                 ),
             },
-            Ok(Event::Empty(e)) => leaf(
-                &e,
-                in_pivotfields,
-                &mut container,
-                &mut pf_idx,
-                &mut item_idx,
-                &mut out,
-            ),
+            Ok(Event::Empty(e)) => {
+                if in_auto_sort && structural::local_of(e.name().as_ref()) == b"x" {
+                    out.push(format!(
+                        "pivotField[{}].autoSortScope.x[{as_idx}]={}",
+                        pf_idx.saturating_sub(1),
+                        attr_local(&e, b"v").unwrap_or_default()
+                    ));
+                    as_idx += 1;
+                } else {
+                    leaf(
+                        &e,
+                        in_pivotfields,
+                        &mut container,
+                        &mut pf_idx,
+                        &mut item_idx,
+                        &mut out,
+                    );
+                }
+            }
             Ok(Event::End(e)) => match structural::local_of(e.name().as_ref()) {
                 b"pivotFields" => in_pivotfields = false,
+                b"autoSortScope" => in_auto_sort = false,
                 b"rowFields" | b"colFields" | b"pageFields" | b"dataFields" => {
                     if let Some((name, v)) = container.take() {
                         out.push(format!("{name}=[{}]", v.join(",")));
@@ -2782,6 +2824,30 @@ fn pivot_grouping_sigs(xml: &[u8]) -> Vec<String> {
     out
 }
 
+/// A byte-fingerprint (length + content hash) of every `xl/pivotCacheRecords/*.xml` part. The
+/// cached source rows are allowlisted and read by NO semantic scanner — a records part holds
+/// only `<r>` rows of `<x v>/<n v>/<s v>` items, none of which match any wanted tag — yet
+/// pivots aggregate FROM these rows on re-layout without an explicit refresh, so a flipped
+/// value or shared-index silently changes materialized output (round-70). xlq copies records
+/// verbatim, so only a genuine tamper differs.
+fn pivot_cache_records(bytes: &[u8]) -> Vec<String> {
+    use std::hash::{Hash, Hasher};
+    let names = structural::archive_names(bytes).unwrap_or_default();
+    let mut out = Vec::new();
+    for n in &names {
+        let low = n.to_ascii_lowercase();
+        if low.starts_with("xl/pivotcache/pivotcacherecords") && low.ends_with(".xml") {
+            if let Ok(b) = crate::ooxml::read_part(bytes, n) {
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                b.hash(&mut h);
+                out.push(format!("{low}|{}|{:016x}", b.len(), h.finish()));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 fn pivot_refs(bytes: &[u8]) -> Vec<String> {
     let names = structural::archive_names(bytes).unwrap_or_default();
     let mut out = Vec::new();
@@ -2878,12 +2944,21 @@ fn pivot_refs(bytes: &[u8]) -> Vec<String> {
                     // refresh: rowGrandTotals/colGrandTotals (default TRUE — "0" removes the grand-
                     // total row/col), subtotalHiddenItems (default FALSE — "1" folds hidden-item data
                     // into every subtotal/grand total), dataOnRows (orientation of the data axis).
+                    // Also the caption/error strings Excel MATERIALIZES into cells on refresh:
+                    // dataCaption (the ΣValues header), rowHeaderCaption, and the showMissing/
+                    // showError + missingCaption/errorCaption blank/error cell text (round-70).
                     "pivotTableDefinition" => format!(
-                        "pivotTableDefinition|rowGrand={}|colGrand={}|subtotalHiddenItems={}|dataOnRows={}",
+                        "pivotTableDefinition|rowGrand={}|colGrand={}|subtotalHiddenItems={}|dataOnRows={}|dataCaption={}|rowHeaderCaption={}|showMissing={}|missingCaption={}|showError={}|errorCaption={}",
                         boolish(pick("rowGrandTotals="), true),
                         boolish(pick("colGrandTotals="), true),
                         boolish(pick("subtotalHiddenItems="), false),
                         boolish(pick("dataOnRows="), false),
+                        pick("dataCaption="),
+                        pick("rowHeaderCaption="),
+                        boolish(pick("showMissing="), true),
+                        pick("missingCaption="),
+                        boolish(pick("showError="), false),
+                        pick("errorCaption="),
                     ),
                     // Which field is placed on which axis (row/col/page/data) — a re-placement
                     // re-pivots the output — PLUS the subtotal-function flags that govern which
@@ -3356,14 +3431,25 @@ fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
         // input) differs instead of surviving element_attr_semantics' flat sorted multiset (round-64
         // defect 7). On a filterColumn, hiddenButton/showButton are display-only and dropped.
         let mut cur_col: Option<String> = None;
+        // The fld of the ENCLOSING pivot `<filter fld=…>` (present ONLY on pivot filters — the
+        // worksheet/table `<filter val>` has no fld): nested predicates and the filter element
+        // itself are keyed by it, so transposing two same-shaped whole filters inside ONE
+        // pivotTable — which re-points which field's kept-set — no longer survives the pooled
+        // multiset (round-70).
+        let mut cur_pivot_fld: Option<String> = None;
         loop {
             let ev = reader.read_event_into(&mut buf);
             let (e, is_start) = match &ev {
                 Ok(Event::Start(e)) => (e, true),
                 Ok(Event::Empty(e)) => (e, false),
                 Ok(Event::End(e)) => {
-                    if structural::local_of(e.name().as_ref()) == b"filterColumn" {
+                    let owned_name = e.name().as_ref().to_vec();
+                    let end_local = structural::local_of(&owned_name);
+                    if end_local == b"filterColumn" {
                         cur_col = None;
+                    }
+                    if end_local == b"filter" {
+                        cur_pivot_fld = None;
                     }
                     buf.clear();
                     continue;
@@ -3376,6 +3462,24 @@ fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
             };
             let name = e.name();
             let local = structural::local_of(name.as_ref());
+            // A PIVOT filter carries @fld (the worksheet/table <filter val> never does): bind
+            // it and its nested predicates to that field.
+            if local == b"filter" {
+                if let Some(fld) = attr_local(e, b"fld") {
+                    // Arm the scope only on Start — an Empty (self-closed) filter has no
+                    // children AND no matching End, so the scope would leak to later siblings.
+                    if is_start {
+                        cur_pivot_fld = Some(fld.clone());
+                    }
+                    out.push((
+                        format!("{owner}|filter|fld={fld}"),
+                        "filter".to_string(),
+                        normalize_filter_attrs(&attr_str(e, false)),
+                    ));
+                    buf.clear();
+                    continue;
+                }
+            }
             if is_wanted(local) {
                 if local == b"filterColumn" {
                     out.push((
@@ -3388,7 +3492,13 @@ fn autofilter_criteria(bytes: &[u8]) -> Vec<(String, String, String)> {
                         cur_col = Some(attr_local(e, b"colId").unwrap_or_default());
                     }
                 } else {
-                    let key = format!("{owner}|col={}", cur_col.as_deref().unwrap_or(""));
+                    let key = match &cur_pivot_fld {
+                        Some(fld) => format!(
+                            "{owner}|filter={fld}|col={}",
+                            cur_col.as_deref().unwrap_or("")
+                        ),
+                        None => format!("{owner}|col={}", cur_col.as_deref().unwrap_or("")),
+                    };
                     out.push((
                         key,
                         String::from_utf8_lossy(local).into_owned(),
@@ -7817,6 +7927,114 @@ mod tests {
             verify_noncell_refs(&good, &evil).expect("a literal data-point rewrite must refuse")
                 ["reason"],
             "chart_drawing_mismatch"
+        );
+    }
+
+    #[test]
+    fn pivot_records_fingerprint_and_intra_pivot_filter_swap_are_caught() {
+        // REGRESSION (round-70, HIGH false-certifies):
+        // (a) pivotCacheRecords parts were allowlisted with ZERO readers — pivots aggregate
+        //     FROM those cached rows on re-layout without a refresh, so a flipped value
+        //     certified. Byte-fingerprint per part now catches any tamper.
+        let good = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheRecords1.xml",
+                "<r><n v=\"1250\"/></r>",
+            )],
+        );
+        assert!(verify_noncell_refs(&good, &good).is_none());
+        let evil = wb(
+            "",
+            &[(
+                "xl/pivotCache/pivotCacheRecords1.xml",
+                "<r><n v=\"9999\"/></r>",
+            )],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &evil).expect("a records tamper must refuse")["reason"],
+            "pivot_cache_records_mismatch"
+        );
+        // (b) two same-shaped whole <filter> elements inside ONE pivotTable transposed —
+        // pivot_refs' pooled multiset is permutation-invariant within a part, and the
+        // autofilter arm keyed every nested predicate col=0. fld-keyed sigs catch it.
+        let pt = |f0: &str, f1: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="urn:x" name="P"><filters count="2">{f0}{f1}</filters></pivotTableDefinition>"#
+            )
+        };
+        let fa = |fld: &str, col: &str, sv: &str| {
+            format!(
+                r#"<filter fld="{fld}" type="labelEqual" stringValue1="{sv}"><autoFilter><filterColumn colId="{col}"><customFilter operator="equal" val="{sv}"/></filterColumn></autoFilter></filter>"#
+            )
+        };
+        let pgood_body = pt(&fa("0", "0", "North"), &fa("2", "0", "50"));
+        let pgood = wb(
+            "",
+            &[("xl/pivotTables/pivotTable1.xml", pgood_body.as_str())],
+        );
+        assert!(verify_noncell_refs(&pgood, &pgood).is_none());
+        // Transpose the two whole <filter> elements between fields 0 and 2.
+        let pswap_body = pt(&fa("0", "0", "50"), &fa("2", "0", "North"));
+        let pswap = wb(
+            "",
+            &[("xl/pivotTables/pivotTable1.xml", pswap_body.as_str())],
+        );
+        assert!(
+            verify_noncell_refs(&pgood, &pswap).is_some(),
+            "an intra-pivot filter swap must be caught"
+        );
+    }
+
+    #[test]
+    fn auto_sort_scope_and_root_captions_are_compared() {
+        // REGRESSION (round-70): (a) <autoSortScope> — the auto-sort's rank-by target — was in
+        // no signature; re-pointing its <x v> re-sorts rows by another measure on refresh.
+        // (b) the root caption/error strings Excel materializes into cells on refresh were
+        // uncompared.
+        let pt = |xv: &str, cap: &str| {
+            format!(
+                r#"<pivotTableDefinition xmlns="urn:x" name="P" dataCaption="Values" dataCaptionX="y" dataCaptionOverride="{cap}"><pivotFields count="2"><pivotField axis="axisRow" sortType="descending"><items count="1"><item x="0"/></items><autoSortScope><pivotArea dataOnly="0"/><references count="1"><reference field="4294967294"><x v="{xv}"/></reference></references></autoSortScope></pivotField><pivotField dataField="1"/></pivotFields><dataFields count="1"><dataField fld="1"/></dataFields></pivotTableDefinition>"#
+            )
+        };
+        let _ = &pt;
+        let sort_good = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                r#"<pivotTableDefinition xmlns="urn:x" name="P"><pivotFields count="1"><pivotField axis="axisRow" sortType="descending"><items count="1"><item x="0"/></items><autoSortScope><pivotArea dataOnly="0"/><references count="1"><reference field="4294967294"><x v="0"/></reference></references></autoSortScope></pivotField></pivotFields></pivotTableDefinition>"#,
+            )],
+        );
+        assert!(verify_noncell_refs(&sort_good, &sort_good).is_none());
+        let resort = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                r#"<pivotTableDefinition xmlns="urn:x" name="P"><pivotFields count="1"><pivotField axis="axisRow" sortType="descending"><items count="1"><item x="0"/></items><autoSortScope><pivotArea dataOnly="0"/><references count="1"><reference field="4294967294"><x v="1"/></reference></references></autoSortScope></pivotField></pivotFields></pivotTableDefinition>"#,
+            )],
+        );
+        assert!(
+            verify_noncell_refs(&sort_good, &resort).is_some(),
+            "an autoSortScope re-point must be caught"
+        );
+        // Root caption materialized on refresh: errorCaption flip is caught by the root sig.
+        let cap_good = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                r##"<pivotTableDefinition xmlns="urn:x" name="P" showError="1" errorCaption="#REF!"><pivotFields count="1"><pivotField dataField="1"/></pivotFields></pivotTableDefinition>"##,
+            )],
+        );
+        let cap_evil = wb(
+            "",
+            &[(
+                "xl/pivotTables/pivotTable1.xml",
+                r##"<pivotTableDefinition xmlns="urn:x" name="P" showError="1" errorCaption="#N/A"><pivotFields count="1"><pivotField dataField="1"/></pivotFields></pivotTableDefinition>"##,
+            )],
+        );
+        assert!(
+            verify_noncell_refs(&cap_good, &cap_evil).is_some(),
+            "an errorCaption change must be caught"
         );
     }
 
