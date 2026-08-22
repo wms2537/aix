@@ -1,9 +1,9 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `47ba2d7` + r74 verification (pushed to origin, **NOT merged to main**)
-**Last updated:** end of round 74 — LOOP EXIT CONDITION MET
-**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **410 tests** pass (no new tests — hardening of an existing arm)
-**Totals:** ~291 defects fixed over 72 rounds (r72 = advisory hardening)
+**Branch:** `xlq-reference-completeness` @ `f09be4f` + local PR-readiness verification (origin remains at `f09be4f`; **NOT merged to main**)
+**Last updated:** 2026-08-23 — LOOP EXIT CONDITION MET; branch re-verified for merge decision
+**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **439 tests** pass (412 unit tests plus 27 integration tests; no new tests since round 74)
+**Totals:** ~291 defects fixed over 74 rounds (r72 = advisory hardening)
 
 ---
 
@@ -133,6 +133,12 @@ The 8 candidates from the aborted run collapsed to 5 themes; all processed:
 **EXIT CONDITION MET (2026-08-21): rounds 73 and 74 are two consecutive genuinely-dry rounds.**
 The reference-completeness adversarial convergence loop is CLOSED at **~291 defects over 74 rounds**,
 gate green throughout (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, 410 tests).
+
+**Fresh PR-readiness verification (2026-08-23):** from `f09be4f`,
+`cargo fmt --check` passed, `cargo clippy --all-targets -- -D warnings` passed,
+and the full xlq suite passed with **412 unit tests + 27 integration tests = 439 tests**.
+The only working-tree item remains the pre-existing unrelated untracked
+`formal/corpus_formulas.txt`.
 
 Session totals (rounds 66–74): 17 fixes + 1 advisory hardening across seven rounds, five dry lenses
 established (oracle-soundness, external-rels/security, refshift/structural, invalid-output,
