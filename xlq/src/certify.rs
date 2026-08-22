@@ -208,12 +208,17 @@ pub fn run(
     // "0.00" to "0" rounds 1.44→1 and recomputes `=A1*10` as 10 instead of 14.4; (2) a
     // `CELL("format"/"color"/"parentheses", A1)` formula reads `A1`'s number format directly, so
     // restyling `A1` changes that formula's result. In either case format diffs are disqualifying.
+    // Gated on EITHER side being precision-as-displayed: the oracle already disables on either
+    // side, and an expected-side PaD with an edited-side format change would otherwise certify
+    // (caches preserved identical, format not counted) while the two files recalc to DIFFERENT
+    // rounded values (round-71).
     let cell_reads_format = has_format_sensitive_cell_fn(&edited_bytes);
-    let mut format_disqualifying = if precision_as_displayed(&edited_bytes) || cell_reads_format {
-        counts.format
-    } else {
-        0
-    };
+    let mut format_disqualifying =
+        if format_diffs_disqualify(&expected_bytes, &edited_bytes, cell_reads_format) {
+            counts.format
+        } else {
+            0
+        };
     // The display-based `format` diff misses a number-format CODE change that leaves the RENDERED
     // value unchanged (numFmtId 1 "0" -> 0 General both render 5 as "5"). But `CELL("format")` reads
     // the CODE, so that restyle DOES change the formula's value — compare the resolved per-cell
@@ -4037,6 +4042,16 @@ fn manual_calc_mode(bytes: &[u8]) -> bool {
 /// True if the workbook computes formulas on the ROUNDED DISPLAYED values
 /// (`<calcPr fullPrecision="0"/"false">`, "precision as displayed"). In that mode a cell's
 /// number format is a value input to any formula reading it, so a format change is not benign.
+/// Whether a raw number-format diff between the two files must count as DISQUALIFYING. True when
+/// either side is "precision as displayed" (Excel computes on ROUNDED displayed values, so a
+/// format change is a value change on recalc) or a CELL()-format reader exists. Gated on EITHER
+/// side's PaD: the oracle already disables on either side, and an expected-side PaD with an
+/// edited-side format change would otherwise certify (caches preserved identical, format not
+/// counted) while the two files recalc to DIFFERENT rounded values (round-71).
+fn format_diffs_disqualify(expected: &[u8], edited: &[u8], cell_reads_format: bool) -> bool {
+    precision_as_displayed(expected) || precision_as_displayed(edited) || cell_reads_format
+}
+
 fn precision_as_displayed(bytes: &[u8]) -> bool {
     let Ok(wb) = crate::ooxml::read_part(bytes, "xl/workbook.xml") else {
         return false;
@@ -8036,6 +8051,67 @@ mod tests {
             verify_noncell_refs(&cap_good, &cap_evil).is_some(),
             "an errorCaption change must be caught"
         );
+    }
+
+    #[test]
+    fn format_diffs_disqualify_under_expected_side_pad() {
+        // REGRESSION (round-71, false-certify): the disqualifying gate checked only the EDITED
+        // side's fullPrecision. With EXPECTED in precision-as-displayed mode and a foreign editor
+        // changing a number format while preserving caches byte-identically, the format diff was
+        // not counted and the (disabled) oracle could not catch it — yet each file recalcs to
+        // DIFFERENT rounded values.
+        let build = |pad: bool| -> Vec<u8> {
+            let ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+            let pkg = "http://schemas.openxmlformats.org/package/2006/relationships";
+            let mut z = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            let o = zip::write::SimpleFileOptions::default();
+            let mut put = |n: &str, b: &str| {
+                z.start_file(n, o).unwrap();
+                z.write_all(b.as_bytes()).unwrap();
+            };
+            put(
+                "[Content_Types].xml",
+                r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>"#,
+            );
+            put(
+                "_rels/.rels",
+                &format!(
+                    r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/officeDocument" Target="xl/workbook.xml"/></Relationships>"#
+                ),
+            );
+            put(
+                "xl/workbook.xml",
+                &format!(
+                    r#"<?xml version="1.0"?><workbook xmlns="{ns}" xmlns:r="{r}"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>{}</workbook>"#,
+                    if pad {
+                        r#"<calcPr calcId="0" fullPrecision="0"/>"#
+                    } else {
+                        ""
+                    }
+                ),
+            );
+            put(
+                "xl/_rels/workbook.xml.rels",
+                &format!(
+                    r#"<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#
+                ),
+            );
+            z.finish().unwrap().into_inner()
+        };
+        let plain = build(false);
+        let pad = build(true);
+        let empty: &[u8] = &[];
+        assert!(
+            !format_diffs_disqualify(empty, empty, false),
+            "no PaD anywhere and no reader -> benign"
+        );
+        // THE regression: expected PaD, edited not.
+        assert!(format_diffs_disqualify(&pad, &plain, false));
+        assert!(format_diffs_disqualify(&plain, &pad, false));
+        assert!(format_diffs_disqualify(&plain, &plain, true));
+        // Identical PaD on both sides also disqualifies (the classic symmetric case).
+        assert!(format_diffs_disqualify(&pad, &pad, false));
     }
 
     #[test]
