@@ -1,9 +1,9 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `ecb4851` (pushed to origin, **NOT merged to main**)
-**Last updated:** end of round 70
-**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **409 tests** pass
-**Totals:** ~290 defects fixed over 70 rounds
+**Branch:** `xlq-reference-completeness` @ `3f1b36a` (pushed to origin, **NOT merged to main**)
+**Last updated:** end of round 71
+**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **410 tests** pass
+**Totals:** ~291 defects fixed over 71 rounds
 
 ---
 
@@ -42,12 +42,13 @@ The round-N script lives at `/tmp/claude-1000/-home-soh-aix/<session>/scratchpad
 is produced by copying the previous script and rewriting the "ROUND N JUST ADDED" block to weight the
 newest code plus any known residuals.
 
-## 3. Progress this session (rounds 60–70)
+## 3. Progress this session (rounds 60–71)
 
-60 fixes across 34 commits. Newest first:
+61 fixes across 35 commits. Newest first:
 
 | Round | Commits | Confirmed | Headline defects |
 |---|---|---|---|
+| 71 | `3f1b36a` | 1 | asymmetric precision-as-displayed format gate: format_disqualifying checked only EDITED's fullPrecision — expected-side PaD + foreign numFmt change with preserved caches certified though files recalc differently. Gate extracted to symmetric format_diffs_disqualify(). Oracle-gate questions answered by direct inspection (agent channel returned empty a 5th time): intersection_cells is the r51 range-intersection exclusion set from EXPECTED only; injected cells caught as "added" |
 | 70 | `ecb4851` | 4 | pivotCacheRecords allowlisted with ZERO readers (byte-fingerprint now); intra-pivot whole `<filter fld>` swap (fld-keyed element + predicate sigs); `<autoSortScope>` rank-by re-point uncompared; root caption/error strings materialized on refresh joined the root sig. Pivot lens productive; new-comparators + oracle-gates lenses returned EMPTY again (agent channel unreliable — empty ≠ dry) |
 | 69 | `f57c5e8`, `58b831c` | 2 | pivot `<item @n>` custom-label swap across fields (label lived only in the pooled multiset); LITERAL chart data points (`numLit`/`strLit` — typed-in values, authoritative forever) uncompared. Closing sweep over all rounds-66-69 comparators came back clean (2 empty agent sweeps + manual verification: pt-idx staleness benign, folding resolves at end, col-range consistency) |
 | 68 | `bf71a4e`, `e8e7ab6`, `ed31a3a` | 4 | form-control binding swap pooled across parts AND within a sheet (incl. VML FmlaMacro = which button runs which macro); cross-TABLE autoFilter-block swap (constant owner "table"); linked-object `<xdr:f>` source cells pooled within one drawing; workbook `<webPublishItem>` source repoint uncompared |
