@@ -1,7 +1,7 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `ef1d887` (pushed to origin, **NOT merged to main**)
-**Last updated:** end of round 73
+**Branch:** `xlq-reference-completeness` @ `47ba2d7` + r74 verification (pushed to origin, **NOT merged to main**)
+**Last updated:** end of round 74 — LOOP EXIT CONDITION MET
 **Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **410 tests** pass (no new tests — hardening of an existing arm)
 **Totals:** ~291 defects fixed over 72 rounds (r72 = advisory hardening)
 
@@ -48,6 +48,7 @@ newest code plus any known residuals.
 
 | Round | Commits | Confirmed | Headline defects |
 |---|---|---|---|
+| 74 | — (no code changes) | 0 defects | DRY ROUND #2 — EXIT CONDITION MET. Both sweep agents returned EMPTY (channel flakiness persists), so all ten questions were verified INLINE against code instead: records-fingerprint prefix cannot match definitions; one-sided records presence refuses (fail-closed); worksheet `<filter val>` (no fld) falls through unchanged; autoSortScope arm ordering safe (`pivotArea`/`references`/`reference` no-op through leaf); `format_diffs_disqualify` single production caller; transform never reorders control elements (outside sheetData, not in dispatch list); table displayName keys case-sensitive raw; pivot_refs scanning records parts emits zero sigs (no wanted tags match `<r>/<x>/<n>/<s>`); media parts copied byte-for-byte by the zip rewriter (no re-encode path); slicer allowlist entries intact with accurate comments. ROUNDS 73+74 BOTH GENUINELY DRY → convergence criterion satisfied.
 | 73 | — (no code changes) | 0 defects | DRY ROUND #1. Oracle-gates lens (via explore): all five pipeline seams verified CLEAN with citations (forced-recalc zeroes only cache term; intersection cells = poison sources fail-closed; manual/auto asymmetric volatile branches sound by design; both-sides PaD forces format identity, no cell-level precision override exists in xlsx; expected-only CELL readers always constitute refused drops). Caption-completeness tail closed inline: the six r70 attrs are the complete materialized-text set; remaining root attrs are layout/display-only (documented rationale) |
 | 72 | `c7dc588` | 0 defects + 1 advisory hardening | explore-type agents WORK where general agents return empty: full audit of all r66-69 comparators came back CLEAN per function; acted on the one advisory — xl/media fingerprint (unkeyed 64-bit SipHash, forgeable ~2^32) replaced with BYTE-EXACT comparison via media_parts (mirrors vba_parts) |
 | 71 | `3f1b36a` | 1 | asymmetric precision-as-displayed format gate: format_disqualifying checked only EDITED's fullPrecision — expected-side PaD + foreign numFmt change with preserved caches certified though files recalc differently. Gate extracted to symmetric format_diffs_disqualify(). Oracle-gate questions answered by direct inspection (agent channel returned empty a 5th time): intersection_cells is the r51 range-intersection exclusion set from EXPECTED only; injected cells caught as "added" |
@@ -127,22 +128,27 @@ The 8 candidates from the aborted run collapsed to 5 themes; all processed:
   xlq's preserved faithful one and is refused. Round-62's deliberate exclusion of error-valued
   sources from the reachability drop therefore stays sound: unvouched ≠ unchecked.
 
-## 7. Next steps (in order)
+## 7. Loop status & handover
 
-1. **Round 69**: fresh workflow. Rounds 67-68 lenses came back DRY on oracle-soundness,
-   external-rels/security, refshift/structural coverage, and invalid-output — weight the next
-   run toward: a FULL fresh workflow (all lenses) — rounds 67-69 were increasingly targeted;
-   the general-agent channel returns EMPTY ~5x in a row — USE explore-TYPE AGENTS instead
-   (worked first try in r72). Cell-linked chart caches stay a documented non-defect residual
-   (self-repair on refresh); literal points and media bytes are now compared byte-exact.
-2. **Accepted residuals** (documented, not defects): chart numCache/strCache point values are
-   deliberately uncompared (self-repairs on refresh; re-derivation is common faithful behavior);
-   chained cellStyleXfs→cellStyleXfs inheritance folds one hop only (exotic construct);
-   xl/diagrams/* + xl/embeddings/* remain blanket-refused (fail-closed availability gap — OLE
-   content is executable and must not be allowlisted without a comparator).
-3. Continue the loop toward two consecutive genuinely-dry rounds.
+**EXIT CONDITION MET (2026-08-21): rounds 73 and 74 are two consecutive genuinely-dry rounds.**
+The reference-completeness adversarial convergence loop is CLOSED at **~291 defects over 74 rounds**,
+gate green throughout (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, 410 tests).
+
+Session totals (rounds 66–74): 17 fixes + 1 advisory hardening across seven rounds, five dry lenses
+established (oracle-soundness, external-rels/security, refshift/structural, invalid-output,
+transform-coverage), and every fix carrying a regression test verified to fail pre-fix.
+
+### For the successor
+
+1. **Merge decision**: branch `xlq-reference-completeness` is NOT merged to main. It is ready to
+   propose; run the full gate once more before opening the PR.
+2. **If the loop ever restarts**, weight lenses toward the documented residuals: cell-linked chart
+   caches (self-heal on refresh — deliberately uncompared), chained cellStyleXfs inheritance
+   (single hop folded), xl/diagrams/* + xl/embeddings/* (blanket-refused, fail-closed).
+3. **Agent channel**: use explore-TYPE subagents for audits; general-type returned empty ~5x.
+   An empty result is an AGENT FAILURE, never a dry verdict — retry once, then assess inline.
 4. Update `~/.claude/projects/-home-soh-aix/memory/xlq-reference-completeness-hardening.md`
-   after each completed round.
+   with any future round ledgers (the file carries rounds 50–74 verbatim).
 
 ## 8. Hard-won operational lessons
 
