@@ -1,8 +1,8 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `f09be4f` + local PR-readiness verification (origin remains at `f09be4f`; **NOT merged to main**)
-**Last updated:** 2026-08-23 — LOOP EXIT CONDITION MET; branch re-verified for merge decision
-**Gate:** green — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, **439 tests** pass (412 unit tests plus 27 integration tests; no new tests since round 74)
+**Branch:** `xlq-reference-completeness` @ `93efee1` release-readiness round (origin remains at `f09be4f`; **NOT merged to main**)
+**Last updated:** 2026-08-23 — LOOP EXIT CONDITION MET; branch passed the expanded release gate
+**Gate:** green — default and devtools Rust gates, engine suites, formal checks, reproducibility verifier, and lockfile audits (see §7)
 **Totals:** ~291 defects fixed over 74 rounds (r72 = advisory hardening)
 
 ---
@@ -140,14 +140,34 @@ and the full xlq suite passed with **412 unit tests + 27 integration tests = 439
 The only working-tree item remains the pre-existing unrelated untracked
 `formal/corpus_formulas.txt`.
 
+**Release-readiness round (2026-08-23, commits `e270fd1..93efee1`):**
+
+- Expanded Rust verification: devtools feature enabled — fmt/clippy clean,
+  **466 xlq tests**, optimized build green; engine base **2,233 passed / 8
+  ignored** with `RUST_MIN_STACK=64MiB`; engine xlsx layer **268 passed**.
+  The base parser depth-guard test needs that explicit test-thread stack on an
+  8 MiB host; the production guard itself is correct.
+- Packaging: `xlq-ironcalc-base v0.7.1` dry-run package succeeded. The inherited
+  upstream `test` binary is gated behind non-default `devtools`; its source stays
+  in the crate so opt-in builds remain valid.
+- Supply chain: upgraded vendored-engine `time` from 0.3.45 to 0.3.47 for
+  RUSTSEC-2026-0009. Both CLI and engine lockfiles now audit with zero known
+  vulnerability matches (`cargo-audit 0.22.2`).
+- Formal/reproducibility: Lean checked all six files; Z3 proved all 14 shift/move
+  laws live; Lean-vs-router differential agreed **30/30**; corpus regeneration
+  reproduced manifest SHA `01364088…`; verifier result **130 PASS / 0 FAIL /
+  0 SKIP**. Formal scripts are checkout-portable and contain no hardcoded
+  `/home/soh/aix` paths.
+
 Session totals (rounds 66–74): 17 fixes + 1 advisory hardening across seven rounds, five dry lenses
 established (oracle-soundness, external-rels/security, refshift/structural, invalid-output,
 transform-coverage), and every fix carrying a regression test verified to fail pre-fix.
 
 ### For the successor
 
-1. **Merge decision**: branch `xlq-reference-completeness` is NOT merged to main. It is ready to
-   propose; run the full gate once more before opening the PR.
+1. **Merge decision**: branch `xlq-reference-completeness` is NOT merged to main or pushed past
+   `f09be4f`. It is release-ready locally; obtain explicit approval before pushing/opening a PR.
+   Crates.io publication is a separate irreversible external lane and requires its own authorization.
 2. **If the loop ever restarts**, weight lenses toward the documented residuals: cell-linked chart
    caches (self-heal on refresh — deliberately uncompared), chained cellStyleXfs inheritance
    (single hop folded), xl/diagrams/* + xl/embeddings/* (blanket-refused, fail-closed).
