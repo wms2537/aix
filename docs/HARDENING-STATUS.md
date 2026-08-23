@@ -1,7 +1,7 @@
 # xlq reference-completeness hardening — status & handoff
 
 **Branch:** `xlq-reference-completeness`, ahead of origin through the release-readiness/handover-audit rounds (origin remains at `f09be4f`; **NOT merged to main**)
-**Last updated:** 2026-08-23 — LOOP EXIT CONDITION MET; branch passed the expanded release gate
+**Last updated:** 2026-08-23 — LOOP EXIT CONDITION MET; three consecutive release-assurance dry rounds completed
 **Gate:** green — default and devtools Rust gates, engine suites, formal checks, reproducibility verifier, and lockfile audits (see §7)
 **Totals:** ~291 defects fixed over 74 rounds (r72 = advisory hardening)
 
@@ -162,6 +162,29 @@ The only working-tree item remains the pre-existing unrelated untracked
   spec from “draft” to its implemented v0.2 surface, added dated status addenda for
   v0.2 architecture and formal research remainders, corrected shipped dependency/scope
   documentation, and recorded the engine audit/packaging changes in the changelog.
+
+### Three-round release-assurance convergence (2026-08-23)
+
+The earlier release rounds found and fixed real issues, so a fresh clean-counter
+began afterward. Three consecutive genuinely dry rounds then passed:
+
+1. **Round D — CLI/schema/docs parity:** all ten commands and documented flags were
+   checked against generated help; `apply --schema` was compared with its documented
+   envelope; local links and stale terminology were swept. One initial finding (old
+   `book.rev-N.xlsx` naming plus an obsolete “draft” label) was corrected before the
+   round was counted clean.
+2. **Round E — packaging/licensing/artifact integrity:** all three crate identities,
+   versions, MSRVs, licenses, and README references matched; the base `.crate` was
+   generated and inspected; package paths/content had no corpus, credential,
+   absolute-home, or research-artifact leakage; attribution files existed; both
+   lockfile audits passed with only the documented allowed `rand` warning.
+3. **Round F — reproducibility/formal/runtime:** `git fsck` reported no corruption;
+   the corpus SHA matched its manifest; all six Lean files checked; Z3 proved 14/14
+   laws; Lean-vs-router agreed 30/30; reproducibility verifier returned **130 PASS /
+   0 FAIL / 0 SKIP**; two independent transforms were byte-identical; a locked clean
+   install passed inspect → edit → verify → second edit → undo → verify assertions.
+
+**Result: three consecutive dry rounds. No further local product defect is known.**
 
 Session totals (rounds 66–74): 17 fixes + 1 advisory hardening across seven rounds, five dry lenses
 established (oracle-soundness, external-rels/security, refshift/structural, invalid-output,
