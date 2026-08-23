@@ -101,7 +101,7 @@ is independent of it.
    then unstage the excluded policy code —
    ```
    git apply --3way docs/upstream/ironcalc-changes.patch
-   git checkout -- base/src/functions/policy_limited.rs        # drop the stub file
+   git rm -f base/src/functions/policy_limited.rs              # drop the stub file
    # then remove the policy_limited module decl + its enum/dispatch/signature
    # /localization entries by hand (they are self-contained, grep policy_limited)
    ```
@@ -114,8 +114,10 @@ is independent of it.
    ```
    cargo test -p ironcalc_base
    ```
-   Our tree reports **2129 passed, 0 failed** (plus 23 doc-tests) with these
-   changes. Also run `cargo fmt -- --check` and the upstream lint
+   On a pristine-upstream branch this package remains `ironcalc_base`; current
+   vendored-fork evidence (where it is renamed `xlq-ironcalc-base`) is **2,233 passed /
+   8 ignored / 0 failed** for `cargo test --lib` with
+   `RUST_MIN_STACK=$((64 * 1024 * 1024))`. Also run `cargo fmt -- --check` and the upstream lint
    (`cargo clippy -p ironcalc_base --all-targets --all-features -- -W
    clippy::unwrap_used -W clippy::expect_used -W clippy::panic -D warnings`),
    both clean in our tree.
@@ -163,10 +165,11 @@ is independent of it.
 > unreserved-set divergence from LibreOffice (Excel does not encode `.`/`~`)
 > are the two calls worth reviewing.
 >
-> **Validation:** `cargo test -p ironcalc_base` → 2129 passed; fmt + the
-> `make lint` clippy flags clean. Cross-checked against LibreOffice on a shared
-> workbook (differential-testing harness); every difference is either an
-> intended Excel-match or a documented LO divergence.
+> **Validation:** the current fork reports 2,233 base-lib tests passed / 8 ignored /
+> 0 failed with a 64 MiB test stack; fmt and the upstream clippy flags are clean.
+> Cross-checked against LibreOffice on a shared workbook (differential-testing
+> harness); every difference is either an intended Excel-match or a documented LO
+> divergence.
 >
 > Not included: our xlq-specific policy-blocked functions (CUBE*, WEBSERVICE,
 > RTD, STOCKHISTORY, …), which deliberately return Excel's external-failure

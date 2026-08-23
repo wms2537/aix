@@ -171,13 +171,17 @@
       "status": "done",
       "evidence": "ROUND 8 CHAIR RULING (pinned f8c012a): round-7 closure CERTIFIED (3x CERTIFIED_WITH_NOTES, ZERO gating findings \u2014 first empty gating list of the arc; every mechanism re-executed by hostile certifiers incl. a live build race and same-length byte tamper). FINAL GRADE: A+ \u2014 condition met. Submission verdict: submit after listed polish P1-P5 \u2014 ALL FIVE now applied (rounded facts derived+injected, residual numbers injected, harness sentence scoped exactly, uninjected facts homed, BUILD.md de-quantified + lock documented, makedirs-is-the-guard), build green",
       "parent": null
+    },
+    {
+      "id": "T018",
+      "phase": "4",
+      "desc": "Characterize the reused-witnessed-skeleton middle ground: forced copied values under a witnessed criterion and unwitnessed tuples remain uncertifiable",
+      "status": "done",
+      "evidence": "formal/CopyEdits.lean is sorry-free; copy_value_forced is axiom-free; release-assurance round checked all six formal Lean files successfully",
+      "parent": null
     }
   ],
   "parked_candidates": [
-    {
-      "idea": "reused-witnessed-skeleton middle ground (copy-paste edits): decidability of value-forcing from observed data",
-      "source": "paper \u00a73 'The boundary, stated' \u2014 open"
-    },
     {
       "idea": "verified byte->token parse (Kani/Creusot or Lean extraction) to close the last trusted-base gap",
       "source": "final panel, non-gating recommendation"
