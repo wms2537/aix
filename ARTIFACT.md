@@ -11,7 +11,7 @@ engine is IronCalc master `e50ccea8` + our patches under `vendor/upstream/`.
 - Commands: `xlq inspect <file>` (privacy-safe census), `xlq diff <a> <b>`
   (semantic cell diff with the `cached_value` kind), `xlq calc <file>`
   (recompute-aware audit). All read-only by construction.
-- Specs: `docs/census-spec.md`, `docs/receipt-journal-spec.md` (v0.2 draft),
+- Specs: `docs/census-spec.md`, implemented `docs/receipt-journal-spec.md` (v0.2),
   `docs/specs/full-catalog-semantics.md` (the 522-function behavior spec).
 - Agent skill: `skills/xlq/SKILL.md` (the safe inspect→diff→calc loop; the
   direct answer to Claude Code issue #22044).

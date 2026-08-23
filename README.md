@@ -230,7 +230,7 @@ xlq apply book.xlsx patch.json --actor agent  # surgical write + receipt
 (dry-run: affected cells, new errors, `watch` before/after), then — for a real
 write — surgically edits only the affected sheet parts, re-loads its own output
 to prove the edit landed and no other part changed (`fidelity_violation`
-aborts, original untouched), writes an immutable `book.rev-N.xlsx`, atomically
+aborts, original untouched), writes an immutable `book.xlsx.rev-N.xlsx`, atomically
 swaps it onto the working file, and appends a hash-chained receipt to
 `book.xlsx.xlq.jsonl`. It refuses (`coverage_unreliable`) when the affected
 formulas use functions the differential oracle flagged as engine-divergent, or

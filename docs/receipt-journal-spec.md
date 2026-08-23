@@ -91,7 +91,7 @@ file's current hash as the genesis `base_hash` and proceeds — no
 initialization command, no refusal on a journal-less file.
 
 Rev files are never overwritten. After journal loss, numbering continues
-from the highest existing `book.rev-N.xlsx` plus 1; a collision with an
+from the highest existing `book.xlsx.rev-N.xlsx` plus 1; a collision with an
 existing rev file is an **error, not an overwrite**.
 
 ### External edits (`external_edit` receipts)
