@@ -17,3 +17,17 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues for this repository, accessed through `gh`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five canonical Matt Pocock triage labels unchanged. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.
