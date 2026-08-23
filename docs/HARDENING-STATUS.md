@@ -1,6 +1,6 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness` @ `93efee1` release-readiness round (origin remains at `f09be4f`; **NOT merged to main**)
+**Branch:** `xlq-reference-completeness`, ahead of origin through the release-readiness/handover-audit rounds (origin remains at `f09be4f`; **NOT merged to main**)
 **Last updated:** 2026-08-23 — LOOP EXIT CONDITION MET; branch passed the expanded release gate
 **Gate:** green — default and devtools Rust gates, engine suites, formal checks, reproducibility verifier, and lockfile audits (see §7)
 **Totals:** ~291 defects fixed over 74 rounds (r72 = advisory hardening)
@@ -36,7 +36,7 @@ Each **round** is one iteration:
    with a regression test.
 4. Full gate (fmt / clippy / tests), commit **incrementally**, push, update memory, re-run.
 
-**Exit condition:** two consecutive *genuinely dry* rounds (zero confirmed findings). **Not yet reached.**
+**Exit condition:** two consecutive *genuinely dry* rounds (zero confirmed findings). **Met — see §7.**
 
 The round-N script lives at `/tmp/claude-1000/-home-soh-aix/<session>/scratchpad/roundNN.js`; each round
 is produced by copying the previous script and rewriting the "ROUND N JUST ADDED" block to weight the
@@ -158,6 +158,10 @@ The only working-tree item remains the pre-existing unrelated untracked
   reproduced manifest SHA `01364088…`; verifier result **130 PASS / 0 FAIL /
   0 SKIP**. Formal scripts are checkout-portable and contain no hardcoded
   `/home/soh/aix` paths.
+- Handover audit: reconciled the closed-loop protocol text, updated the receipt
+  spec from “draft” to its implemented v0.2 surface, added dated status addenda for
+  v0.2 architecture and formal research remainders, corrected shipped dependency/scope
+  documentation, and recorded the engine audit/packaging changes in the changelog.
 
 Session totals (rounds 66–74): 17 fixes + 1 advisory hardening across seven rounds, five dry lenses
 established (oracle-soundness, external-rels/security, refshift/structural, invalid-output,
@@ -175,6 +179,15 @@ transform-coverage), and every fix carrying a regression test verified to fail p
    An empty result is an AGENT FAILURE, never a dry verdict — retry once, then assess inline.
 4. Update `~/.claude/projects/-home-soh-aix/memory/xlq-reference-completeness-hardening.md`
    with any future round ledgers (the file carries rounds 50–74 verbatim).
+
+### Untackled items are external or explicitly future work
+
+- **Push / merge / PR:** requires owner approval.
+- **Crates.io publication:** irreversible; follow `PUBLISHING.md` bottom-up after approval.
+- **IronCalc upstream PR:** `docs/upstream/PR-GUIDE.md` is ready, but filing/maintainer review is external.
+- **Research frontier:** formal structural→value composition/router enforcement,
+  verified Rust byte-parser TCB, per-file adaptive Tier-2 sampling, and an independent
+  financial oracle remain open by design.
 
 ## 8. Hard-won operational lessons
 

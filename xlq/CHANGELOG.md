@@ -24,6 +24,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   advisories (RUSTSEC-2026-0194, -0195). Formula bodies are now reassembled across
   the `Text`/`GeneralRef` events quick-xml ≥0.38 emits, so entity-bearing formulas
   (`A5&gt;0`) shift correctly instead of being silently corrupted.
+- Upgraded vendored-engine `time` 0.3.45 → 0.3.47, clearing RUSTSEC-2026-0009.
+- The inherited IronCalc `test` executable is gated behind the non-default
+  `devtools` feature, so default installs ship only the intended tools.
 - Uniform exit-code contract: `0` effect/answer, `1` refusal/failure, `2` bad
   invocation, `70` internal error. `certify` REFUSED now exits `1` (was `0`).
 - Engine-provenance string is single-sourced from the vendored engine

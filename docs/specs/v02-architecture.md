@@ -144,3 +144,19 @@ computed formula caches are gated.
 - The oracle is a hand-authored conformance suite, not a generator.
 - E3's financial cross-check reimplements the same documentation; a truly
   external reference (a bond library / Excel itself) is still needed.
+
+## Status addendum (2026-08-23)
+
+The historical “still open” list above is retained verbatim for provenance.
+Current state:
+
+- Structural edits are implemented by `xlq restructure`, with fail-closed
+  residual handling and an engine-free `certify` verifier.
+- Non-bypassability now has an executed adversarial harness result in
+  [NON-BYPASS.md](../NON-BYPASS.md).
+- The original two-case A/B was expanded by later locked campaigns recorded under
+  `benchmarks/` and the reproducibility package; the text above remains the dated
+  v0.2 design snapshot.
+- The remaining genuinely open research item from this list is an independent
+  financial-reference oracle; the other items have been superseded by shipped,
+  tested mechanisms or later evidence.

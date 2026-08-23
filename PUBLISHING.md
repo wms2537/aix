@@ -69,7 +69,9 @@ cd vendor/upstream/xlsx && cargo test
 Fresh evidence on Linux/Rust 1.96: base 2,233 passed / 8 ignored, xlsx layer
 268 passed / 0 failed including doc-tests, `xlq-ironcalc-base v0.7.1` packaged
 successfully in dry-run mode, and both lockfiles passed `cargo audit` with no
-known vulnerability matches (`time` upgraded to 0.3.47).
+vulnerability matches (`time` upgraded to 0.3.47); cargo-audit reports one
+allowed low-severity warning for `rand`'s narrowly scoped custom-logger
+soundness issue.
 
 ## Notes
 

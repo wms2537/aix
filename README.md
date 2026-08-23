@@ -5,10 +5,10 @@ Machine-readable JSON on stdout. An agent editing a spreadsheet today uses
 "generate openpyxl code that loads → mutates → saves the whole file," which
 rewrites the entire container and silently destroys everything the library
 can't model — charts, pivots, VBA. xlq gives the agent a **surgical write**
-instead: it edits only the cells you asked for and leaves every other part of
-the file byte-identical.
+instead: it edits only the OOXML parts required by the requested operation and
+leaves every other part byte-identical.
 
-## What it guarantees (v0.3, built and tested — 192 tests)
+## What it guarantees (v0.2.0, built and tested — 466 automated tests)
 
 - **`xlq apply` is surgical.** It rewrites only the OOXML parts that contain a
   changed cell and copies every other part byte-for-byte. Measured
@@ -16,7 +16,7 @@ the file byte-identical.
   parts byte-identical**; on a macro workbook it keeps `vbaProject.bin`
   **byte-identical** — where openpyxl preserves 1/N, drops the VBA, and its
   output often won't even re-open.
-- **`xlq restructure` does STRUCTURAL edits** (insert/delete rows/columns) via a
+- **`xlq restructure` does STRUCTURAL edits** (insert/delete/move rows/columns) via a
   reference-shift algebra σ applied across every reference-bearing part
   (formulas, cross-sheet refs, defined names, charts, pivots, CF/DV) while
   keeping non-coordinate bytes identical — the *minimal-patch* invariant. It
@@ -55,10 +55,11 @@ edit with charts/pivots/VBA intact and a receipt.
 **both** IronCalc and LibreOffice (`docs/upstream/`), 522/522 Excel-function
 catalog coverage with an honest 3-number taxonomy (`docs/COVERAGE.md`), and
 the AXLE-bench evaluation suite (`benchmarks/README.md`). Paper:
-`paper/paper-v2.md`. Scope: `apply` covers in-place cell/formula edits;
-`restructure` covers row/column insert-delete (shared formulas materialized;
-array formulas and tables are refused, never silently corrupted — the named
-open problem).
+`paper/paper-v3.md`. Scope: `apply` covers in-place cell/formula edits;
+`restructure` covers row/column insert/delete/move. Shared formulas are
+materialized and shifted; constructs whose references cannot be proven faithful
+(including tables and some array forms) fail closed rather than corrupt the
+workbook.
 
 ## Why
 
@@ -237,9 +238,6 @@ nondeterministic volatiles. See [docs/specs/v02-architecture.md](docs/specs/v02-
 
 ## Roadmap
 
-- **Structural edits** (`insert_row`/`insert_column`/`delete`) — the named open
-  problem: preserving fidelity while shifting references, calcChain, shared
-  strings, and pivot caches. This is the next research + engineering push.
 - Ranged/paged reads; BYO-cloud sync (`xlq push/pull` against your own S3
   bucket or git remote — never a third-party tenant).
 
@@ -263,12 +261,11 @@ nondeterministic volatiles. See [docs/specs/v02-architecture.md](docs/specs/v02-
 
 ## Engine
 
-xlq links a **vendored clone of IronCalc master at `e50ccea8`**
+xlq links a **vendored, hardened fork of IronCalc master at `e50ccea8`**
 (`vendor/upstream`), reported in every JSON output as
-`ironcalc 0.7.1+e50ccea8 (vendored master)`. The vendored tree additionally
-carries a small local patch implementing ENCODEURL, HYPERLINK, and AGGREGATE
-(offered upstream; see
-[docs/upstream/residual-functions-patch.md](docs/upstream/residual-functions-patch.md)).
+`ironcalc 0.7.1+e50ccea8 (vendored master)`. The fork carries the parser/provenance/packaging
+patches recorded in `vendor/PATCHES.md`, plus catalog extensions and semantic fixes
+prepared for upstream review in `docs/upstream/`.
 
 Function coverage on this pin, in the three-number form (never quote one
 number alone): **522/522 catalog names recognized (100%), of which 505 are
