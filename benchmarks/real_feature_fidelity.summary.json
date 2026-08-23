@@ -1,0 +1,243 @@
+{
+  "experiment": "Stratified real-corpus feature preservation (EUSES + Enron converted_v2)",
+  "source_manifest": "benchmarks/real_feature_manifest.summary.json",
+  "sample_size": 50,
+  "seed": 20260823,
+  "selection_rule": "Deterministic seed 20260823 sample: up to 10 files each from chart, pivot, external-link-only, comment/drawing-only, and plain-control strata. Edit target is the first non-formula numeric cell in workbook order.",
+  "methodology": {
+    "part_metric": "Byte-identical zip members between output and untouched original.",
+    "xlq_edit": "Typed set-cell apply with proof-carrying commit.",
+    "openpyxl_edit": "load_workbook + assign numeric target + save using default keep_vba=False.",
+    "libreoffice_edit": "Headless same-format convert-to re-save proxy; upper bound on churn, not a targeted edit.",
+    "failure_policy": "Failures are retained per file. xlq refusals are classified as fail-closed outcomes, not silent corruption."
+  },
+  "by_stratum": {
+    "chart": {
+      "files": 10,
+      "tools": {
+        "xlq": {
+          "files_completed": 7,
+          "parts_identical": 212,
+          "parts_total": 230,
+          "fraction_byte_identical": 0.922,
+          "median_parts_identical_fraction": 0.889,
+          "outputs_loaded_in_ironcalc": 7,
+          "outputs_loaded_in_soffice": 7,
+          "noncompletion_reasons": {
+            "no_attempt": 2,
+            "fail_closed_error_valued_target": 1
+          }
+        },
+        "openpyxl": {
+          "files_completed": 8,
+          "parts_identical": 8,
+          "parts_total": 302,
+          "fraction_byte_identical": 0.026,
+          "median_parts_identical_fraction": 0.042,
+          "outputs_loaded_in_ironcalc": 6,
+          "outputs_loaded_in_soffice": 8,
+          "noncompletion_reasons": {
+            "error_no_attempt": 2
+          }
+        },
+        "libreoffice": {
+          "files_completed": 8,
+          "parts_identical": 128,
+          "parts_total": 302,
+          "fraction_byte_identical": 0.424,
+          "median_parts_identical_fraction": 0.409,
+          "outputs_loaded_in_ironcalc": 8,
+          "outputs_loaded_in_soffice": 8,
+          "noncompletion_reasons": {
+            "error_no_attempt": 2
+          }
+        }
+      }
+    },
+    "comment_drawing_only": {
+      "files": 10,
+      "tools": {
+        "xlq": {
+          "files_completed": 8,
+          "parts_identical": 137,
+          "parts_total": 149,
+          "fraction_byte_identical": 0.919,
+          "median_parts_identical_fraction": 0.929,
+          "outputs_loaded_in_ironcalc": 8,
+          "outputs_loaded_in_soffice": 8,
+          "noncompletion_reasons": {
+            "no_attempt": 2
+          }
+        },
+        "openpyxl": {
+          "files_completed": 8,
+          "parts_identical": 8,
+          "parts_total": 149,
+          "fraction_byte_identical": 0.054,
+          "median_parts_identical_fraction": 0.067,
+          "outputs_loaded_in_ironcalc": 5,
+          "outputs_loaded_in_soffice": 8,
+          "noncompletion_reasons": {
+            "error_no_attempt": 2
+          }
+        },
+        "libreoffice": {
+          "files_completed": 7,
+          "parts_identical": 51,
+          "parts_total": 117,
+          "fraction_byte_identical": 0.436,
+          "median_parts_identical_fraction": 0.467,
+          "outputs_loaded_in_ironcalc": 7,
+          "outputs_loaded_in_soffice": 7,
+          "noncompletion_reasons": {
+            "error_no_attempt": 2,
+            "error_tool_failed": 1
+          }
+        }
+      }
+    },
+    "external_link": {
+      "files": 10,
+      "tools": {
+        "xlq": {
+          "files_completed": 3,
+          "parts_identical": 47,
+          "parts_total": 51,
+          "fraction_byte_identical": 0.922,
+          "median_parts_identical_fraction": 0.917,
+          "outputs_loaded_in_ironcalc": 3,
+          "outputs_loaded_in_soffice": 3,
+          "noncompletion_reasons": {
+            "fail_closed_unreliable_write": 2,
+            "no_attempt": 1,
+            "fail_closed_error_valued_target": 4
+          }
+        },
+        "openpyxl": {
+          "files_completed": 9,
+          "parts_identical": 10,
+          "parts_total": 221,
+          "fraction_byte_identical": 0.045,
+          "median_parts_identical_fraction": 0.062,
+          "outputs_loaded_in_ironcalc": 8,
+          "outputs_loaded_in_soffice": 9,
+          "noncompletion_reasons": {
+            "error_no_attempt": 1
+          }
+        },
+        "libreoffice": {
+          "files_completed": 9,
+          "parts_identical": 73,
+          "parts_total": 221,
+          "fraction_byte_identical": 0.33,
+          "median_parts_identical_fraction": 0.404,
+          "outputs_loaded_in_ironcalc": 9,
+          "outputs_loaded_in_soffice": 9,
+          "noncompletion_reasons": {
+            "error_no_attempt": 1
+          }
+        }
+      }
+    },
+    "pivot": {
+      "files": 10,
+      "tools": {
+        "xlq": {
+          "files_completed": 6,
+          "parts_identical": 174,
+          "parts_total": 186,
+          "fraction_byte_identical": 0.935,
+          "median_parts_identical_fraction": 0.947,
+          "outputs_loaded_in_ironcalc": 6,
+          "outputs_loaded_in_soffice": 6,
+          "noncompletion_reasons": {
+            "fail_closed_error_valued_target": 4
+          }
+        },
+        "openpyxl": {
+          "files_completed": 10,
+          "parts_identical": 11,
+          "parts_total": 464,
+          "fraction_byte_identical": 0.024,
+          "median_parts_identical_fraction": 0.029,
+          "outputs_loaded_in_ironcalc": 5,
+          "outputs_loaded_in_soffice": 10,
+          "noncompletion_reasons": {}
+        },
+        "libreoffice": {
+          "files_completed": 10,
+          "parts_identical": 175,
+          "parts_total": 464,
+          "fraction_byte_identical": 0.377,
+          "median_parts_identical_fraction": 0.464,
+          "outputs_loaded_in_ironcalc": 10,
+          "outputs_loaded_in_soffice": 10,
+          "noncompletion_reasons": {}
+        }
+      }
+    },
+    "plain_control": {
+      "files": 10,
+      "tools": {
+        "xlq": {
+          "files_completed": 7,
+          "parts_identical": 86,
+          "parts_total": 98,
+          "fraction_byte_identical": 0.878,
+          "median_parts_identical_fraction": 0.917,
+          "outputs_loaded_in_ironcalc": 7,
+          "outputs_loaded_in_soffice": 7,
+          "noncompletion_reasons": {
+            "no_attempt": 2,
+            "fail_closed_unreliable_write": 1
+          }
+        },
+        "openpyxl": {
+          "files_completed": 8,
+          "parts_identical": 8,
+          "parts_total": 110,
+          "fraction_byte_identical": 0.073,
+          "median_parts_identical_fraction": 0.083,
+          "outputs_loaded_in_ironcalc": 8,
+          "outputs_loaded_in_soffice": 8,
+          "noncompletion_reasons": {
+            "error_no_attempt": 2
+          }
+        },
+        "libreoffice": {
+          "files_completed": 8,
+          "parts_identical": 39,
+          "parts_total": 110,
+          "fraction_byte_identical": 0.355,
+          "median_parts_identical_fraction": 0.333,
+          "outputs_loaded_in_ironcalc": 8,
+          "outputs_loaded_in_soffice": 8,
+          "noncompletion_reasons": {
+            "error_no_attempt": 2
+          }
+        }
+      }
+    }
+  },
+  "aggregate_completed_files": {
+    "xlq": {
+      "files_completed": 31,
+      "parts_identical": 656,
+      "parts_total": 714,
+      "fraction_byte_identical": 0.919
+    },
+    "openpyxl": {
+      "files_completed": 43,
+      "parts_identical": 45,
+      "parts_total": 1246,
+      "fraction_byte_identical": 0.036
+    },
+    "libreoffice": {
+      "files_completed": 42,
+      "parts_identical": 466,
+      "parts_total": 1214,
+      "fraction_byte_identical": 0.384
+    }
+  },
+  "headline": "Across completed comparisons on real EUSES/Enron workbooks, byte preservation was 0.919 for xlq versus 0.036 for openpyxl and 0.384 for the LibreOffice re-save proxy."
+}

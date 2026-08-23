@@ -1,0 +1,116 @@
+{
+  "experiment": "stratified real-corpus feature preservation",
+  "seed": 20260823,
+  "manifest_summary": "/home/soh/aix/benchmarks/real_feature_manifest.summary.json",
+  "methodology": {
+    "libreoffice": "re-save proxy; upper bound on churn"
+  },
+  "results": [
+    {
+      "corpus": "euses",
+      "path": "euses/converted_v2/modeling/processed/dev-scale-model_jimc_#A7FE6.xlsx",
+      "stratum": "chart",
+      "original_features": {
+        "has_vba": false,
+        "has_chart": true,
+        "has_pivot_table": false,
+        "has_pivot_cache": false,
+        "has_external_link": false,
+        "has_table": false,
+        "has_comment": false,
+        "has_drawing": true
+      },
+      "edit": {
+        "sheet": "Worksheet LSTP",
+        "cell": "E4"
+      },
+      "tools": {
+        "xlq": {
+          "parts_total": 18,
+          "parts_byte_identical": 16,
+          "parts_rewritten": 2,
+          "parts_dropped": [],
+          "parts_added": [],
+          "parts_rewritten_names": [
+            "xl/worksheets/sheet2.xml",
+            "xl/worksheets/sheet3.xml"
+          ],
+          "feature_survival": {
+            "charts": true,
+            "pivot": false,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true,
+          "self_reported_fidelity": {
+            "parts_byte_identical": 16,
+            "parts_rewritten": 2,
+            "parts_total": 18
+          },
+          "result_hash": "b6d35fc633f4546a22737c22178d8f3529dd21173d4adcdfa48d86b10268e4a3"
+        },
+        "openpyxl": {
+          "parts_total": 18,
+          "parts_byte_identical": 1,
+          "parts_rewritten": 16,
+          "parts_dropped": [
+            "xl/sharedStrings.xml"
+          ],
+          "parts_added": [],
+          "parts_rewritten_names": [
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "docProps/app.xml",
+            "docProps/core.xml",
+            "docProps/custom.xml",
+            "xl/_rels/workbook.xml.rels",
+            "xl/charts/chart1.xml",
+            "xl/drawings/_rels/drawing1.xml.rels",
+            "xl/drawings/drawing1.xml",
+            "xl/styles.xml",
+            "xl/workbook.xml",
+            "xl/worksheets/_rels/sheet4.xml.rels",
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet2.xml",
+            "xl/worksheets/sheet3.xml",
+            "xl/worksheets/sheet4.xml"
+          ],
+          "feature_survival": {
+            "charts": true,
+            "pivot": false,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true
+        },
+        "libreoffice": {
+          "parts_total": 18,
+          "parts_byte_identical": 11,
+          "parts_rewritten": 7,
+          "parts_dropped": [],
+          "parts_added": [],
+          "parts_rewritten_names": [
+            "_rels/.rels",
+            "xl/charts/chart1.xml",
+            "xl/drawings/drawing1.xml",
+            "xl/styles.xml",
+            "xl/workbook.xml",
+            "xl/worksheets/sheet2.xml",
+            "xl/worksheets/sheet3.xml"
+          ],
+          "feature_survival": {
+            "charts": true,
+            "pivot": false,
+            "vba": false
+          },
+          "output_ext": ".xlsx",
+          "output_loads_in_ironcalc": true,
+          "output_loads_in_soffice": true,
+          "filter": "re-save proxy"
+        }
+      }
+    }
+  ]
+}
