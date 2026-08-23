@@ -1,7 +1,8 @@
 # xlq reference-completeness hardening — status & handoff
 
-**Branch:** `xlq-reference-completeness`, ahead of origin through the release-readiness/handover-audit rounds (origin remains at `f09be4f`; **NOT merged to main**)
-**Last updated:** 2026-08-23 — LOOP EXIT CONDITION MET; three consecutive release-assurance dry rounds completed
+**Branch:** `xlq-reference-completeness` was merged into `main` through PR #1; `main`,
+`origin/main`, and the annotated `xlq-v0.2.0` tag all point at merge commit `dffd9c3`.
+**Last updated:** 2026-08-23 — LOOP EXIT CONDITION MET; three consecutive release-assurance dry rounds completed, followed by PR merge, tagging, and crates.io publication.
 **Gate:** green — default and devtools Rust gates, engine suites, formal checks, reproducibility verifier, and lockfile audits (see §7)
 **Totals:** ~291 defects fixed over 74 rounds (r72 = advisory hardening)
 
@@ -192,9 +193,9 @@ transform-coverage), and every fix carrying a regression test verified to fail p
 
 ### For the successor
 
-1. **Merge decision**: branch `xlq-reference-completeness` is NOT merged to main or pushed past
-   `f09be4f`. It is release-ready locally; obtain explicit approval before pushing/opening a PR.
-   Crates.io publication is a separate irreversible external lane and requires its own authorization.
+1. **Release decision**: completed on 2026-08-23. The branch is merged as PR #1 at
+   `dffd9c3`; the fresh annotated `xlq-v0.2.0` tag points there; and the registry has
+   `xlq-ironcalc-base 0.7.1`, `xlq-ironcalc 0.7.1`, and `xlq 0.2.0`.
 2. **If the loop ever restarts**, weight lenses toward the documented residuals: cell-linked chart
    caches (self-heal on refresh — deliberately uncompared), chained cellStyleXfs inheritance
    (single hop folded), xl/diagrams/* + xl/embeddings/* (blanket-refused, fail-closed).
@@ -205,10 +206,8 @@ transform-coverage), and every fix carrying a regression test verified to fail p
 
 ### Untackled items are external or explicitly future work
 
-- **Push / merge / PR:** requires owner approval.
-- **Release tag:** do not reuse the historical annotated `v0.2.0`; it points at an older
-  pre-packaging tree. Create a fresh tag at the approved release commit.
-- **Crates.io publication:** irreversible; follow `PUBLISHING.md` bottom-up after approval.
+- **Push / merge / PR / release:** complete via PR #1, `dffd9c3`, `xlq-v0.2.0`, and
+  bottom-up crates.io publication.
 - **IronCalc upstream PR:** `docs/upstream/PR-GUIDE.md` is ready, but filing/maintainer review is external.
 - **Research frontier:** formal structural→value composition/router enforcement,
   verified Rust byte-parser TCB, per-file adaptive Tier-2 sampling, and an independent
