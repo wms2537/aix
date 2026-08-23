@@ -16,26 +16,19 @@ impl<'a> Model<'a> {
             match self.evaluate_node_in_context(arg, cell) {
                 CalcResult::Number(value) => result = value.min(result),
                 CalcResult::Range { left, right } => {
-                    if left.sheet != right.sheet {
-                        return CalcResult::new_error(
-                            Error::VALUE,
-                            cell,
-                            "Ranges are in different sheets".to_string(),
-                        );
-                    }
-                    for row in left.row..(right.row + 1) {
-                        for column in left.column..(right.column + 1) {
-                            match self.evaluate_cell(CellReferenceIndex {
-                                sheet: left.sheet,
-                                row,
-                                column,
-                            }) {
-                                CalcResult::Number(value) => {
-                                    result = value.min(result);
-                                }
-                                error @ CalcResult::Error { .. } => return error,
-                                _ => {
-                                    // We ignore booleans and strings
+                    // 3D span: iterate the inclusive tab range (single-sheet range loops once).
+                    for sheet in left.sheet.min(right.sheet)..=left.sheet.max(right.sheet) {
+                        for row in left.row..(right.row + 1) {
+                            for column in left.column..(right.column + 1) {
+                                match self.evaluate_cell(CellReferenceIndex { sheet, row, column })
+                                {
+                                    CalcResult::Number(value) => {
+                                        result = value.min(result);
+                                    }
+                                    error @ CalcResult::Error { .. } => return error,
+                                    _ => {
+                                        // We ignore booleans and strings
+                                    }
                                 }
                             }
                         }
@@ -76,26 +69,19 @@ impl<'a> Model<'a> {
             match self.evaluate_node_in_context(arg, cell) {
                 CalcResult::Number(value) => result = value.max(result),
                 CalcResult::Range { left, right } => {
-                    if left.sheet != right.sheet {
-                        return CalcResult::new_error(
-                            Error::VALUE,
-                            cell,
-                            "Ranges are in different sheets".to_string(),
-                        );
-                    }
-                    for row in left.row..(right.row + 1) {
-                        for column in left.column..(right.column + 1) {
-                            match self.evaluate_cell(CellReferenceIndex {
-                                sheet: left.sheet,
-                                row,
-                                column,
-                            }) {
-                                CalcResult::Number(value) => {
-                                    result = value.max(result);
-                                }
-                                error @ CalcResult::Error { .. } => return error,
-                                _ => {
-                                    // We ignore booleans and strings
+                    // 3D span: iterate the inclusive tab range (single-sheet range loops once).
+                    for sheet in left.sheet.min(right.sheet)..=left.sheet.max(right.sheet) {
+                        for row in left.row..(right.row + 1) {
+                            for column in left.column..(right.column + 1) {
+                                match self.evaluate_cell(CellReferenceIndex { sheet, row, column })
+                                {
+                                    CalcResult::Number(value) => {
+                                        result = value.max(result);
+                                    }
+                                    error @ CalcResult::Error { .. } => return error,
+                                    _ => {
+                                        // We ignore booleans and strings
+                                    }
                                 }
                             }
                         }
@@ -287,57 +273,52 @@ impl<'a> Model<'a> {
 
             match self.evaluate_node_in_context(arg, cell) {
                 CalcResult::Range { left, right } => {
-                    if left.sheet != right.sheet {
-                        return CalcResult::new_error(
-                            Error::VALUE,
-                            cell,
-                            "Ranges are in different sheets".to_string(),
-                        );
-                    }
-                    // TODO: We should do this for all functions that run through ranges
-                    // Running cargo test for the ironcalc takes around .8 seconds with this speedup
-                    // and ~ 3.5 seconds without it. Note that once properly in place sheet.dimension should be almost a noop
-                    let row1 = left.row;
-                    let mut row2 = right.row;
-                    let column1 = left.column;
-                    let mut column2 = right.column;
-                    if row1 == 1 && row2 == LAST_ROW {
-                        row2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_row,
-                            Err(_) => {
-                                return CalcResult::new_error(
-                                    Error::ERROR,
-                                    cell,
-                                    format!("Invalid worksheet index: '{}'", left.sheet),
-                                );
-                            }
-                        };
-                    }
-                    if column1 == 1 && column2 == LAST_COLUMN {
-                        column2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_column,
-                            Err(_) => {
-                                return CalcResult::new_error(
-                                    Error::ERROR,
-                                    cell,
-                                    format!("Invalid worksheet index: '{}'", left.sheet),
-                                );
-                            }
-                        };
-                    }
-                    for row in row1..row2 + 1 {
-                        for column in column1..(column2 + 1) {
-                            match self.evaluate_cell(CellReferenceIndex {
-                                sheet: left.sheet,
-                                row,
-                                column,
-                            }) {
-                                CalcResult::Number(value) => {
-                                    result += value;
+                    // A 3D (multi-sheet) span has left.sheet != right.sheet (e.g. Sheet1:Sheet3!A5);
+                    // iterate the inclusive tab range, applying the cell range on each sheet. For an
+                    // ordinary single-sheet range this loop runs exactly once (identical behavior).
+                    for sheet in left.sheet.min(right.sheet)..=left.sheet.max(right.sheet) {
+                        // TODO: We should do this for all functions that run through ranges
+                        // Running cargo test for the ironcalc takes around .8 seconds with this speedup
+                        // and ~ 3.5 seconds without it. Note that once properly in place sheet.dimension should be almost a noop
+                        let row1 = left.row;
+                        let mut row2 = right.row;
+                        let column1 = left.column;
+                        let mut column2 = right.column;
+                        if row1 == 1 && row2 == LAST_ROW {
+                            row2 = match self.workbook.worksheet(sheet) {
+                                Ok(s) => s.dimension().max_row,
+                                Err(_) => {
+                                    return CalcResult::new_error(
+                                        Error::ERROR,
+                                        cell,
+                                        format!("Invalid worksheet index: '{sheet}'"),
+                                    );
                                 }
-                                error @ CalcResult::Error { .. } => return error,
-                                _ => {
-                                    // We ignore booleans and strings
+                            };
+                        }
+                        if column1 == 1 && column2 == LAST_COLUMN {
+                            column2 = match self.workbook.worksheet(sheet) {
+                                Ok(s) => s.dimension().max_column,
+                                Err(_) => {
+                                    return CalcResult::new_error(
+                                        Error::ERROR,
+                                        cell,
+                                        format!("Invalid worksheet index: '{sheet}'"),
+                                    );
+                                }
+                            };
+                        }
+                        for row in row1..row2 + 1 {
+                            for column in column1..(column2 + 1) {
+                                match self.evaluate_cell(CellReferenceIndex { sheet, row, column })
+                                {
+                                    CalcResult::Number(value) => {
+                                        result += value;
+                                    }
+                                    error @ CalcResult::Error { .. } => return error,
+                                    _ => {
+                                        // We ignore booleans and strings
+                                    }
                                 }
                             }
                         }
@@ -521,58 +502,51 @@ impl<'a> Model<'a> {
 
             match cell_value {
                 CalcResult::Range { left, right } => {
-                    if left.sheet != right.sheet {
-                        return CalcResult::new_error(
-                            Error::VALUE,
-                            cell,
-                            "Ranges are in different sheets".to_string(),
-                        );
-                    }
-                    // TODO: We should do this for all functions that run through ranges. See fn_sum for more details
-                    let row1 = left.row;
-                    let mut row2 = right.row;
-                    let column1 = left.column;
-                    let mut column2 = right.column;
-                    if row1 == 1 && row2 == LAST_ROW {
-                        row2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_row,
-                            Err(_) => {
-                                return CalcResult::new_error(
-                                    Error::ERROR,
-                                    cell,
-                                    format!("Invalid worksheet index: '{}'", left.sheet),
-                                );
-                            }
-                        };
-                    }
-                    if column1 == 1 && column2 == LAST_COLUMN {
-                        column2 = match self.workbook.worksheet(left.sheet) {
-                            Ok(s) => s.dimension().max_column,
-                            Err(_) => {
-                                return CalcResult::new_error(
-                                    Error::ERROR,
-                                    cell,
-                                    format!("Invalid worksheet index: '{}'", left.sheet),
-                                );
-                            }
-                        };
-                    }
-                    for row in row1..row2 + 1 {
-                        for column in column1..(column2 + 1) {
-                            let cell_value = self.evaluate_cell(CellReferenceIndex {
-                                sheet: left.sheet,
-                                row,
-                                column,
-                            });
-
-                            match cell_value {
-                                CalcResult::Number(value) => {
-                                    seen_value = true;
-                                    result *= value;
+                    // 3D span: iterate the inclusive tab range (single-sheet range loops once).
+                    for sheet in left.sheet.min(right.sheet)..=left.sheet.max(right.sheet) {
+                        // TODO: We should do this for all functions that run through ranges. See fn_sum for more details
+                        let row1 = left.row;
+                        let mut row2 = right.row;
+                        let column1 = left.column;
+                        let mut column2 = right.column;
+                        if row1 == 1 && row2 == LAST_ROW {
+                            row2 = match self.workbook.worksheet(sheet) {
+                                Ok(s) => s.dimension().max_row,
+                                Err(_) => {
+                                    return CalcResult::new_error(
+                                        Error::ERROR,
+                                        cell,
+                                        format!("Invalid worksheet index: '{sheet}'"),
+                                    );
                                 }
-                                error @ CalcResult::Error { .. } => return error,
-                                _ => {
-                                    // We ignore booleans and strings
+                            };
+                        }
+                        if column1 == 1 && column2 == LAST_COLUMN {
+                            column2 = match self.workbook.worksheet(sheet) {
+                                Ok(s) => s.dimension().max_column,
+                                Err(_) => {
+                                    return CalcResult::new_error(
+                                        Error::ERROR,
+                                        cell,
+                                        format!("Invalid worksheet index: '{sheet}'"),
+                                    );
+                                }
+                            };
+                        }
+                        for row in row1..row2 + 1 {
+                            for column in column1..(column2 + 1) {
+                                let cell_value =
+                                    self.evaluate_cell(CellReferenceIndex { sheet, row, column });
+
+                                match cell_value {
+                                    CalcResult::Number(value) => {
+                                        seen_value = true;
+                                        result *= value;
+                                    }
+                                    error @ CalcResult::Error { .. } => return error,
+                                    _ => {
+                                        // We ignore booleans and strings
+                                    }
                                 }
                             }
                         }
@@ -640,7 +614,10 @@ impl<'a> Model<'a> {
             Err(s) => return s,
         };
         let scale = 10.0_f64.powf(number_of_digits);
-        CalcResult::Number((value * scale).round() / scale)
+        // Decimal-correct the SCALED value before rounding: `1.005 * 100` is `100.4999…` in f64, so
+        // a naive `.round()` yields `1.00` where Excel yields `1.01`. Rounding the scaled product to
+        // 15 significant figures (Excel's precision) first restores `100.5`, then round-half-away.
+        CalcResult::Number(to_precision(value * scale, 15).round() / scale)
     }
 
     pub(crate) fn fn_roundup(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {
@@ -662,10 +639,13 @@ impl<'a> Model<'a> {
             Err(s) => return s,
         };
         let scale = 10.0_f64.powf(number_of_digits);
+        // Decimal-correct the scaled value (15 sig figs) before ceil/floor so a binary
+        // representation error does not push the magnitude across an integer boundary.
+        let scaled = to_precision(value * scale, 15);
         if value > 0.0 {
-            CalcResult::Number((value * scale).ceil() / scale)
+            CalcResult::Number(scaled.ceil() / scale)
         } else {
-            CalcResult::Number((value * scale).floor() / scale)
+            CalcResult::Number(scaled.floor() / scale)
         }
     }
 
@@ -688,10 +668,12 @@ impl<'a> Model<'a> {
             Err(s) => return s,
         };
         let scale = 10.0_f64.powf(number_of_digits);
+        // Decimal-correct the scaled value (15 sig figs) before floor/ceil (see fn_roundup).
+        let scaled = to_precision(value * scale, 15);
         if value > 0.0 {
-            CalcResult::Number((value * scale).floor() / scale)
+            CalcResult::Number(scaled.floor() / scale)
         } else {
-            CalcResult::Number((value * scale).ceil() / scale)
+            CalcResult::Number(scaled.ceil() / scale)
         }
     }
 
@@ -1007,8 +989,12 @@ impl<'a> Model<'a> {
                 message: "number and multiple must have the same sign".to_string(),
             };
         }
-        let result = (value / multiple).round() * multiple;
-        CalcResult::Number(result)
+        // Decimal-correct the ratio (15 sig figs) before rounding to the nearest multiple, so a
+        // binary representation error does not tip a half-way value the wrong way
+        // (MROUND(1.005, 0.01) = 1.01, not 1.00). The product is likewise cleaned to Excel's
+        // precision so the stored result carries no residual float noise.
+        let result = to_precision(value / multiple, 15).round() * multiple;
+        CalcResult::Number(to_precision(result, 15))
     }
 
     pub(crate) fn fn_trunc(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {

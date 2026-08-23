@@ -140,6 +140,24 @@ pub struct CompletionContext {
     pub replace_from: usize,
 }
 
+/// The boxed payload of a 3D (multi-sheet) span node (`RangeKind3D` / `WrongRangeKind3D`): the two
+/// tab endpoints plus the range applied on each sheet.
+#[derive(PartialEq, Clone, Debug)]
+pub struct Reference3D {
+    pub sheet_name1: Option<String>,
+    pub sheet_index1: u32,
+    pub sheet_name2: Option<String>,
+    pub sheet_index2: u32,
+    pub absolute_row1: bool,
+    pub absolute_column1: bool,
+    pub row1: i32,
+    pub column1: i32,
+    pub absolute_row2: bool,
+    pub absolute_column2: bool,
+    pub row2: i32,
+    pub column2: i32,
+}
+
 #[derive(PartialEq, Clone, Debug)]
 pub enum Node {
     BooleanKind(bool),
@@ -183,6 +201,13 @@ pub enum Node {
         row2: i32,
         column2: i32,
     },
+    /// A 3D (multi-sheet) span `Sheet1:Sheet3!A5` — the range `[row1,column1]..[row2,column2]`
+    /// applied across the inclusive workbook tab range `sheet_index1..=sheet_index2`. Boxed so the
+    /// (large) 3D payload does not inflate `size_of::<Node>()` — Node is recursed to depth ~256 in
+    /// parse/eval/stringify, so a wide variant would overflow the stack on deep formulas.
+    RangeKind3D(Box<Reference3D>),
+    /// A 3D span one of whose sheet endpoints does not resolve (a deleted sheet) — evaluates to #REF!.
+    WrongRangeKind3D(Box<Reference3D>),
     OpRangeKind {
         left: Box<Node>,
         right: Box<Node>,
@@ -433,6 +458,75 @@ impl<'a> Parser<'a> {
             }
         }
         None
+    }
+
+    /// Build a 3D-span node from a `SheetA:SheetB!ref` token. Kept OUT of parse_primary (which
+    /// recurses to the depth cap) and marked `inline(never)` so its locals never enlarge the
+    /// recursive parser frame — see the depth-guard regression.
+    #[inline(never)]
+    fn build_range_3d(
+        &self,
+        sheet1: String,
+        sheet2: String,
+        left: ParsedReference,
+        right: ParsedReference,
+    ) -> Node {
+        let context = &self.context;
+        let sheet_index1 = self.get_sheet_index_by_name(&sheet1);
+        let sheet_index2 = self.get_sheet_index_by_name(&sheet2);
+        let mut row1 = left.row;
+        let mut column1 = left.column;
+        let mut row2 = right.row;
+        let mut column2 = right.column;
+        let mut absolute_column1 = left.absolute_column;
+        let mut absolute_column2 = right.absolute_column;
+        let mut absolute_row1 = left.absolute_row;
+        let mut absolute_row2 = right.absolute_row;
+        if self.lexer.is_a1_mode() {
+            if row1 > row2 {
+                (row2, row1) = (row1, row2);
+                (absolute_row2, absolute_row1) = (absolute_row1, absolute_row2);
+            }
+            if column1 > column2 {
+                (column2, column1) = (column1, column2);
+                (absolute_column2, absolute_column1) = (absolute_column1, absolute_column2);
+            }
+            if !absolute_row1 {
+                row1 -= context.row
+            };
+            if !absolute_column1 {
+                column1 -= context.column
+            };
+            if !absolute_row2 {
+                row2 -= context.row
+            };
+            if !absolute_column2 {
+                column2 -= context.column
+            };
+        }
+        let (sheet_index1, sheet_index2, wrong) = match (sheet_index1, sheet_index2) {
+            (Some(i1), Some(i2)) => (i1, i2, false),
+            _ => (0, 0, true),
+        };
+        let payload = Box::new(Reference3D {
+            sheet_name1: Some(sheet1),
+            sheet_index1,
+            sheet_name2: Some(sheet2),
+            sheet_index2,
+            row1,
+            column1,
+            row2,
+            column2,
+            absolute_column1,
+            absolute_column2,
+            absolute_row1,
+            absolute_row2,
+        });
+        if wrong {
+            Node::WrongRangeKind3D(payload)
+        } else {
+            Node::RangeKind3D(payload)
+        }
     }
 
     // Returns:
@@ -906,6 +1000,16 @@ impl<'a> Parser<'a> {
                         absolute_row2,
                     },
                 }
+            }
+            TokenType::Range3D {
+                sheet1,
+                sheet2,
+                left,
+                right,
+            } => {
+                // Delegated to a NON-inlined helper so this (rarely-taken) arm's locals do not
+                // enlarge parse_primary's stack frame — it recurses to the parser depth cap.
+                self.build_range_3d(sheet1, sheet2, left, right)
             }
             TokenType::Ident(name) => {
                 let next_token = self.lexer.peek_token();

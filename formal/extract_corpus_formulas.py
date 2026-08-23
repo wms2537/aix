@@ -20,7 +20,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-ROOT = Path("/home/soh/aix")
+ROOT = Path(__file__).resolve().parents[1]
 SOURCES = [
     ROOT / "vendor/upstream/xlsx/tests",
     ROOT / "data/inthewild/euses/converted",

@@ -331,6 +331,15 @@ pub fn extract_function_names(formula: &str) -> Vec<String> {
     names
 }
 
+/// True if `formula` calls a VOLATILE function (`NOW`/`TODAY`/`RAND`/`RANDBETWEEN`/`OFFSET`/
+/// `INDIRECT`/`CELL`/`INFO`). Excel recomputes a volatile cell on every load, so its stored
+/// cache never surfaces a stale value — certify can therefore ignore such a cell's cache.
+pub(crate) fn is_volatile_formula(formula: &str) -> bool {
+    extract_function_names(formula)
+        .iter()
+        .any(|n| VOLATILE_FUNCTIONS.contains(&n.as_str()))
+}
+
 /// Subset of `names` the engine does NOT support (probe via #NAME? semantics).
 pub fn probe_support(names: &[String]) -> Vec<String> {
     let mut unique: Vec<String> = names.iter().map(|n| n.to_uppercase()).collect();

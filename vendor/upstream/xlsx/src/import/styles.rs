@@ -146,7 +146,7 @@ pub(super) fn load_styles<R: Read + std::io::Seek>(
                 }
                 "charset" => {}
                 _ => {
-                    println!("Unexpected feature {feature:?}");
+                    eprintln!("Unexpected feature {feature:?}");
                 }
             }
         }
@@ -192,7 +192,7 @@ pub(super) fn load_styles<R: Read + std::io::Seek>(
                     bg_color = get_color(feature, theme)?;
                 }
                 _ => {
-                    println!("Unexpected pattern");
+                    eprintln!("Unexpected pattern");
                     dbg!(feature);
                 }
             }

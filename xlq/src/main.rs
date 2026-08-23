@@ -16,6 +16,17 @@ mod undo;
 mod value;
 mod verify;
 
+#[cfg(test)]
+pub(crate) mod testkit;
+#[cfg(test)]
+mod tests_algebra;
+#[cfg(test)]
+mod tests_cache_soundness;
+#[cfg(test)]
+mod tests_corpus_lint;
+#[cfg(test)]
+mod tests_value_faithful;
+
 use clap::{Parser, Subcommand};
 use std::sync::Mutex;
 

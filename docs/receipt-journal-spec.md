@@ -1,11 +1,9 @@
-# Receipt Journal Format — Open Spec v0.1 (DRAFT)
+# Receipt Journal Format — Open Spec v0.2
 
-Status: **DRAFT.** This format is specified ahead of implementation; it ships
-with `xlq apply` and `xlq calc --write` in **v0.2**. Nothing in xlq v0.1
-reads or writes a journal. The draft is published now so the write path can
-be reviewed before it exists, and so other tools can weigh in on the format.
-Field names and semantics may change until the v0.2 release; after that, the
-same versioning discipline as the census spec applies.
+Status: **implemented in xlq v0.2.0.** The journal is produced and consumed by
+`apply`, `restructure`, `undo`, `log`, and `verify`. `calc` remains report-only;
+it does not write a recalc receipt. Field names and semantics follow the same
+versioning discipline as the census spec.
 
 ## Purpose
 
@@ -30,7 +28,7 @@ For a workbook `book.xlsx`, all artifacts live beside it:
 |---|---|
 | `book.xlsx` | The one authoritative working file. |
 | `book.xlsx.xlq.jsonl` | The journal: append-only JSON Lines, one receipt per line. |
-| `book.rev-N.xlsx` | Immutable history: the full workbook content produced by revision N. |
+| `book.xlsx.rev-N.xlsx` | Immutable history: the full workbook content produced by revision N. |
 | `book.xlsx.xlq.lock` | Advisory lock file, present only while a mutating command runs. |
 
 All artifacts are plain files with no absolute paths inside them, so the set
@@ -61,10 +59,10 @@ Each journal line is one JSON object:
 | Field | Type | Meaning |
 |---|---|---|
 | `rev` | integer | Revision number, starting at 1, strictly increasing by 1 per receipt. |
-| `kind` | string | `"apply"`, `"recalc"`, or `"external_edit"` (see below). |
+| `kind` | string | `"apply"`, `"restructure"`, `"undo"`, or `"external_edit"` (see below). |
 | `base_hash` | string | SHA-256 (lowercase hex) of the workbook bytes the operation started from. |
 | `result_hash` | string | SHA-256 of the workbook bytes the operation produced. |
-| `ops` | array | Typed operations performed. Empty array for `recalc` and `external_edit` receipts. |
+| `ops` | array | Typed operations performed. Undo records undo metadata; external-edit markers have an empty array. |
 | `timestamp` | string | ISO-8601 UTC instant the receipt was written. |
 | `actor` | string | Provenance: the `--actor` flag, else the `XLQ_ACTOR` environment variable, else `"unknown"`. |
 | `engine_version` | string | Engine name and version that performed the evaluation. |
@@ -93,7 +91,7 @@ file's current hash as the genesis `base_hash` and proceeds — no
 initialization command, no refusal on a journal-less file.
 
 Rev files are never overwritten. After journal loss, numbering continues
-from the highest existing `book.rev-N.xlsx` plus 1; a collision with an
+from the highest existing `book.xlsx.rev-N.xlsx` plus 1; a collision with an
 existing rev file is an **error, not an overwrite**.
 
 ### External edits (`external_edit` receipts)
@@ -167,7 +165,7 @@ Optional patch inputs:
 1. Acquire the lock (below).
 2. Verify `base_hash` against the file; verify the journal chain; run
    external-edit detection.
-3. Write `book.rev-N.xlsx` beside the original as immutable history, where
+3. Write `book.xlsx.rev-N.xlsx` beside the original as immutable history, where
    N = last receipt's rev + 1.
 4. Atomically replace `book.xlsx` with the new content after fsync — the
    original path stays the one authoritative working file; rev files are
@@ -175,17 +173,16 @@ Optional patch inputs:
 5. Append the receipt to the journal.
 6. Release the lock.
 
-`xlq calc --write` routes through the same rev-file + atomic-swap + receipt
-path — there is never a bare in-place write. Recalc receipts have
-`kind: "recalc"` and an empty `ops` array.
+There is never a bare in-place write. `calc` intentionally remains report-only,
+so no recalc-write receipt exists.
 
 ## Concurrency: the lock file
 
 Every mutating command takes an advisory lock — `book.xlsx.xlq.lock`,
-created with O_EXCL / flock — held across the whole
-check → write → swap → journal-append sequence, and fails fast with a
-defined `lock_held` error if it cannot be acquired. No waiting, no queueing:
-the caller decides whether to retry.
+created with `O_EXCL` — held across the whole check → write → swap →
+journal-append sequence, and fails fast with a defined `lock_held` error if it
+cannot be acquired. A stale lock whose recorded PID is provably dead is
+reclaimed atomically; no waiting or queueing is performed.
 
 ## Error vocabulary
 
@@ -195,16 +192,13 @@ the caller decides whether to retry.
 | `external_edit_detected` | Journal exists and the file's hash differs from the last receipt's `result_hash`. A marker receipt adopting the new hash is appended. |
 | `lock_held` | Another mutating command holds the lock. |
 
-## Draft status and known open items
+## Implementation status
 
-- The exact JSON shape of `ops` entries and of the patch file envelope is
-  the least settled part of this draft.
-- The write strategy (surgical OOXML zip patching vs. verified lossless
-  engine round-trip) is a prerequisite decision: naive re-serialization
-  would destroy pass-through parts (VBA, pivot caches, charts, styles,
-  external connections), violating the preserve-never-execute constraint.
-  Whatever is chosen must keep untouched parts byte-identical and satisfy
-  the zip-normalization requirement above.
-- The source design document's journal-integrity and apply-contract sections
-  were adversarially reviewed once, not to convergence; treat this spec
-  accordingly until the v0.2 implementation lands with its test corpus.
+- The patch envelope is published by `xlq apply --schema`; its deserializer is
+  covered by a schema/implementation parity test.
+- The implementation uses surgical OOXML zip patching: parts outside the edit's
+  required surface remain byte-identical while zip output stays deterministic for
+  hashes.
+- Journal integrity has crash-torn-tail recovery, interior-corruption refusal,
+  orphan-revision handling, exclusive locking, stale-lock reclamation,
+  external-edit adoption markers, and end-to-end log/verify/undo coverage.

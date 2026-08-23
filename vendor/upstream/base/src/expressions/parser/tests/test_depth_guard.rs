@@ -10,7 +10,11 @@ use crate::expressions::parser::Node;
 use crate::expressions::types::CellReferenceRC;
 
 fn ctx() -> CellReferenceRC {
-    CellReferenceRC { sheet: "Sheet1".to_string(), row: 1, column: 1 }
+    CellReferenceRC {
+        sheet: "Sheet1".to_string(),
+        row: 1,
+        column: 1,
+    }
 }
 
 #[test]

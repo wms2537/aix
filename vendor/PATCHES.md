@@ -3,9 +3,9 @@
 The engine under `vendor/upstream/` is IronCalc pinned at the commit recorded in
 the provenance string `ironcalc 0.7.1+e50ccea8 (vendored master)`. That string is
 now defined in exactly one place — `base/src/constants.rs` `ENGINE_PROVENANCE`
-(see §2) — and consumed by every xlq site; do not hand-copy it. The following
-LOCAL hardening patches are applied on top of that base — they are why the
-provenance string says *vendored*, and must be carried forward on any engine bump.
+(see §2) — and consumed by every xlq site; do not hand-copy it. The following LOCAL
+changes are applied on top of that base — they are why the provenance string says
+*vendored*, and must be carried forward on any engine bump.
 
 ## 1. Parser recursion-depth guard (security / robustness)
 
@@ -29,8 +29,8 @@ receipt and report has exactly one definition. Previously the literal
 The const is composed at compile time as
 `concat!("ironcalc ", env!("CARGO_PKG_VERSION"), "+e50ccea8 (vendored master)")`.
 The version segment is derived from **this crate's** `Cargo.toml` (`0.7.1`), so it
-is structurally impossible for it to disagree with the linked engine — xlq's own
-`CARGO_PKG_VERSION` is `0.1.0` and cannot supply it, which is precisely why the
+is structurally impossible for it to disagree with the linked engine; xlq has a
+separate crate/version identity, which is precisely why the
 const must live in `ironcalc_base`, not in an xlq module (the dev `[[bin]]`
 targets share no xlq library crate and reach it only through the engine dependency).
 
@@ -54,10 +54,28 @@ can be published to crates.io without colliding with upstream IronCalc:
 Both crates gained an explicit `[lib] name = …` so the LIBRARY name stays the same
 — all `use ironcalc::…` / `use ironcalc_base::…` and the `ENGINE_PROVENANCE` const
 are unaffected. `xlsx`'s dependency on the base crate now names the renamed package
-(`ironcalc_base = { package = "xlq-ironcalc-base", path = "../base", version = "0.7" }`),
+(`ironcalc_base = { package = "xlq-ironcalc-base", path = "../base", version = "=0.7.1" }`),
 and `xlq/Cargo.toml` consumes the engine as
 `ironcalc = { package = "xlq-ironcalc", path = "../vendor/upstream/xlsx", version = "=0.7.1" }`
 — the multiple-locations pattern (local `path` for dev, crates.io `version` for a
-published build), which let the old `[patch.crates-io]` section be removed. `authors`
+exact published build), which let the old `[patch.crates-io]` section be removed. `authors`
 retain the original IronCalc author (attribution) plus the xlq authors; `repository`
 points at the fork. See `PUBLISHING.md` for the publish sequence.
+
+## 4. Catalog extensions and semantic fixes
+
+The vendored base also adds locally evaluated Excel functions and corrects shared
+statistical implementations: FILTERXML; EUROCONVERT/DBCS/JIS/BAHTTEXT/PHONETIC;
+GROUPBY/PIVOTBY; all AGGREGATE modes; ENCODEURL; HYPERLINK value semantics; and
+mode/percentile/quartile fixes used by AGGREGATE. The authoritative carry-forward
+list, upstream exclusion boundary, tests, and PR text are in
+`docs/upstream/PR-GUIDE.md`.
+
+## 5. Policy-limited external execution surface
+
+Seventeen external-execution functions (`CUBE*`, `WEBSERVICE`, `RTD`,
+`STOCKHISTORY`, and related names) are deliberately argument-checked stubs that
+return desktop Excel's offline refusal literal instead of making network, OLAP,
+or native-code calls. This is xlq's local-only security policy. Keep these in the
+fork; explicitly exclude them from any upstream IronCalc contribution as directed
+by `docs/upstream/PR-GUIDE.md`.

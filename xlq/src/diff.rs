@@ -169,6 +169,128 @@ fn snap_json(snap: &CellSnap) -> serde_json::Value {
     json!({"formula": snap.formula, "value": snap.value, "raw": snap.raw})
 }
 
+/// Canonicalize the nullary boolean-constant functions (`TRUE()` and `FALSE()`) to their bare
+/// literal forms (`TRUE` and `FALSE`). They are value-identical — a real editor normalizes one to
+/// the other on save — so a faithful re-serialization must not be misclassified as a formula
+/// change. Only a whole `TRUE` or `FALSE` token immediately followed by `()` is rewritten; string
+/// literals and quoted sheet names are copied verbatim, and a token that merely starts with those
+/// letters is left untouched.
+pub(crate) fn normalize_bool_literals(f: &str) -> String {
+    let b = f.as_bytes();
+    let n = b.len();
+    let mut out = String::with_capacity(n);
+    let mut i = 0;
+    while i < n {
+        let c = b[i];
+        if c == b'"' || c == b'\'' {
+            let (q, start) = (c, i);
+            i += 1;
+            while i < n {
+                if b[i] == q {
+                    if i + 1 < n && b[i + 1] == q {
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            out.push_str(&f[start..i]);
+        } else if c.is_ascii_alphabetic() || c == b'_' {
+            let start = i;
+            while i < n && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'.') {
+                i += 1;
+            }
+            let ident = &f[start..i];
+            if ident.eq_ignore_ascii_case("TRUE") || ident.eq_ignore_ascii_case("FALSE") {
+                let mut j = i;
+                while j < n && b[j] == b' ' {
+                    j += 1;
+                }
+                if j + 1 < n && b[j] == b'(' && b[j + 1] == b')' {
+                    out.push_str(ident); // drop the () -> bare literal
+                    i = j + 2;
+                    continue;
+                }
+            }
+            out.push_str(ident);
+        } else {
+            let ch = f[i..].chars().next().unwrap();
+            let l = ch.len_utf8();
+            out.push_str(&f[i..i + l]);
+            i += l;
+        }
+    }
+    out
+}
+
+/// Canonicalize `#REF!` error references to a single bare `#REF!`, upper-cased and stripped of any
+/// vestigial sheet qualifier. When a delete CONSUMES a cross-sheet reference's target, xlq spells
+/// the result `Data!#REF!` while a real editor writes `#REF!` or lower-cases it to `data!#ref!` —
+/// all the SAME `#REF!` error value (Excel formula references are case-insensitive outside string
+/// literals, and the qualifier on an error is inert). Comparing the raw strings otherwise refuses a
+/// value-faithful edit. String literals are copied verbatim so a `"#REF!"` text is untouched.
+pub(crate) fn canonicalize_ref_errors(f: &str) -> String {
+    let b = f.as_bytes();
+    let n = b.len();
+    let mut out = String::with_capacity(n);
+    let mut i = 0;
+    while i < n {
+        let c = b[i];
+        if c == b'"' || c == b'\'' {
+            let (q, start) = (c, i);
+            i += 1;
+            while i < n {
+                if b[i] == q {
+                    if i + 1 < n && b[i + 1] == q {
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            out.push_str(&f[start..i]);
+        } else if c == b'#' && f[i..].len() >= 5 && f[i..i + 5].eq_ignore_ascii_case("#ref!") {
+            strip_trailing_qualifier(&mut out);
+            out.push_str("#REF!");
+            i += 5;
+        } else {
+            let ch = f[i..].chars().next().unwrap();
+            let l = ch.len_utf8();
+            out.push_str(&f[i..i + l]);
+            i += l;
+        }
+    }
+    out
+}
+
+/// Remove a trailing `sheetQualifier!` from `out` (a quoted `'name'!` or a bare identifier run),
+/// used to drop the inert qualifier that precedes a consumed `#REF!`.
+fn strip_trailing_qualifier(out: &mut String) {
+    if !out.ends_with('!') {
+        return;
+    }
+    let mut chars: Vec<char> = out.chars().collect();
+    chars.pop(); // the '!'
+    if chars.last() == Some(&'\'') {
+        chars.pop(); // closing quote
+        while let Some(ch) = chars.pop() {
+            if ch == '\'' {
+                break;
+            }
+        }
+    } else {
+        while matches!(chars.last(), Some(&ch) if ch.is_alphanumeric() || ch == '_' || ch == '.' || !ch.is_ascii())
+        {
+            chars.pop();
+        }
+    }
+    *out = chars.into_iter().collect();
+}
+
 /// Classify the difference between the same positional cell in two snapshots.
 /// Returns `None` when the cell is identical (nothing to report). This is the
 /// single, shared definition of the six diff kinds — reused by `certify`.
@@ -183,15 +305,24 @@ pub(crate) fn classify_kind(
     old_snap: Option<&CellSnap>,
     new_snap: Option<&CellSnap>,
 ) -> Option<&'static str> {
+    // Canonicalize value-neutral formula spellings a real editor normalizes: TRUE()/FALSE() ->
+    // TRUE/FALSE and a qualified/case-variant #REF! -> a bare #REF!.
+    let norm = |f: &str| canonicalize_ref_errors(&normalize_bool_literals(f));
     match (old_snap, new_snap) {
         (Some(o), Some(n)) => {
-            if o.formula != n.formula {
+            if o.formula.as_deref().map(norm) != n.formula.as_deref().map(norm) {
                 Some("formula")
             } else if o.formula.is_some() && o.raw != n.raw {
                 Some("cached_value")
             } else if o.formula.is_none() && o.raw != n.raw {
                 Some("value")
-            } else if o.formula.is_none() && o.value != n.value {
+            } else if o.value != n.value {
+                // Same formula (or none) and same RAW value, but a different FORMATTED rendering
+                // — a number-format change. This includes a FORMULA cell (its raw result is
+                // unchanged): benign at full precision, but a value input under
+                // `<calcPr fullPrecision="0">` (precision as displayed), where certify
+                // disqualifies it. Previously a formula cell's format-only diff returned None and
+                // was invisible.
                 Some("format")
             } else {
                 None
@@ -306,6 +437,79 @@ mod tests {
         }
         model.evaluate();
         model
+    }
+
+    #[test]
+    fn bool_literal_normalization() {
+        // REGRESSION (round-44): TRUE()/FALSE() and bare TRUE/FALSE are value-identical; a real
+        // editor normalizes one to the other, so classify_kind must not see a formula change.
+        assert_eq!(
+            normalize_bool_literals("IF(TRUE(),A1,A2)"),
+            "IF(TRUE,A1,A2)"
+        );
+        assert_eq!(
+            normalize_bool_literals("IF(false(),A1,A2)"),
+            "IF(false,A1,A2)"
+        );
+        // A genuinely different formula still differs, and a non-bool token is untouched.
+        assert_ne!(
+            normalize_bool_literals("IF(TRUE(),A1,A2)"),
+            normalize_bool_literals("IF(TRUE(),A1,A9)")
+        );
+        assert_eq!(normalize_bool_literals("TRUEISH(A1)"), "TRUEISH(A1)");
+        // A "TRUE" inside a string literal is NOT touched.
+        assert_eq!(
+            normalize_bool_literals(r#"IF(A1="TRUE()",1,0)"#),
+            r#"IF(A1="TRUE()",1,0)"#
+        );
+        // classify_kind treats the two forms as equal (not a formula diff).
+        let a = CellSnap {
+            formula: Some("=IF(TRUE,A1,A2)".into()),
+            raw: json!(5),
+            value: "5".into(),
+        };
+        let b = CellSnap {
+            formula: Some("=IF(TRUE(),A1,A2)".into()),
+            raw: json!(5),
+            value: "5".into(),
+        };
+        assert_eq!(classify_kind(Some(&a), Some(&b)), None);
+    }
+
+    #[test]
+    fn ref_error_canonicalization() {
+        // REGRESSION (round-45): a consumed cross-sheet ref becomes `Data!#REF!` (xlq) or a
+        // case/qualifier variant `data!#ref!`/`#REF!` (a real editor) — all the same #REF! error.
+        assert_eq!(
+            canonicalize_ref_errors("Data!#REF!+Data!A3"),
+            "#REF!+Data!A3"
+        );
+        assert_eq!(
+            canonicalize_ref_errors("data!#ref!+Data!A3"),
+            "#REF!+Data!A3"
+        );
+        assert_eq!(canonicalize_ref_errors("#REF!+Data!A3"), "#REF!+Data!A3");
+        assert_eq!(
+            canonicalize_ref_errors("SUM('My Sheet'!#REF!)"),
+            "SUM(#REF!)"
+        );
+        // A `#REF!` inside a STRING literal is untouched.
+        assert_eq!(
+            canonicalize_ref_errors(r#"IF(A1="Data!#REF!",1,0)"#),
+            r#"IF(A1="Data!#REF!",1,0)"#
+        );
+        // classify_kind treats the qualified and bare forms as equal.
+        let a = CellSnap {
+            formula: Some("=Data!#REF!+Data!A3".into()),
+            raw: json!("#REF!"),
+            value: "#REF!".into(),
+        };
+        let b = CellSnap {
+            formula: Some("=#REF!+Data!A3".into()),
+            raw: json!("#REF!"),
+            value: "#REF!".into(),
+        };
+        assert_eq!(classify_kind(Some(&a), Some(&b)), None);
     }
 
     #[test]

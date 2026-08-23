@@ -285,6 +285,14 @@ pub enum TokenType {
         left: ParsedReference,
         right: ParsedReference,
     },
+    /// A 3D (multi-sheet) span `Sheet1:Sheet3!A5` or `Sheet1:Sheet3!A5:B7`: the trailing reference
+    /// `left..right` applied across the inclusive workbook tab range `sheet1..=sheet2`.
+    Range3D {
+        sheet1: String,
+        sheet2: String,
+        left: ParsedReference,
+        right: ParsedReference,
+    },
     StructuredReference {
         table_name: String,
         specifier: Option<TableSpecifier>,

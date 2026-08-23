@@ -61,33 +61,27 @@ impl<'a> Model<'a> {
                     }
                 }
                 CalcResult::Range { left, right } => {
-                    if left.sheet != right.sheet {
-                        return Err(CalcResult::new_error(
-                            Error::VALUE,
-                            cell,
-                            "Ranges are in different sheets".to_string(),
-                        ));
-                    }
-
-                    for row in left.row..=right.row {
-                        for column in left.column..=right.column {
-                            match self.evaluate_cell(CellReferenceIndex {
-                                sheet: left.sheet,
-                                row,
-                                column,
-                            }) {
-                                CalcResult::Number(value) => {
-                                    f(value);
+                    // A 3D span (Sheet1:Sheet3!…) has left.sheet != right.sheet — iterate the
+                    // inclusive tab range, applying the cell range per sheet. A single-sheet range
+                    // runs the outer loop exactly once (identical behavior).
+                    for sheet in left.sheet.min(right.sheet)..=left.sheet.max(right.sheet) {
+                        for row in left.row..=right.row {
+                            for column in left.column..=right.column {
+                                match self.evaluate_cell(CellReferenceIndex { sheet, row, column })
+                                {
+                                    CalcResult::Number(value) => {
+                                        f(value);
+                                    }
+                                    error @ CalcResult::Error { .. } => return Err(error),
+                                    CalcResult::Range { .. } => {
+                                        return Err(CalcResult::new_error(
+                                            Error::ERROR,
+                                            cell,
+                                            "Unexpected Range".to_string(),
+                                        ));
+                                    }
+                                    _ => {}
                                 }
-                                error @ CalcResult::Error { .. } => return Err(error),
-                                CalcResult::Range { .. } => {
-                                    return Err(CalcResult::new_error(
-                                        Error::ERROR,
-                                        cell,
-                                        "Unexpected Range".to_string(),
-                                    ));
-                                }
-                                _ => {}
                             }
                         }
                     }
@@ -155,39 +149,31 @@ impl<'a> Model<'a> {
                     }
                 }
                 CalcResult::Range { left, right } => {
-                    if left.sheet != right.sheet {
-                        return Err(CalcResult::new_error(
-                            Error::VALUE,
-                            cell,
-                            "Ranges are in different sheets".to_string(),
-                        ));
-                    }
-
-                    for row in left.row..=right.row {
-                        for column in left.column..=right.column {
-                            match self.evaluate_cell(CellReferenceIndex {
-                                sheet: left.sheet,
-                                row,
-                                column,
-                            }) {
-                                CalcResult::Number(value) => {
-                                    f(value);
+                    // 3D span: iterate the inclusive tab range (single-sheet range loops once).
+                    for sheet in left.sheet.min(right.sheet)..=left.sheet.max(right.sheet) {
+                        for row in left.row..=right.row {
+                            for column in left.column..=right.column {
+                                match self.evaluate_cell(CellReferenceIndex { sheet, row, column })
+                                {
+                                    CalcResult::Number(value) => {
+                                        f(value);
+                                    }
+                                    CalcResult::Boolean(b) => {
+                                        f(if b { 1.0 } else { 0.0 });
+                                    }
+                                    CalcResult::String(_) => {
+                                        f(0.0);
+                                    }
+                                    error @ CalcResult::Error { .. } => return Err(error),
+                                    CalcResult::Range { .. } => {
+                                        return Err(CalcResult::new_error(
+                                            Error::ERROR,
+                                            cell,
+                                            "Unexpected Range".to_string(),
+                                        ));
+                                    }
+                                    _ => {}
                                 }
-                                CalcResult::Boolean(b) => {
-                                    f(if b { 1.0 } else { 0.0 });
-                                }
-                                CalcResult::String(_) => {
-                                    f(0.0);
-                                }
-                                error @ CalcResult::Error { .. } => return Err(error),
-                                CalcResult::Range { .. } => {
-                                    return Err(CalcResult::new_error(
-                                        Error::ERROR,
-                                        cell,
-                                        "Unexpected Range".to_string(),
-                                    ));
-                                }
-                                _ => {}
                             }
                         }
                     }
@@ -343,21 +329,15 @@ impl<'a> Model<'a> {
                     result += 1.0;
                 }
                 CalcResult::Range { left, right } => {
-                    if left.sheet != right.sheet {
-                        return CalcResult::new_error(
-                            Error::VALUE,
-                            cell,
-                            "Ranges are in different sheets".to_string(),
-                        );
-                    }
-                    for row in left.row..(right.row + 1) {
-                        for column in left.column..(right.column + 1) {
-                            if let CalcResult::Number(_) = self.evaluate_cell(CellReferenceIndex {
-                                sheet: left.sheet,
-                                row,
-                                column,
-                            }) {
-                                result += 1.0;
+                    // 3D span: iterate the inclusive tab range (single-sheet range loops once).
+                    for sheet in left.sheet.min(right.sheet)..=left.sheet.max(right.sheet) {
+                        for row in left.row..(right.row + 1) {
+                            for column in left.column..(right.column + 1) {
+                                if let CalcResult::Number(_) =
+                                    self.evaluate_cell(CellReferenceIndex { sheet, row, column })
+                                {
+                                    result += 1.0;
+                                }
                             }
                         }
                     }
@@ -379,23 +359,16 @@ impl<'a> Model<'a> {
             match self.evaluate_node_in_context(arg, cell) {
                 CalcResult::EmptyCell | CalcResult::EmptyArg => {}
                 CalcResult::Range { left, right } => {
-                    if left.sheet != right.sheet {
-                        return CalcResult::new_error(
-                            Error::VALUE,
-                            cell,
-                            "Ranges are in different sheets".to_string(),
-                        );
-                    }
-                    for row in left.row..(right.row + 1) {
-                        for column in left.column..(right.column + 1) {
-                            match self.evaluate_cell(CellReferenceIndex {
-                                sheet: left.sheet,
-                                row,
-                                column,
-                            }) {
-                                CalcResult::EmptyCell | CalcResult::EmptyArg => {}
-                                _ => {
-                                    result += 1.0;
+                    // 3D span: iterate the inclusive tab range (single-sheet range loops once).
+                    for sheet in left.sheet.min(right.sheet)..=left.sheet.max(right.sheet) {
+                        for row in left.row..(right.row + 1) {
+                            for column in left.column..(right.column + 1) {
+                                match self.evaluate_cell(CellReferenceIndex { sheet, row, column })
+                                {
+                                    CalcResult::EmptyCell | CalcResult::EmptyArg => {}
+                                    _ => {
+                                        result += 1.0;
+                                    }
                                 }
                             }
                         }

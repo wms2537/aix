@@ -511,6 +511,62 @@ fn stringify(
             );
             format!("{s1}:{s2}")
         }
+        RangeKind3D(r) => {
+            // Serialize as `Sheet1:Sheet3!A5` (or `!A5:B7`): both tab names, then the range applied
+            // per sheet (serialized WITHOUT a sheet prefix).
+            let full_row =
+                r.absolute_row1 && r.absolute_row2 && (r.row1 == 1) && (r.row2 == LAST_ROW);
+            let full_column = r.absolute_column1
+                && r.absolute_column2
+                && (r.column1 == 1)
+                && (r.column2 == LAST_COLUMN);
+            let c1 = stringify_reference(
+                context,
+                displace_data,
+                &Reference {
+                    sheet_name: &None,
+                    sheet_index: r.sheet_index1,
+                    row: r.row1,
+                    column: r.column1,
+                    absolute_row: r.absolute_row1,
+                    absolute_column: r.absolute_column1,
+                },
+                full_row,
+                full_column,
+            );
+            let range_str = if r.row1 == r.row2 && r.column1 == r.column2 {
+                c1
+            } else {
+                let c2 = stringify_reference(
+                    context,
+                    displace_data,
+                    &Reference {
+                        sheet_name: &None,
+                        sheet_index: r.sheet_index1,
+                        row: r.row2,
+                        column: r.column2,
+                        absolute_row: r.absolute_row2,
+                        absolute_column: r.absolute_column2,
+                    },
+                    full_row,
+                    full_column,
+                );
+                format!("{c1}:{c2}")
+            };
+            let n1 = quote_name(r.sheet_name1.as_deref().unwrap_or_default());
+            let n2 = quote_name(r.sheet_name2.as_deref().unwrap_or_default());
+            format!("{n1}:{n2}!{range_str}")
+        }
+        WrongRangeKind3D(r) => {
+            // A 3D span whose sheet endpoint(s) went missing — render the stored names verbatim.
+            let n1 = quote_name(r.sheet_name1.as_deref().unwrap_or_default());
+            let n2 = quote_name(r.sheet_name2.as_deref().unwrap_or_default());
+            if r.row1 == r.row2 && r.column1 == r.column2 {
+                format!("{n1}:{n2}!#REF!")
+            } else {
+                format!("{n1}:{n2}!#REF!:#REF!")
+            }
+        }
         WrongRangeKind {
             sheet_name,
             absolute_row1,
@@ -723,6 +779,8 @@ fn stringify(
                 | StringKind(_)
                 | ReferenceKind { .. }
                 | RangeKind { .. }
+                | RangeKind3D { .. }
+                | WrongRangeKind3D { .. }
                 | WrongReferenceKind { .. }
                 | DefinedNameKind(_)
                 | TableNameKind(_)
@@ -768,6 +826,8 @@ fn stringify(
                 | StringKind(_)
                 | ReferenceKind { .. }
                 | RangeKind { .. }
+                | RangeKind3D { .. }
+                | WrongRangeKind3D { .. }
                 | WrongReferenceKind { .. }
                 | DefinedNameKind(_)
                 | TableNameKind(_)
@@ -876,6 +936,8 @@ fn stringify(
                     | StringKind(_)
                     | ReferenceKind { .. }
                     | RangeKind { .. }
+                    | RangeKind3D { .. }
+                    | WrongRangeKind3D { .. }
                     | WrongReferenceKind { .. }
                     | WrongRangeKind { .. }
                     | OpRangeKind { .. }
@@ -1103,6 +1165,26 @@ pub(crate) fn rename_sheet_in_node(node: &mut Node, sheet_index: u32, new_name: 
                 *sheet_name = Some(new_name.to_owned());
             }
         }
+        Node::RangeKind3D(r) => {
+            if r.sheet_index1 == sheet_index && r.sheet_name1.is_some() {
+                r.sheet_name1 = Some(new_name.to_owned());
+            }
+            if r.sheet_index2 == sheet_index && r.sheet_name2.is_some() {
+                r.sheet_name2 = Some(new_name.to_owned());
+            }
+        }
+        Node::WrongRangeKind3D(r) => {
+            if let Some(name) = &r.sheet_name1 {
+                if name.to_uppercase() == new_name.to_uppercase() {
+                    r.sheet_name1 = Some(name.to_owned());
+                }
+            }
+            if let Some(name) = &r.sheet_name2 {
+                if name.to_uppercase() == new_name.to_uppercase() {
+                    r.sheet_name2 = Some(name.to_owned());
+                }
+            }
+        }
 
         // Go next level
         Node::OpRangeKind { left, right } => {
@@ -1280,6 +1362,8 @@ pub(crate) fn rename_defined_name_in_node(
         Node::EmptyArgKind => {}
         Node::ReferenceKind { .. } => {}
         Node::RangeKind { .. } => {}
+        Node::RangeKind3D { .. } => {}
+        Node::WrongRangeKind3D { .. } => {}
         Node::WrongReferenceKind { .. } => {}
         Node::WrongRangeKind { .. } => {}
         Node::TableNameKind(_) => {}

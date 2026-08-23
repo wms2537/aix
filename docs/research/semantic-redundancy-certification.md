@@ -294,3 +294,13 @@ cosmetic-reformat corner is genuinely low-stakes.
 - The composition rule (structural ⊸ value) + router enforcement, formalized.
 - The minimal trusted-checker TCB as a shipped `xlq certify` tool + audit.
 - Tier-2 coincidence bound (with insert∘delete=id as a verified constraint).
+
+## Status addendum (2026-08-23)
+
+Two items above are closed: `xlq certify` is shipped and completed a 74-round
+reference-completeness audit with two consecutive dry rounds, and the Tier-2
+coincidence bounds are measured/reproduced in the artifact package. `CopyEdits.lean`
+also characterizes the reused-witnessed-skeleton middle ground. Still open are
+formalizing the structural→value composition rule/router enforcement, verifying the
+Rust byte-to-token parser itself rather than differential validation alone, and
+per-file adaptive Tier-2 sampling.

@@ -85,13 +85,25 @@ pub enum Shift {
     Ref,
 }
 
+/// The last valid 1-based index on an axis: row 1048576, column XFD (16384).
+pub(crate) fn grid_max(axis: Axis) -> u32 {
+    match axis {
+        Axis::Row => 1_048_576,
+        Axis::Col => 16_384,
+    }
+}
+
 /// Shift a single 1-based line index (row number or column number) on the
 /// edit's axis. Returns `Some(new_index)` or `None` if that single line is
-/// consumed by a delete.
-fn shift_index(pos: u32, edit: &StructuralEdit) -> Option<u32> {
+/// consumed by a delete, or (for insert) pushed past the last row/column — an
+/// overflow is #REF!, never a silently out-of-grid reference.
+pub(crate) fn shift_index(pos: u32, edit: &StructuralEdit) -> Option<u32> {
     let (k, n) = (edit.at, edit.count);
     match edit.op {
-        Op::Insert => Some(if pos >= k { pos + n } else { pos }),
+        Op::Insert => {
+            let np = if pos >= k { pos + n } else { pos };
+            (np <= grid_max(edit.axis)).then_some(np)
+        }
         Op::Delete => {
             if pos < k {
                 Some(pos)
@@ -115,7 +127,16 @@ fn shift_span(head: u32, tail: u32, edit: &StructuralEdit) -> Option<(u32, u32)>
             // Independent per-endpoint (C2): reproduces grow/shift/asymmetry.
             let h = if head >= k { head + n } else { head };
             let t = if tail >= k { tail + n } else { tail };
-            Some((h, t))
+            let max = grid_max(edit.axis);
+            if h > max {
+                // The whole range starts past the last row/column -> #REF!.
+                None
+            } else {
+                // A range whose TAIL overflows is clamped to the last line: a full-height
+                // range (e.g. SUM(A2:A1048576)) cannot grow past the grid, so it stays valid
+                // — #REF!-ing it would silently turn a real value into an error.
+                Some((h, t.min(max)))
+            }
         }
         Op::Delete => {
             let band_end = k + n; // exclusive
@@ -139,15 +160,28 @@ fn shift_span(head: u32, tail: u32, edit: &StructuralEdit) -> Option<(u32, u32)>
         }
         Op::Move => {
             // Both endpoints map under σ. σ is monotone WITHIN each contiguous
-            // region but reorders regions, so a range whose endpoints land out of
-            // order (h' > t') STRADDLES the move boundary and cannot be a shifted
-            // rectangle. We return None (→ #REF!) for that case; the command layer
-            // detects it as a `move_straddles_range` residual and refuses BEFORE
-            // committing, so a straddle is never silently emitted. Non-straddle
-            // ranges (h' <= t') are the shifted rectangle [h', t'].
+            // region but reorders regions, so a range that STRADDLES the move
+            // boundary cannot be a shifted rectangle. A straddle can leave the
+            // endpoints in order (h' <= t') yet SPREAD them apart — enlarging the
+            // range (e.g. A4:A6 → A4:A18) and silently changing every dependent
+            // value. So a Move range is a valid rectangle ONLY if it moves rigidly:
+            // endpoints stay ordered AND the span size is preserved. Otherwise we
+            // return None (→ #REF!); the command layer detects it as a
+            // `move_straddles_range` residual and refuses BEFORE committing.
+            //
+            // FIRST, the invariant case: a range that fully CONTAINS the moved block AND its
+            // destination only permutes its rows internally — the cell SET is unchanged, so
+            // the range stays [head, tail]. The endpoint-size check alone would refuse it
+            // (a displaced endpoint breaks the size relation) even though it is value-safe.
+            let block_end = k + n - 1;
+            let contains_move =
+                head <= k && block_end <= tail && edit.dest >= head && edit.dest <= tail + 1;
+            if contains_move {
+                return Some((head, tail));
+            }
             let h = move_row_sigma(head, k, n, edit.dest);
             let t = move_row_sigma(tail, k, n, edit.dest);
-            if h <= t {
+            if h <= t && t - h == tail - head {
                 Some((h, t))
             } else {
                 None
@@ -227,8 +261,12 @@ pub fn num_to_col(mut n: u32) -> String {
 fn parse_endpoint(s: &str) -> Option<(bool, Option<u32>, bool, Option<u32>)> {
     let b = s.as_bytes();
     let mut i = 0;
-    let col_abs = i < b.len() && b[i] == b'$';
-    if col_abs {
+    // Tentatively read a leading '$'. It is the COLUMN-absolute marker only if a column
+    // letter follows; for a whole-ROW endpoint (`$5`) there is no column, so that same '$'
+    // is the ROW-absolute marker. Attributing it eagerly to the column left `$5:$10`
+    // unparseable (col_abs with no col) and the whole range was committed STALE.
+    let first_dollar = i < b.len() && b[i] == b'$';
+    if first_dollar {
         i += 1;
     }
     let col_start = i;
@@ -240,9 +278,17 @@ fn parse_endpoint(s: &str) -> Option<(bool, Option<u32>, bool, Option<u32>)> {
     } else {
         None
     };
-    let row_abs = i < b.len() && b[i] == b'$';
-    if row_abs {
-        i += 1;
+    // If a column is present the leading '$' was its marker; otherwise it belongs to the row.
+    let (col_abs, mut row_abs) = if col.is_some() {
+        (first_dollar, false)
+    } else {
+        (false, first_dollar)
+    };
+    if col.is_some() {
+        row_abs = i < b.len() && b[i] == b'$';
+        if row_abs {
+            i += 1;
+        }
     }
     let row_start = i;
     while i < b.len() && b[i].is_ascii_digit() {
@@ -287,6 +333,10 @@ fn fmt_endpoint(col_abs: bool, col: Option<u32>, row_abs: bool, row: Option<u32>
 /// `head:tail` range. Returns the new body, or `#REF!`, or None if unchanged.
 fn shift_body(body: &str, edit: &StructuralEdit) -> Shift {
     if let Some((h, t)) = body.split_once(':') {
+        // Excel/IronCalc accept whitespace around the range colon (`A2 : A8`); trim it so
+        // the endpoints parse and the range shifts (and normalizes to `A3:A9`) — otherwise
+        // parse_endpoint fails on the padded token and the whole range is left stale.
+        let (h, t) = (h.trim(), t.trim());
         let hp = parse_endpoint(h);
         let tp = parse_endpoint(t);
         let (hp, tp) = match (hp, tp) {
@@ -452,6 +502,32 @@ fn utf8_len(b0: u8) -> usize {
     }
 }
 
+/// Would a reference token be allowed to START at the current position, given the previously
+/// emitted char `prev`? A reference candidate must be preceded by a NON-identifier char, so we
+/// never grab the digits of a numeric literal or the cell-shaped tail of a NAME. Excel names
+/// admit ASCII word chars, `.`, a leading/embedded backslash, and Unicode letters/digits — plus
+/// `$`/`!`/`'` are reference syntax that also continues a token. A preceding non-ASCII scalar in
+/// a formula body is only ever a name char here (operators/functions are ASCII; a non-ASCII
+/// sheet qualifier is fail-closed upstream; string literals are skipped), so it continues the
+/// name. SINGLE SOURCE OF TRUTH for both `shift_formula` and `offset_formula` — the two drifted
+/// once (offset_formula lacked the `\`/non-ASCII clauses, mis-shifting `名A5`→`名A6` in a
+/// materialized shared-formula dependent), which this shared predicate prevents.
+fn ref_start_boundary(prev: Option<char>) -> bool {
+    match prev {
+        None => true,
+        Some(p) => {
+            !(p.is_ascii_alphanumeric()
+                || p == '_'
+                || p == '.'
+                || p == '$'
+                || p == '!'
+                || p == '\''
+                || p == '\\'
+                || !p.is_ascii())
+        }
+    }
+}
+
 pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) -> (String, u32) {
     let b = formula.as_bytes();
     let mut out = String::with_capacity(formula.len());
@@ -480,22 +556,10 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
             }
             continue;
         }
-        // a reference candidate begins at a sheet qualifier or a column letter
-        // or a '$' or a digit (whole-row like 5:5) — but only if the previous
-        // emitted char isn't part of an identifier/number (so we don't grab the
-        // digits of a numeric literal or the tail of a name).
-        let prev = out.chars().last();
-        let boundary = match prev {
-            None => true,
-            Some(p) => {
-                !(p.is_ascii_alphanumeric()
-                    || p == '_'
-                    || p == '.'
-                    || p == '$'
-                    || p == '!'
-                    || p == '\'')
-            }
-        };
+        // A reference candidate begins at a sheet qualifier / column letter / `$` / digit —
+        // but only at a token boundary, so it is not glued to the tail of a NAME (`売上A5`,
+        // `\A5`). Boundary predicate shared with offset_formula (see ref_start_boundary).
+        let boundary = ref_start_boundary(out.chars().last());
         if boundary
             && (c == b'\''
                 || c == b'['
@@ -519,6 +583,174 @@ pub fn shift_formula(formula: &str, current_sheet: &str, edit: &StructuralEdit) 
         i += l;
     }
     (out, shifted)
+}
+
+/// The (col_lo, col_hi, row_lo, row_hi) 1-based grid box a reference BODY spans (a single cell is a
+/// degenerate 1x1 box; a whole-row range `5:10` spans all columns; a whole-column range `A:B` spans
+/// all rows). None if the body is not a clean A1 reference.
+fn ref_box(body: &str) -> Option<(u32, u32, u32, u32)> {
+    let (h, t) = match body.split_once(':') {
+        Some((h, t)) => (h.trim(), t.trim()),
+        None => (body, body),
+    };
+    let hp = parse_endpoint(h)?;
+    let tp = parse_endpoint(t)?;
+    let (col_lo, col_hi) = match (hp.1, tp.1) {
+        (Some(a), Some(b)) => (a.min(b), a.max(b)),
+        (None, None) => (1, 16384), // whole-row range: every column
+        _ => return None,
+    };
+    let (row_lo, row_hi) = match (hp.3, tp.3) {
+        (Some(a), Some(b)) => (a.min(b), a.max(b)),
+        (None, None) => (1, 1_048_576), // whole-column range: every row
+        _ => return None,
+    };
+    Some((col_lo, col_hi, row_lo, row_hi))
+}
+
+/// Whether a single reference `token` (possibly sheet-qualified) covers the target cell.
+fn ref_token_covers(
+    token: &str,
+    home_sheet: &str,
+    target_sheet: &str,
+    target_col: u32,
+    target_row: u32,
+    sheets: &[String],
+) -> bool {
+    if token.starts_with('[') {
+        return false; // external-workbook reference — never our cell
+    }
+    let (sheet_matches, body) = if let Some(bang) = token.rfind('!') {
+        let (sheet_part, rest) = token.split_at(bang);
+        let target = unquote_sheet(sheet_part);
+        let m = if let Some((s1, s2)) = target.split_once(':') {
+            // A 3D span `S1:S2!ref` references the cell on EVERY sheet in the span's tab-order range,
+            // not just the two named endpoints (the vendored engine now evaluates 3D-span aggregates
+            // across the interior, so an interior-sheet consumer is a real dependency). With the
+            // ordered sheet list, resolve both endpoints to their tab indices and cover any target
+            // whose index lies within [min..=max]; fail-closed (cover) if an endpoint is unresolved.
+            let (s1, s2) = (s1.trim(), s2.trim());
+            if sheets.is_empty() {
+                eq_sheet(s1, target_sheet) || eq_sheet(s2, target_sheet)
+            } else {
+                let idx = |nm: &str| sheets.iter().position(|s| eq_sheet(s, nm));
+                match (idx(s1), idx(s2), idx(target_sheet)) {
+                    (Some(a), Some(b), Some(t)) => (a.min(b)..=a.max(b)).contains(&t),
+                    _ => true,
+                }
+            }
+        } else {
+            eq_sheet(&target, target_sheet)
+        };
+        (m, &rest[1..])
+    } else {
+        (eq_sheet(home_sheet, target_sheet), token)
+    };
+    if !sheet_matches {
+        return false;
+    }
+    match ref_box(body) {
+        Some((cl, ch, rl, rh)) => {
+            (cl..=ch).contains(&target_col) && (rl..=rh).contains(&target_row)
+        }
+        None => true, // sheet matches but body opaque -> conservatively a potential reference
+    }
+}
+
+/// True if `body` is EXACTLY a single (optionally sheet-qualified) A1 reference or range — the only
+/// defined-name refers-to form the vendored engine can faithfully resolve. A constant, an expression
+/// or function call (a dynamic OFFSET/INDIRECT name), a union (`A1,B2`), or a reference to another
+/// name yields InvalidDefinedNameFormula (#NAME?) in the engine — so a name whose body is NOT a plain
+/// ref is UNEVALUABLE and any cell using it is unvouchable (round-64). Used by the cache oracle.
+pub(crate) fn is_plain_reference(body: &str) -> bool {
+    let mut s = body.trim();
+    if let Some(rest) = s.strip_prefix('=') {
+        s = rest.trim();
+    }
+    if s.is_empty() || s.starts_with('[') {
+        return false; // empty, or an external-workbook ref the engine cannot vouch as local
+    }
+    let Some(body_start) = parse_ref_prefix(s) else {
+        return false;
+    };
+    let (body_len, is_ref) = scan_ref_body(&s[body_start..]);
+    // The ENTIRE trimmed body must be consumed as ONE reference token (no trailing operator/args).
+    is_ref && body_len > 0 && body_start + body_len == s.len()
+}
+
+/// True if `formula` (living on `home_sheet`) references the cell at (`target_sheet`, 1-based
+/// `target_col`, `target_row`) — directly, or via a range / whole-row / whole-column that CONTAINS
+/// it. A SOUND over-approximation for fail-closed reachability: it walks references with the same
+/// boundary/tokenizer logic as [`shift_formula`], and a token it cannot cleanly parse (but whose
+/// sheet matches) is treated as a potential reference. It therefore never UNDER-reports a dependency
+/// (it may over-report, which only over-refuses). Defined-name and structured (table) references are
+/// not resolved here — a caller relying on transitive closure through those must handle them
+/// separately (as `defined_names_reaching` does for names). `sheets` is the workbook's tab-ordered
+/// sheet-name list, used to resolve a 3D span's INTERIOR sheets (empty = endpoint-only, no interior).
+pub(crate) fn formula_references_cell(
+    formula: &str,
+    home_sheet: &str,
+    target_sheet: &str,
+    target_col: u32,
+    target_row: u32,
+    sheets: &[String],
+) -> bool {
+    let b = formula.as_bytes();
+    let mut prev: Option<char> = None;
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c == b'"' {
+            // Skip a string literal (with `""` escapes) — a ref inside it is not a reference.
+            i += 1;
+            while i < b.len() {
+                if b[i] == b'"' {
+                    i += 1;
+                    if i < b.len() && b[i] == b'"' {
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                i += utf8_len(b[i]);
+            }
+            prev = Some('"');
+            continue;
+        }
+        if ref_start_boundary(prev)
+            && (c == b'\''
+                || c == b'['
+                || c.is_ascii_alphabetic()
+                || c == b'$'
+                || c.is_ascii_digit())
+        {
+            let s = &formula[i..];
+            if let Some(body_start) = parse_ref_prefix(s) {
+                let (body_len, is_ref) = scan_ref_body(&s[body_start..]);
+                if is_ref && body_len > 0 {
+                    let total = body_start + body_len;
+                    let token = &s[..total];
+                    if ref_token_covers(
+                        token,
+                        home_sheet,
+                        target_sheet,
+                        target_col,
+                        target_row,
+                        sheets,
+                    ) {
+                        return true;
+                    }
+                    prev = token.chars().last();
+                    i += total;
+                    continue;
+                }
+            }
+        }
+        let l = utf8_len(c);
+        prev = formula[i..i + l].chars().next();
+        i += l;
+    }
+    false
 }
 
 /// True if `f` contains an UNQUOTED sheet qualifier (`…!`) whose name token
@@ -608,6 +840,128 @@ pub fn has_unquoted_non_ascii_qualifier(f: &str) -> bool {
         }
     }
     false
+}
+
+/// Replace every reference qualified by an UNQUOTED, NON-ASCII sheet name
+/// (`集計!A5`, `A1計!B2`) with a neutral `0`, leaving all other references
+/// untouched. Returns `None` when the formula carries a non-ASCII 3D SPAN
+/// qualifier (`集計:売上!A5`) — such a span may enclose the edited sheet as an
+/// interior tab, so it cannot be neutralized soundly and the caller must
+/// fall back to refusing.
+///
+/// This lets a caller decide, on an ASCII-named EDITED sheet, whether an edit
+/// touches a formula that also carries non-ASCII qualifiers: a non-ASCII
+/// qualifier cannot name the (ASCII) edited sheet, so it references a sheet the
+/// edit never moves. After neutralizing those refs, `shift_formula` sees only
+/// the ASCII/unqualified (edited-sheet) references and reliably reports whether
+/// the edit shifts any of them. The back-walk captures the FULL qualifier —
+/// including an ASCII cell-like prefix such as `A1` in `A1計!` — so the danger
+/// of `shift_formula` mis-tokenizing that prefix as an edited-sheet cell is
+/// removed along with the rest of the qualified reference.
+pub(crate) fn neutralize_non_ascii_quals(f: &str) -> Option<String> {
+    let b = f.as_bytes();
+    // Pass 1: collect [qualifier_start, ref_end) spans of non-ASCII-qualified refs.
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'"' => {
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'"' {
+                        if i + 1 < b.len() && b[i + 1] == b'"' {
+                            i += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'\'' => {
+                // Quoted qualifier — safe (shift_formula parses it); skip verbatim.
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'\'' {
+                        if i + 1 < b.len() && b[i + 1] == b'\'' {
+                            i += 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    i += 1;
+                }
+                i += 1;
+            }
+            b'!' => {
+                // Back-walk the unquoted qualifier token (same delimiter set as
+                // has_unquoted_non_ascii_qualifier; ':' stays IN the token so a
+                // 3D span is captured whole).
+                let mut j = i;
+                while j > 0 {
+                    let p = b[j - 1];
+                    if p < 0x80
+                        && matches!(
+                            p,
+                            b'(' | b')'
+                                | b','
+                                | b'+'
+                                | b'-'
+                                | b'*'
+                                | b'/'
+                                | b'^'
+                                | b'&'
+                                | b'='
+                                | b'<'
+                                | b'>'
+                                | b';'
+                                | b' '
+                                | b'{'
+                                | b'}'
+                                | b'%'
+                                | b'"'
+                                | b'\''
+                        )
+                    {
+                        break;
+                    }
+                    j -= 1;
+                }
+                if b[j..i].iter().any(|&c| c >= 0x80) {
+                    if b[j..i].contains(&b':') {
+                        // Non-ASCII 3D span: may enclose the edited sheet — cannot relax.
+                        return None;
+                    }
+                    // Ref body after '!': A1-style cell/range chars.
+                    let mut k = i + 1;
+                    while k < b.len()
+                        && (b[k].is_ascii_alphanumeric() || b[k] == b'$' || b[k] == b':')
+                    {
+                        k += 1;
+                    }
+                    spans.push((j, k));
+                    i = k;
+                    continue;
+                }
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    if spans.is_empty() {
+        return Some(f.to_string());
+    }
+    // Pass 2: rebuild, replacing each recorded span with a neutral `0`.
+    let mut out = String::with_capacity(f.len());
+    let mut pos = 0;
+    for (s, e) in spans {
+        out.push_str(&f[pos..s]);
+        out.push('0');
+        pos = e;
+    }
+    out.push_str(&f[pos..]);
+    Some(out)
 }
 
 /// Parse the optional `[n]` external prefix and `'sheet'!`/`sheet!` qualifier
@@ -710,18 +1064,9 @@ pub fn offset_formula(formula: &str, dr: i64, dc: i64) -> String {
             }
             continue;
         }
-        let prev = out.chars().last();
-        let boundary = match prev {
-            None => true,
-            Some(p) => {
-                !(p.is_ascii_alphanumeric()
-                    || p == '_'
-                    || p == '.'
-                    || p == '$'
-                    || p == '!'
-                    || p == '\'')
-            }
-        };
+        // Same boundary predicate as shift_formula (shared): a candidate glued to a NAME's tail
+        // (`名A5`, `\A5`) must NOT be offset as a relative ref — the bug this shared fn prevents.
+        let boundary = ref_start_boundary(out.chars().last());
         if boundary
             && (c == b'\''
                 || c == b'['
@@ -760,8 +1105,12 @@ fn offset_endpoint(ep: (bool, Option<u32>, bool, Option<u32>), dr: i64, dc: i64)
     let new_col = match (col, col_abs) {
         (Some(c), false) => {
             let v = c as i64 + dc;
-            if v < 1 {
-                return None; // driven off-sheet → #REF!
+            // Off-sheet in EITHER direction is #REF! — below column A, or past XFD (16384).
+            // The upper clamp mirrors shift_index/shift_span; without it a shared dependent
+            // materialized an off-grid token (XFE1) instead of #REF!, invalid output that also
+            // changed the error class #REF!→#NAME?.
+            if v < 1 || v > grid_max(Axis::Col) as i64 {
+                return None;
             }
             Some(v as u32)
         }
@@ -770,7 +1119,7 @@ fn offset_endpoint(ep: (bool, Option<u32>, bool, Option<u32>), dr: i64, dc: i64)
     let new_row = match (row, row_abs) {
         (Some(r), false) => {
             let v = r as i64 + dr;
-            if v < 1 {
+            if v < 1 || v > grid_max(Axis::Row) as i64 {
                 return None;
             }
             Some(v as u32)
@@ -840,25 +1189,48 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
         return (0, false);
     }
     let sb = s.as_bytes();
-    // A reference immediately followed by a letter, '_', or '(' is NOT a reference:
+    // A reference immediately followed by a letter, '_', '.', or '(' is NOT a reference:
     //  - letter/'_' -> the head of a longer identifier (`BIN2DEC`: prefix `BIN2`
     //    scans as col BIN row 2; a row insert would corrupt it to `BIN3DEC`).
+    //  - '.' -> a defined name with a period (`A1.tax`, legal in Excel): its `A1` prefix
+    //    scans as a live cell and a row insert would corrupt the NAME to `A2.tax` (→
+    //    `#NAME?`). This matches shift_formula's own boundary predicate, which treats '.'
+    //    as identifier-continuation.
     //  - '(' -> a function call whose name ends in a digit (`LOG10(...)`: `LOG10`
     //    scans as col LOG row 10; a row insert would corrupt it to `LOG11`).
     // Excel cell refs are never immediately followed by any of these.
     let ident_tail = |end: usize| {
-        end < sb.len() && (sb[end].is_ascii_alphabetic() || sb[end] == b'_' || sb[end] == b'(')
+        end < sb.len()
+            && (sb[end].is_ascii_alphabetic()
+                || sb[end] == b'_'
+                || sb[end] == b'.'
+                || sb[end] == b'(')
     };
-    // range?
-    if sb.get(l1) == Some(&b':') {
-        let (l2, c2, r2) = scan_endpoint(&s[l1 + 1..]);
+    // range? Excel/IronCalc accept whitespace around the range colon (`A2 : A8` is the
+    // range A2:A8), so we must skip it — otherwise the head and tail tokenize as two
+    // independent single cells and shift separately, bypassing shift_span's straddle
+    // residual and delete clamp (a silent value corruption). Whitespace here is ANY of
+    // space/tab/newline/CR — Excel's formula bar (Alt+Enter) writes a newline, e.g.
+    // `A1\n:A10`; skipping only 0x20 left those tail cells to #REF! silently. (Whitespace
+    // with NO colon is the intersection operator, a different construct, and is left alone.)
+    let is_ws = |b: Option<&u8>| matches!(b, Some(b' ' | b'\t' | b'\n' | b'\r'));
+    let mut colon = l1;
+    while is_ws(sb.get(colon)) {
+        colon += 1;
+    }
+    if sb.get(colon) == Some(&b':') {
+        let mut tail_start = colon + 1;
+        while is_ws(sb.get(tail_start)) {
+            tail_start += 1;
+        }
+        let (l2, c2, r2) = scan_endpoint(&s[tail_start..]);
         if l2 > 0 {
             // A valid range is one of three KINDS, both endpoints the same kind:
             //   full-cell : A1:B2  (col AND row on both)
             //   whole-col : A:C    (col only on both)   -> shifts under col ops
             //   whole-row : 1:5    (row only on both)   -> shifts under row ops
             // Mixed forms (A1:B, A:B2) are not valid Excel refs.
-            let total = l1 + 1 + l2;
+            let total = tail_start + l2;
             let both_full = (c1 && r1) && (c2 && r2);
             let both_wholecol = (c1 && !r1) && (c2 && !r2);
             let both_wholerow = (!c1 && r1) && (!c2 && r2);
@@ -879,12 +1251,149 @@ fn scan_ref_body(s: &str) -> (usize, bool) {
     (l1, c1 && r1 && !ident_tail(l1))
 }
 
-/// Detect a 3D span reference (`SheetA:SheetB!…`) in a formula whose endpoint
-/// sheets do NOT include the edited sheet. Such a span may cover the edited
-/// sheet as an INTERIOR tab (which we cannot verify without workbook order), so
-/// its shift is unverifiable and the edit must be refused rather than silently
-/// left stale. Returns true if such an unverifiable 3D span is present.
-pub fn has_unverifiable_3d_span(formula: &str, edited_sheet: &str) -> bool {
+/// Walk back from `end` over ONE sheet-qualifier token — a quoted `'…'` (handling `''`
+/// escapes) or an unquoted run of `[A-Za-z0-9_.]` — and return its start byte index.
+fn walk_qual_token_back(b: &[u8], end: usize) -> usize {
+    if end == 0 {
+        return 0;
+    }
+    if b[end - 1] == b'\'' {
+        let mut j = end - 1;
+        while j > 0 {
+            j -= 1;
+            if b[j] == b'\'' {
+                if j > 0 && b[j - 1] == b'\'' {
+                    j -= 1; // an escaped '' — keep walking
+                    continue;
+                }
+                return j; // the opening quote
+            }
+        }
+        j
+    } else {
+        let mut j = end;
+        while j > 0 {
+            let c = b[j - 1];
+            if c.is_ascii_alphanumeric() || c == b'_' || c == b'.' {
+                j -= 1;
+            } else {
+                break;
+            }
+        }
+        j
+    }
+}
+
+/// Walk back over a WHOLE sheet qualifier — one or more tokens joined by top-level `:`
+/// (`Sheet1:Sheet2`, `'A':'B'`, `A:'B'`) — returning its start byte index. A fully-quoted span
+/// (`'A:B'`) is a single quoted token here; its interior `:` is handled by the splitter.
+fn walk_full_qualifier_back(b: &[u8], end: usize) -> usize {
+    let mut pos = end;
+    loop {
+        let tok_start = walk_qual_token_back(b, pos);
+        if tok_start == pos {
+            break; // consumed nothing
+        }
+        pos = tok_start;
+        if pos > 0 && b[pos - 1] == b':' {
+            pos -= 1; // a span separator between two tokens — keep walking
+            continue;
+        }
+        break;
+    }
+    pos
+}
+
+/// Split a sheet qualifier into 3D-span endpoints, or None if it is a single sheet. Handles a
+/// top-level `:` between tokens (`Sheet1:Sheet2`, `'A':'B'`, `Sheet1:'Sheet2'`) AND a fully
+/// quoted span whose `:` is INSIDE the quotes (`'A-Sheet:B-Sheet'`). Endpoints are normalized.
+fn split_span_qualifier(qual: &str) -> Option<(String, String)> {
+    let qual = qual.trim();
+    let b = qual.as_bytes();
+    let mut in_q = false;
+    let mut k = 0;
+    while k < b.len() {
+        match b[k] {
+            b'\'' => {
+                if in_q && b.get(k + 1) == Some(&b'\'') {
+                    k += 2; // '' escape
+                    continue;
+                }
+                in_q = !in_q;
+            }
+            b':' if !in_q => {
+                return Some((
+                    normalize_sheet_token(&qual[..k]),
+                    normalize_sheet_token(&qual[k + 1..]),
+                ));
+            }
+            _ => {}
+        }
+        k += 1;
+    }
+    // No top-level `:` — a fully-quoted span `'X:Y'` carries its `:` inside the single token.
+    if qual.len() >= 2 && qual.starts_with('\'') && qual.ends_with('\'') {
+        let inner = &qual[1..qual.len() - 1];
+        if let Some((a, c)) = inner.split_once(':') {
+            return Some((
+                a.replace("''", "'").trim().to_string(),
+                c.replace("''", "'").trim().to_string(),
+            ));
+        }
+    }
+    None
+}
+
+/// Normalize a parsed sheet-qualifier token to the bare sheet name: strip surrounding quotes
+/// and unescape `''` -> `'`.
+fn normalize_sheet_token(raw: &str) -> String {
+    let t = raw.trim();
+    let t = t
+        .strip_prefix('\'')
+        .and_then(|s| s.strip_suffix('\''))
+        .unwrap_or(t);
+    t.replace("''", "'")
+}
+
+/// The leading ASCII cell/range reference of `after` (the text just past a span's `!`) shifts
+/// under `edit` on `sheet`. An unparseable/empty ref fails closed (true).
+fn span_ref_shifts(after: &str, sheet: &str, edit: &StructuralEdit) -> bool {
+    let refstr: String = after
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '$' || *c == ':')
+        .collect();
+    if refstr.is_empty() {
+        return true;
+    }
+    shift_formula(&refstr, sheet, edit).0 != refstr
+}
+
+/// True if the edited sheet lies WITHIN the tab range `[s1..s2]` (inclusive) of a 3D span. An
+/// endpoint name absent from the workbook order, or an edited sheet absent from it, fails
+/// closed (true) — we cannot rule out coverage.
+fn span_covers_edited(s1: &str, s2: &str, order: &[String], edited: &str) -> bool {
+    let idx = |name: &str| order.iter().position(|s| s.eq_ignore_ascii_case(name));
+    let (Some(i1), Some(i2), Some(ie)) = (idx(s1), idx(s2), idx(edited)) else {
+        return true;
+    };
+    let (lo, hi) = if i1 <= i2 { (i1, i2) } else { (i2, i1) };
+    lo <= ie && ie <= hi
+}
+
+/// Detect a 3D span reference (`SheetA:SheetB!…`) the edit cannot faithfully shift: a genuine
+/// multi-sheet span whose single shared coordinate the edit would MOVE while the edited sheet
+/// lies WITHIN the span's tab range. Such a shift moves cells on only the edited tab, so
+/// applying the new coordinate across the whole span orphans the other tabs' data — a silent
+/// value change; the edit must be refused. Requires the workbook `sheet_order` (to place the
+/// edited sheet relative to the span's endpoints) and `edit` (to test whether the referenced
+/// cell actually moves). Returns true only when both hold — an edit OUTSIDE the span, or one
+/// that moves nothing the span references, is safe. A self-span (`Sheet1:Sheet1`) is a normal
+/// reference. Partial/mixed quoting (`Sheet1:'Sheet2'!`) is parsed correctly.
+pub fn has_unverifiable_3d_span(
+    formula: &str,
+    sheet_order: &[String],
+    edit: &StructuralEdit,
+) -> bool {
     let b = formula.as_bytes();
     let mut i = 0;
     while i < b.len() {
@@ -904,31 +1413,56 @@ pub fn has_unverifiable_3d_span(formula: &str, edited_sheet: &str) -> bool {
             }
             continue;
         }
-        // look for a bang; the token before it may be a 3D span "A:B"
+        // A `!` ends a sheet qualifier; the token(s) before it may be a 3D span `A:B`. Walk
+        // back the last token, then — handling `A:B`, `'A':'B'`, `A:'B'`, `'A':B` — the span
+        // partner if a top-level `:` precedes it.
         if b[i] == b'!' {
-            // walk back over the sheet qualifier (letters/digits/_/./:/space/')
-            let mut j = i;
-            while j > 0 {
-                let c = b[j - 1];
-                if c.is_ascii_alphanumeric()
-                    || c == b'_'
-                    || c == b'.'
-                    || c == b':'
-                    || c == b' '
-                    || c == b'\''
+            let qstart = walk_full_qualifier_back(b, i);
+            if let Some((s1, s2)) = split_span_qualifier(&formula[qstart..i]) {
+                if !s1.eq_ignore_ascii_case(&s2)
+                    && span_covers_edited(&s1, &s2, sheet_order, &edit.sheet)
+                    && span_ref_shifts(&formula[i + 1..], &edit.sheet, edit)
                 {
-                    j -= 1;
-                } else {
-                    break;
+                    return true;
                 }
             }
-            let qual = &formula[j..i];
-            if let Some((s1, s2)) = qual.split_once(':') {
-                let s1 = s1.trim().trim_matches('\'');
-                let s2 = s2.trim().trim_matches('\'');
-                if !s1.eq_ignore_ascii_case(edited_sheet) && !s2.eq_ignore_ascii_case(edited_sheet)
-                {
-                    return true; // 3D span not anchored on the edited sheet
+        }
+        i += 1;
+    }
+    false
+}
+
+/// True if the formula contains ANY 3D (multi-sheet) span reference `SheetA:SheetB!…` with
+/// DISTINCT endpoints. The vendored engine now EVALUATES 3D-span aggregates (SUM/AVERAGE/COUNT/MIN/
+/// MAX/… iterate the tab-order range), so the oracle value-gates a span cell: it stays vouchable when
+/// the engine returns a number and is excluded only when the span still yields an error (see
+/// `build_cache_oracle`'s `three_d_span_cells`). The certify-side date-consumer reachability resolves
+/// a span's INTERIOR sheets (round-62). Unlike `has_unverifiable_3d_span` (which additionally requires
+/// the span to COVER the edited sheet — the restructure REFUSE condition), this takes no edit.
+pub fn formula_contains_3d_span(formula: &str) -> bool {
+    let b = formula.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'"' {
+            i += 1;
+            while i < b.len() {
+                if b[i] == b'"' {
+                    i += 1;
+                    if i < b.len() && b[i] == b'"' {
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        if b[i] == b'!' {
+            let qstart = walk_full_qualifier_back(b, i);
+            if let Some((s1, s2)) = split_span_qualifier(&formula[qstart..i]) {
+                if !s1.eq_ignore_ascii_case(&s2) {
+                    return true;
                 }
             }
         }
@@ -957,6 +1491,118 @@ pub fn residual_reason(formula_attrs: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_plain_reference_distinguishes_plain_refs_from_unevaluable_names() {
+        // Plain refs/ranges (engine-evaluable defined-name bodies).
+        assert!(is_plain_reference("Sheet1!$A$1"));
+        assert!(is_plain_reference("=Sheet1!$A$1"));
+        assert!(is_plain_reference("Sheet1!$A$1:$A$10"));
+        assert!(is_plain_reference("A1"));
+        assert!(is_plain_reference("'My Sheet'!$B$2"));
+        // NOT plain -> unevaluable by the engine (#NAME?).
+        assert!(!is_plain_reference("0.2")); // named constant
+        assert!(!is_plain_reference("Sheet1!$Z$1*2")); // named formula
+        assert!(!is_plain_reference("OFFSET(Sheet1!$Z$1,0,0)")); // dynamic range
+        assert!(!is_plain_reference("INDIRECT(\"A1\")"));
+        assert!(!is_plain_reference("Sheet1!A1,Sheet1!B2")); // union
+        assert!(!is_plain_reference("OtherName")); // reference to another name
+        assert!(!is_plain_reference("")); // empty
+        assert!(!is_plain_reference("[1]Sheet1!A1")); // external
+                                                      // A 3D-SPAN name body PASSES is_plain_reference (the tokenizer treats `Sheet1:Sheet3` as one
+                                                      // qualifier), but the engine cannot evaluate a 3D-span DEFINED NAME — so build_cache_oracle
+                                                      // ALSO gates on formula_contains_3d_span (round-65). Document the interaction here.
+        assert!(is_plain_reference("Sheet1:Sheet3!$A$1"));
+        assert!(formula_contains_3d_span("Sheet1:Sheet3!$A$1"));
+    }
+
+    #[test]
+    fn formula_references_cell_covers_single_range_sheet_and_boundaries() {
+        // Home sheet "S", target cell B2 (col 2, row 2). No 3D sheet order needed here.
+        let refs = |f: &str| formula_references_cell(f, "S", "S", 2, 2, &[]);
+        // Direct single-cell ref, with/without $ anchors.
+        assert!(refs("=B2+1"));
+        assert!(refs("=$B$2*2"));
+        assert!(refs("=SUM(A1,B2,C3)"));
+        // A range / whole-row / whole-column that CONTAINS B2.
+        assert!(refs("=SUM(A1:C3)"));
+        assert!(refs("=SUM(2:2)"));
+        assert!(refs("=SUM(B:B)"));
+        // Refs that do NOT cover B2.
+        assert!(!refs("=B3+A2"));
+        assert!(!refs("=SUM(C1:D9)"));
+        assert!(!refs("=B20")); // not glued: B2 is not a prefix-match of B20
+        assert!(!refs("=ABB2")); // a name, not a ref
+        assert!(!refs("=\"B2 in a string\""));
+        // Sheet qualification: an unqualified ref on a DIFFERENT home sheet does not cover S!B2.
+        assert!(!formula_references_cell("=B2", "Other", "S", 2, 2, &[]));
+        assert!(formula_references_cell("=S!B2", "Other", "S", 2, 2, &[]));
+        assert!(formula_references_cell(
+            "='S'!$B$2",
+            "Other",
+            "S",
+            2,
+            2,
+            &[]
+        ));
+        assert!(!formula_references_cell(
+            "=Other!B2",
+            "Other",
+            "S",
+            2,
+            2,
+            &[]
+        ));
+        // An external-workbook ref never covers our cell.
+        assert!(!formula_references_cell("=[1]S!B2", "S", "S", 2, 2, &[]));
+        // A 3D span naming S as an endpoint covers it.
+        assert!(formula_references_cell("=SUM(S:T!B2)", "X", "S", 2, 2, &[]));
+        // A 3D span's INTERIOR sheet: with tab order [S1,S2,S3], SUM(S1:S3!B2) covers S2 (round-62).
+        let order = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let sheets = order(&["S1", "S2", "S3"]);
+        assert!(formula_references_cell(
+            "=SUM(S1:S3!B2)",
+            "X",
+            "S2",
+            2,
+            2,
+            &sheets
+        ));
+        assert!(formula_references_cell(
+            "=SUM(S1:S3!B2)",
+            "X",
+            "S1",
+            2,
+            2,
+            &sheets
+        ));
+        assert!(formula_references_cell(
+            "=SUM(S1:S3!B2)",
+            "X",
+            "S3",
+            2,
+            2,
+            &sheets
+        ));
+        // A sheet OUTSIDE the span range is not covered.
+        let sheets4 = order(&["S1", "S2", "S3", "S4"]);
+        assert!(!formula_references_cell(
+            "=SUM(S1:S2!B2)",
+            "X",
+            "S4",
+            2,
+            2,
+            &sheets4
+        ));
+        assert!(!formula_references_cell(
+            "=SUM(S1:S2!B2)",
+            "X",
+            "S3",
+            2,
+            2,
+            &sheets4
+        ));
+    }
 
     fn row_edit(op: Op, at: u32, count: u32) -> StructuralEdit {
         StructuralEdit {
@@ -1033,6 +1679,44 @@ mod tests {
         // plain ASCII cross-sheet and same-sheet — must NOT trip
         assert!(!has_unquoted_non_ascii_qualifier("Sheet2!A1+SUM(B1:B9)"));
         assert!(!has_unquoted_non_ascii_qualifier("SUM(A1:B2)"));
+    }
+
+    /// The affect-based relaxation for non-ASCII qualifiers rests on neutralizing
+    /// exactly the non-ASCII-qualified references (they name non-edited sheets on an
+    /// ASCII edited sheet) while leaving edited-sheet references intact, and bailing
+    /// out on non-ASCII 3D spans.
+    #[test]
+    fn neutralizes_non_ascii_qualified_refs() {
+        // A lone non-ASCII-qualified ref -> replaced whole; nothing edited-sheet remains.
+        assert_eq!(neutralize_non_ascii_quals("集計!A5").as_deref(), Some("0"));
+        // Bare edited-sheet ref alongside a non-ASCII-qualified ref -> only the latter goes.
+        assert_eq!(
+            neutralize_non_ascii_quals("集計!A5+A5").as_deref(),
+            Some("0+A5")
+        );
+        // ASCII CELL-LIKE prefix in the qualifier (`A1計!`) is captured WHOLE by the
+        // back-walk, so the `A1` cannot leak out to be mis-shifted as an edited cell.
+        assert_eq!(neutralize_non_ascii_quals("A1計!B5").as_deref(), Some("0"));
+        assert_eq!(
+            neutralize_non_ascii_quals("A1計!B5:B9+Sheet1!A5").as_deref(),
+            Some("0+Sheet1!A5")
+        );
+        // A non-ASCII 3D SPAN may enclose the edited sheet -> cannot neutralize soundly.
+        assert_eq!(neutralize_non_ascii_quals("SUM(集計:売上!A5)"), None);
+        // Quoted qualifiers and string literals are left untouched (shift_formula parses them).
+        assert_eq!(
+            neutralize_non_ascii_quals("'集計'!A5").as_deref(),
+            Some("'集計'!A5")
+        );
+        assert_eq!(
+            neutralize_non_ascii_quals(r#"IF(A1=1,"集計!",A5)"#).as_deref(),
+            Some(r#"IF(A1=1,"集計!",A5)"#)
+        );
+        // Pure ASCII -> identity.
+        assert_eq!(
+            neutralize_non_ascii_quals("Sheet2!A1+A5").as_deref(),
+            Some("Sheet2!A1+A5")
+        );
     }
     fn col_edit(op: Op, at: u32, count: u32) -> StructuralEdit {
         StructuralEdit {
@@ -1397,6 +2081,38 @@ mod tests {
             sf("A10+LOG10(A10)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
             "A11+LOG10(A11)"
         );
+        // REGRESSION (round-21): a defined name with a PERIOD (`A1.tax`, legal in Excel) has an
+        // `A1` prefix; a row insert must NOT rewrite it to `A2.tax` (which is `#NAME?`). The
+        // real cell arg still shifts.
+        assert_eq!(
+            sf("A1.tax+A2", "Sheet1", &row_edit(Op::Insert, 1, 1)),
+            "A1.tax+A3"
+        );
+        assert_eq!(
+            sf("Q3.total*2", "Sheet1", &row_edit(Op::Insert, 1, 1)),
+            "Q3.total*2"
+        );
+    }
+    #[test]
+    fn formula_non_ascii_or_backslash_prefixed_name_suffix_not_shifted() {
+        // REGRESSION (round-31): a defined name whose spelling is a non-ASCII (CJK) or
+        // backslash prefix immediately followed by a grid-valid A1 spelling (`売上A5`,
+        // `\A5`) is ONE name, not a name + cell ref. A row insert must NOT rewrite the
+        // trailing `A5` (it did → `売上A6`, an undefined name → `#NAME?`, a silent value
+        // corruption). A genuinely separate ref in the same formula still shifts.
+        let ins1 = row_edit(Op::Insert, 1, 1);
+        assert_eq!(sf("売上A5", "Sheet1", &ins1), "売上A5");
+        assert_eq!(sf("予算Q1", "Sheet1", &ins1), "予算Q1");
+        assert_eq!(sf("\\A5", "Sheet1", &ins1), "\\A5");
+        assert_eq!(sf("SUM(売上A5)", "Sheet1", &ins1), "SUM(売上A5)");
+        // name is left alone while a real, separately-tokenized ref shifts
+        assert_eq!(
+            sf("IF(A1=1,\"x\",売上A5)", "Sheet1", &ins1),
+            "IF(A2=1,\"x\",売上A5)"
+        );
+        // the non-ASCII char must not shield a following, genuinely separate ref:
+        // `売上&A5` — the `A5` after the ASCII `&` operator is its own ref and shifts.
+        assert_eq!(sf("売上&A5", "Sheet1", &ins1), "売上&A6");
     }
     #[test]
     fn formula_out_of_grid_tokens_not_shifted() {
@@ -1442,9 +2158,32 @@ mod tests {
         assert_eq!(offset_formula("Sheet2!A2*Q1", 0, 1), "Sheet2!B2*R1");
     }
     #[test]
+    fn offset_leaves_non_ascii_or_backslash_prefixed_name_intact() {
+        // REGRESSION (round-33): shared-formula dependents are MATERIALIZED through
+        // offset_formula. A defined name with a non-ASCII (CJK) or backslash prefix and a
+        // cell-shaped ASCII tail (`名A5`, `\A5`) is ONE name, invariant under autofill — it must
+        // NOT be offset as a relative cell ref (that rewrote a dependent to `名A6`, an undefined
+        // name → `#NAME?`). Boundary predicate is now shared with shift_formula, so the two
+        // cannot drift again. A genuinely relative ref in the same body still offsets.
+        assert_eq!(offset_formula("名A5*2", 1, 0), "名A5*2");
+        assert_eq!(offset_formula("予算Q1+1", 3, 0), "予算Q1+1");
+        assert_eq!(offset_formula("\\A5", 5, 0), "\\A5");
+        // name left intact, but the separately-tokenized B2 offsets by +3 rows
+        assert_eq!(offset_formula("名A5+B2", 3, 0), "名A5+B5");
+    }
+    #[test]
     fn offset_underflow_is_ref() {
         // relative A2 offset up by 5 -> row -3 -> #REF!
         assert_eq!(offset_formula("A2", -5, 0), "#REF!");
+    }
+    #[test]
+    fn offset_overflow_is_ref() {
+        // REGRESSION (round-27): a shared dependent offset PAST the grid edge must be #REF!,
+        // not a materialized off-grid token (XFE1 / A1048580). Mirrors shift_index's clamp.
+        assert_eq!(offset_formula("XFC1", 0, 2), "#REF!"); // col 16383 + 2 -> 16385 > XFD
+        assert_eq!(offset_formula("A1048575", 5, 0), "#REF!"); // row past 1048576
+                                                               // ...but an offset that stays on the grid still shifts.
+        assert_eq!(offset_formula("XFC1", 0, 1), "XFD1"); // 16383 + 1 = 16384 = XFD (last col)
     }
     #[test]
     fn offset_leaves_strings_and_functions() {
@@ -1605,6 +2344,7 @@ mod tests {
         assert_eq!(shift_body("A6", &move_edit(5, 2, 7)), Shift::Unchanged); // b==a+n
     }
     #[test]
+
     fn move_formula_shifts_single_cells_and_detects_straddle() {
         // the task's worked example: A5→A7, A10 fixed.
         assert_eq!(sf("A5+A10", "Sheet1", &move_edit(5, 2, 9)), "A7+A10");
@@ -1612,6 +2352,71 @@ mod tests {
         assert_eq!(sf("A6+A3", "Sheet1", &move_edit(6, 1, 3)), "A3+A4");
         // a straddling range introduces a NEW #REF! (the residual-gate signal).
         assert!(sf("SUM(A4:A6)", "Sheet1", &move_edit(6, 1, 3)).contains("#REF!"));
+        // REGRESSION (round-7): a NON-inverting straddle — endpoints stay ordered under σ
+        // but the span SIZE changes — was silently enlarged (A4:A6 -> A4:A18). It must #REF!.
+        assert!(sf("SUM(A4:A6)", "Sheet1", &move_edit(5, 3, 20)).contains("#REF!"));
+        // REGRESSION (round-10): a range that fully CONTAINS the moved block (and its dest)
+        // only permutes rows internally — the SET is invariant, so it must NOT be refused.
+        assert_eq!(
+            sf("SUM(A1:A10)", "Sheet1", &move_edit(1, 1, 3)),
+            "SUM(A1:A10)"
+        );
+        assert_eq!(
+            sf("SUM(A1:A10)", "Sheet1", &move_edit(10, 1, 3)),
+            "SUM(A1:A10)"
+        );
+        // REGRESSION (round-11): an absolute/mixed whole-ROW range ($5:$10) was left stale
+        // (parse_endpoint mis-read the row's `$` as the column's). It now shifts.
+        assert_eq!(
+            sf("SUM($5:$10)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM($6:$11)"
+        );
+        assert_eq!(
+            sf("SUM(5:$10)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM(6:$11)"
+        );
+        assert_eq!(
+            sf("SUM($5:$5)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM($6:$6)"
+        );
+        // whole-COLUMN absolute is unaffected by a row op (asymmetry guard).
+        assert_eq!(
+            sf("SUM($A:$C)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM($A:$C)"
+        );
+    }
+
+    #[test]
+    fn whitespace_range_and_grid_boundary() {
+        // REGRESSION (round-8): whitespace around the range colon (`A2 : A8`, which
+        // IronCalc parses as A2:A8) tokenized as two independent cells and bypassed the
+        // straddle/clamp logic. It now shifts as a range (normalizing away the spaces)...
+        assert_eq!(
+            sf("SUM(A2 : A8)", "Sheet1", &row_edit(Op::Insert, 3, 1)),
+            "SUM(A2:A9)"
+        );
+        // ...and enters the straddle path: a spaced range whose interior block is moved OUT
+        // of the range (a genuine straddle) -> #REF!.
+        assert!(sf("SUM(A2 : A8)", "Sheet1", &move_edit(5, 1, 20)).contains("#REF!"));
+        // REGRESSION (round-8): a reference to the LAST row/column overflows to #REF! on
+        // insert, never a silently out-of-grid reference (A1048577 / XFE1).
+        assert!(sf("A1048576", "Sheet1", &row_edit(Op::Insert, 1, 1)).contains("#REF!"));
+        assert!(sf("XFD1", "Sheet1", &col_edit(Op::Insert, 1, 1)).contains("#REF!"));
+        // a normal boundary-adjacent ref still shifts cleanly.
+        assert_eq!(
+            sf("A1048575", "Sheet1", &row_edit(Op::Insert, 1, 1)),
+            "A1048576"
+        );
+        // REGRESSION (round-9): a full-height RANGE whose TAIL overflows must CLAMP to the
+        // last line, not collapse the whole range to #REF! — Excel keeps it valid.
+        assert_eq!(
+            sf("SUM(A1:A1048576)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM(A1:A1048576)"
+        );
+        assert_eq!(
+            sf("SUM(A2:A1048576)", "Sheet1", &row_edit(Op::Insert, 2, 1)),
+            "SUM(A3:A1048576)"
+        );
         // a clean move introduces none.
         assert!(!sf("A5+A10", "Sheet1", &move_edit(5, 2, 9)).contains("#REF!"));
         // string literals and function names are still untouched.
@@ -1619,5 +2424,143 @@ mod tests {
             sf(r#"IF(A6>0,"A6",A3)"#, "Sheet1", &move_edit(6, 1, 3)),
             r#"IF(A3>0,"A6",A4)"#
         );
+    }
+
+    fn parse_res(sh: &Shift, lo: u32, hi: u32) -> Option<(u32, u32)> {
+        match sh {
+            Shift::Unchanged => Some((lo, hi)),
+            Shift::Ref => None,
+            Shift::Shifted(s) => {
+                if let Some((a, b)) = s.split_once(':') {
+                    let pa: u32 = a.trim_start_matches('A').parse().unwrap();
+                    let pb: u32 = b.trim_start_matches('A').parse().unwrap();
+                    Some((pa.min(pb), pa.max(pb)))
+                } else {
+                    let p: u32 = s.trim_start_matches('A').parse().unwrap();
+                    Some((p, p))
+                }
+            }
+        }
+    }
+    fn body_for(lo: u32, hi: u32) -> String {
+        if lo == hi {
+            format!("A{}", lo)
+        } else {
+            format!("A{}:A{}", lo, hi)
+        }
+    }
+
+    #[test]
+    fn fuzz_delete_against_set_oracle() {
+        let g = 14u32;
+        let mut fails = Vec::new();
+        for lo in 1..=g {
+            for hi in lo..=g {
+                for k in 1..=g {
+                    for n in 1..=g {
+                        let mut imgs = Vec::new();
+                        for r in lo..=hi {
+                            if r < k {
+                                imgs.push(r);
+                            } else if r >= k + n {
+                                imgs.push(r - n);
+                            }
+                        }
+                        let oracle = if imgs.is_empty() {
+                            None
+                        } else {
+                            Some((*imgs.iter().min().unwrap(), *imgs.iter().max().unwrap()))
+                        };
+                        let got = parse_res(
+                            &shift_body(&body_for(lo, hi), &row_edit(Op::Delete, k, n)),
+                            lo,
+                            hi,
+                        );
+                        if got != oracle {
+                            fails.push(format!(
+                                "DEL lo={} hi={} k={} n={} oracle={:?} got={:?}",
+                                lo, hi, k, n, oracle, got
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(fails.is_empty(), "DELETE mismatches:\n{}", fails.join("\n"));
+    }
+
+    #[test]
+    fn fuzz_move_against_set_oracle() {
+        let g = 12u32;
+        let mut fails = Vec::new();
+        for lo in 1..=g {
+            for hi in lo..=g {
+                for a in 1..=g {
+                    for n in 1..=g {
+                        if a + n - 1 > g {
+                            continue;
+                        }
+                        for b in 1..=(g + 1) {
+                            let imgs: Vec<u32> =
+                                (lo..=hi).map(|r| move_row_sigma(r, a, n, b)).collect();
+                            let mn = *imgs.iter().min().unwrap();
+                            let mx = *imgs.iter().max().unwrap();
+                            let oracle = if mx - mn == hi - lo {
+                                Some((mn, mx))
+                            } else {
+                                None
+                            };
+                            let got = parse_res(
+                                &shift_body(&body_for(lo, hi), &move_edit(a, n, b)),
+                                lo,
+                                hi,
+                            );
+                            if got != oracle {
+                                fails.push(format!(
+                                    "MOV lo={} hi={} a={} n={} b={} oracle={:?} got={:?}",
+                                    lo, hi, a, n, b, oracle, got
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(fails.is_empty(), "MOVE mismatches:\n{}", fails.join("\n"));
+    }
+
+    #[test]
+    fn fuzz_move_sigma_independent() {
+        let g = 12u32;
+        let mut fails = Vec::new();
+        for a in 1..=g {
+            for n in 1..=g {
+                if a + n - 1 > g {
+                    continue;
+                }
+                for b in 1..=(g + 1) {
+                    // Physically build the new order: remove block [a,a+n), reinsert
+                    // before the first surviving element whose ORIGINAL index >= b.
+                    let block: Vec<u32> = (a..a + n).collect();
+                    let rem: Vec<u32> = (1..=g).filter(|r| !(*r >= a && *r < a + n)).collect();
+                    let pos = rem.iter().position(|&r| r >= b).unwrap_or(rem.len());
+                    let mut newlist = rem[..pos].to_vec();
+                    newlist.extend(block.iter().copied());
+                    newlist.extend_from_slice(&rem[pos..]);
+                    // sigma_oracle(orig) = 1-based new index of element==orig
+                    for orig in 1..=g {
+                        let want = newlist.iter().position(|&r| r == orig).unwrap() as u32 + 1;
+                        let got = move_row_sigma(orig, a, n, b);
+                        if got != want {
+                            fails.push(format!(
+                                "a={} n={} b={} orig={} want={} got={}",
+                                a, n, b, orig, want, got
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(fails.is_empty(), "sigma mismatches:\n{}", fails.join("\n"));
     }
 }

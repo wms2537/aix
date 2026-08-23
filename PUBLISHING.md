@@ -25,6 +25,9 @@ all unaffected.
 - A crates.io account and an API token: `cargo login <token>`.
 - The three crate names must be available (or already owned by you):
   `xlq-ironcalc-base`, `xlq-ironcalc`, `xlq`.
+- Do **not** reuse the historical annotated `v0.2.0` git tag as the release ref:
+  it predates final packaging and points at an older tree whose manifest still said
+  `0.1.0`. Tag only the approved publication commit after external-action approval.
 - You are (re)publishing a fork of a third-party MIT/Apache project. Attribution
   is preserved (original author retained in `authors`, `NOTICE.md`, and
   `vendor/PATCHES.md`). This is permitted by IronCalc's license; it is **your**
@@ -54,14 +57,35 @@ Verify each step offline first with `cargo publish --dry-run` (already confirmed
 green for `xlq-ironcalc-base`; the later two can only dry-run once their
 dependency is live).
 
+## Release verification gate
+
+Run the engine suites with an explicit 64 MiB worker stack. Some CI and macOS
+hosts use an 8 MiB thread default; without this setting, the parser depth-guard
+test can exhaust the test thread's stack before it reaches its 256-level cap.
+The guard is correct; this only gives the test harness enough headroom:
+
+```sh
+RUST_MIN_STACK=$((64 * 1024 * 1024)) cargo test --manifest-path vendor/upstream/base/Cargo.toml --lib
+cd vendor/upstream/xlsx && cargo test
+```
+
+Fresh evidence on Linux/Rust 1.96: base 2,233 passed / 8 ignored, xlsx layer
+268 passed / 0 failed including doc-tests, `xlq-ironcalc-base v0.7.1` packaged
+successfully in dry-run mode, and both lockfiles passed `cargo audit` with no
+vulnerability matches (`time` upgraded to 0.3.47); cargo-audit reports one
+allowed low-severity warning for `rand`'s narrowly scoped custom-logger
+soundness issue.
+
 ## Notes
 
 - **Version scheme.** The forks keep version `0.7.1` under their new names (a
   fresh namespace, so the number is free). The `+e50ccea8 (vendored master)`
   build metadata in the provenance string records the exact upstream commit.
-- **`xlq-ironcalc` ships a `test` bin** (`src/bin/test.rs`, inherited from
-  upstream). It is harmless but you may wish to remove or gate it before
-  publishing the fork.
+- **The inherited `test` bin is release-gated.** The target is behind the
+  non-default `devtools` feature, so default `cargo install`/`cargo publish`
+  ship the library and normal tooling without installing a binary named
+  `test`, while opt-in development builds remain functional from the published
+  source.
 - **Local development is unaffected.** `cargo build` / `cargo test --features
   devtools` / `cargo install --path xlq` all resolve the engine from
   `vendor/upstream/*` via the local `path`; the crates.io `version` is used only

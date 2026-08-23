@@ -65,7 +65,7 @@ pub(super) fn get_color(node: Node, _theme: &Theme) -> Result<Color, XlsxError> 
     } else if node.has_attribute("auto") {
         Ok(Color::None)
     } else {
-        println!("Unexpected color node {node:?}");
+        eprintln!("Unexpected color node {node:?}");
         Ok(Color::None)
     }
 }

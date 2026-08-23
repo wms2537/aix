@@ -22,9 +22,9 @@ behind the non-default `devtools` feature and are not installed.)
 
 > Engine note: `xlq` links a *vendored* build of the [IronCalc](https://github.com/ironcalc/IronCalc)
 > calculation engine (provenance `ironcalc 0.7.1+e50ccea8 (vendored master)`) with
-> local hardening patches. It is resolved from `../vendor` via `[patch.crates-io]`,
-> so building requires that vendored tree to be present. See `NOTICE.md` and
-> `../vendor/PATCHES.md`.
+> local hardening patches. A source checkout resolves the renamed fork from the sibling
+> `../vendor/upstream` path; a published build resolves the same exact-version fork from
+> crates.io. See `NOTICE.md` and `../vendor/PATCHES.md`.
 
 ## Commands
 

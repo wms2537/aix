@@ -20,7 +20,8 @@ won't notice until the numbers are wrong. Use `xlq` whenever those must survive.
 
 ## The golden rule
 
-**Check the exit code and the JSON `status`/`error`. A refusal is a feature.**
+**Check the exit code and the command-specific JSON (`error`, certification
+`status`, verification result). A refusal is a feature.**
 
 | Exit | Meaning |
 |------|---------|

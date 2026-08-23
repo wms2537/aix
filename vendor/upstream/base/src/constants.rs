@@ -47,8 +47,11 @@ pub(crate) const MAXIMUM_DATE_SERIAL_NUMBER: i32 = 2_958_465;
 /// parts and are the single place to update on an engine bump (see
 /// `vendor/PATCHES.md` §2). This is the sole source of truth — every xlq site
 /// consumes `ironcalc::base::ENGINE_PROVENANCE` rather than a hand-copied literal.
-pub const ENGINE_PROVENANCE: &str =
-    concat!("ironcalc ", env!("CARGO_PKG_VERSION"), "+e50ccea8 (vendored master)");
+pub const ENGINE_PROVENANCE: &str = concat!(
+    "ironcalc ",
+    env!("CARGO_PKG_VERSION"),
+    "+e50ccea8 (vendored master)"
+);
 
 #[cfg(test)]
 mod tests {
@@ -66,6 +69,9 @@ mod tests {
         assert!(ENGINE_PROVENANCE.starts_with(concat!("ironcalc ", env!("CARGO_PKG_VERSION"))));
         // Pin the exact current output so an accidental format change is caught
         // and stays byte-identical to the receipts/harnesses already committed.
-        assert_eq!(ENGINE_PROVENANCE, "ironcalc 0.7.1+e50ccea8 (vendored master)");
+        assert_eq!(
+            ENGINE_PROVENANCE,
+            "ironcalc 0.7.1+e50ccea8 (vendored master)"
+        );
     }
 }
