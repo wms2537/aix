@@ -54,10 +54,10 @@ can be published to crates.io without colliding with upstream IronCalc:
 Both crates gained an explicit `[lib] name = …` so the LIBRARY name stays the same
 — all `use ironcalc::…` / `use ironcalc_base::…` and the `ENGINE_PROVENANCE` const
 are unaffected. `xlsx`'s dependency on the base crate now names the renamed package
-(`ironcalc_base = { package = "xlq-ironcalc-base", path = "../base", version = "0.7" }`),
+(`ironcalc_base = { package = "xlq-ironcalc-base", path = "../base", version = "=0.7.1" }`),
 and `xlq/Cargo.toml` consumes the engine as
 `ironcalc = { package = "xlq-ironcalc", path = "../vendor/upstream/xlsx", version = "=0.7.1" }`
 — the multiple-locations pattern (local `path` for dev, crates.io `version` for a
-published build), which let the old `[patch.crates-io]` section be removed. `authors`
+exact published build), which let the old `[patch.crates-io]` section be removed. `authors`
 retain the original IronCalc author (attribution) plus the xlq authors; `repository`
 points at the fork. See `PUBLISHING.md` for the publish sequence.

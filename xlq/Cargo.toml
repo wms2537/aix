@@ -2,6 +2,7 @@
 name = "xlq"
 version = "0.2.0"
 edition = "2021"
+rust-version = "1.96"
 description = "Agent-safe transactional runtime for Excel workbooks: inspect, diff, recalculate, and surgically edit .xlsx files with receipts, an undo journal, and byte-fidelity guarantees."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/wms2537/aix"

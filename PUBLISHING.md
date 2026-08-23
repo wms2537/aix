@@ -25,6 +25,9 @@ all unaffected.
 - A crates.io account and an API token: `cargo login <token>`.
 - The three crate names must be available (or already owned by you):
   `xlq-ironcalc-base`, `xlq-ironcalc`, `xlq`.
+- Do **not** reuse the historical annotated `v0.2.0` git tag as the release ref:
+  it predates final packaging and points at an older tree whose manifest still said
+  `0.1.0`. Tag only the approved publication commit after external-action approval.
 - You are (re)publishing a fork of a third-party MIT/Apache project. Attribution
   is preserved (original author retained in `authors`, `NOTICE.md`, and
   `vendor/PATCHES.md`). This is permitted by IronCalc's license; it is **your**

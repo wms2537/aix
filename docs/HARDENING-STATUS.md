@@ -183,6 +183,8 @@ transform-coverage), and every fix carrying a regression test verified to fail p
 ### Untackled items are external or explicitly future work
 
 - **Push / merge / PR:** requires owner approval.
+- **Release tag:** do not reuse the historical annotated `v0.2.0`; it points at an older
+  pre-packaging tree. Create a fresh tag at the approved release commit.
 - **Crates.io publication:** irreversible; follow `PUBLISHING.md` bottom-up after approval.
 - **IronCalc upstream PR:** `docs/upstream/PR-GUIDE.md` is ready, but filing/maintainer review is external.
 - **Research frontier:** formal structural→value composition/router enforcement,
