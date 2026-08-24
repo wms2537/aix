@@ -13,3 +13,4 @@ data/*
 !data/inthewild/
 data/inthewild/*
 !data/inthewild/PROVENANCE.md
+formal/corpus_formulas.txt

@@ -751,6 +751,8 @@ TD = "formal/tokenizer_differential.json"
 DBS = "benchmarks/inthewild_dbt_spellbook.json"
 DBC = "benchmarks/inthewild_dbt_calitp.json"
 SPX = "benchmarks/agent_study/results_smoke_perfect_postfix.json"
+V3P = "benchmarks/agent_study/results_v3_smoke_perfect.json"
+V3S = "benchmarks/agent_study/results_v3_smoke_sloppy.json"
 
 expect("v2-euses-cellchecks", "§5.10", "316,746 cell-checks", EV2,
        lambda: sum(v["cells_checked"] for v in J(EV2)["leg1_shift_correctness"].values()), 316746)
@@ -802,6 +804,79 @@ expect("v2-checkblind-enron", "§5.10 2 of 761", "(2, 761)", QN2,
                 J(QN2)["models"]["M2v_offbyone_row"]["excel_semantics"]["files_in_distribution"]), (2, 761))
 expect("v2-smoke-postfix", "§5.10 smoke 5->4", "refused_correct = 4", SPX,
        lambda: J(SPX)["GUARDED"]["refused_correct_COST"], 4)
+
+
+# ------------------------------------------------------- §5.11 v3 + features ----
+expect("v3-perfect-aggregates", "§5.11",
+       "100 tasks, 3 errors/corrupt, 0 false certs, 3 saves, 77 cost", V3P,
+       lambda: (J(V3P)["tasks_scored"], J(V3P)["agent"]["tasks_incorrect"],
+                J(V3P)["UNGUARDED"]["shipped_CORRUPT"],
+                J(V3P)["FALSE_CERT_must_be_0"],
+                J(V3P)["GUARDED"]["refused_incorrect_SAVE"],
+                J(V3P)["GUARDED"]["refused_correct_COST"]),
+       (100, 3, 3, 0, 3, 77))
+
+expect("v3-sloppy-aggregates", "§5.11",
+       "100 tasks, 17 errors/corrupt, 0 false certs, 17 saves, 69 cost", V3S,
+       lambda: (J(V3S)["tasks_scored"], J(V3S)["agent"]["tasks_incorrect"],
+                J(V3S)["UNGUARDED"]["shipped_CORRUPT"],
+                J(V3S)["FALSE_CERT_must_be_0"],
+                J(V3S)["GUARDED"]["refused_incorrect_SAVE"],
+                J(V3S)["GUARDED"]["refused_correct_COST"]),
+       (100, 17, 17, 0, 17, 69))
+
+
+@claim("v3-all-incorrect-refused", "§5.11",
+       "all 20 synthetic incorrect artifacts refused; operation mix 40/20/20/20",
+       V3P)
+def _v3ops():
+    perfect_expected = {
+        "insert-rows": (40, 0, 1, 29),
+        "delete-rows": (20, 0, 0, 17),
+        "insert-cols": (20, 0, 0, 18),
+        "delete-cols": (20, 0, 2, 13),
+    }
+    sloppy_saves = {"insert-rows": 8, "delete-rows": 4, "insert-cols": 1, "delete-cols": 4}
+    checked = []
+    for rel in (V3P, V3S):
+        d = J(rel)
+        for op, vals in perfect_expected.items():
+            o = d["per_operation"][op]
+            got = (o["tasks"], o["guarded_false_cert"], o["saved_incorrect"],
+                   o["refused_correct_cost"])
+            ok_op = got == vals if rel == V3P else (
+                got[0] == vals[0] and got[1] == 0 and
+                got[2] == sloppy_saves[op]
+            )
+            if not ok_op:
+                return False, f"{rel}:{op}: {got}"
+            checked.append((rel, op))
+    saves = sum(J(rel)["GUARDED"]["refused_incorrect_SAVE"] for rel in (V3P, V3S))
+    return saves == 20, f"saves={saves}; checked {len(checked)} arm/op cells"
+
+
+FM = "benchmarks/real_feature_manifest.summary.json"
+FF = "benchmarks/real_feature_fidelity.summary.json"
+expect("feature-inventory-counts", "§5.11",
+       "5,447 files; charts/pivots/extlinks/comments/drawings = 451/35/281/364/1,633",
+       FM,
+       lambda: (J(FM)["files_scanned"], J(FM)["sample_size"],
+                [J(FM)["feature_file_counts"][k] for k in
+                 ("has_chart", "has_pivot_cache", "has_external_link",
+                  "has_comment", "has_drawing")]),
+       (5447, 50, [451, 35, 281, 364, 1633]))
+
+
+@claim("feature-fidelity-comparison", "§5.11",
+       "xlq 656/714=91.9%; openpyxl 45/1,246=3.6%; LibreOffice 466/1,214=38.4%", FF)
+def _features():
+    a = J(FF)["aggregate_completed_files"]
+    got = {k: (v["parts_identical"], v["parts_total"],
+               round(v["fraction_byte_identical"] * 100, 1)) for k, v in a.items()}
+    want = {"xlq": (656, 714, 91.9),
+            "openpyxl": (45, 1246, 3.6),
+            "libreoffice": (466, 1214, 38.4)}
+    return got == want, f"{got}"
 
 
 

@@ -739,6 +739,30 @@ partial.**
   so plainly (config-stripping, semantically inert for the dependency graph, is the
   disclosed future-work lever).
 
+### 5.11 Feature preservation and expanded-agent harness validation
+
+Two additional real-corpus checks close scope gaps without changing the headline.
+First, feature-rich preservation: an inventory of {{feature_files_scanned}} converted EUSES/Enron
+workbooks found charts in {{feature_charts}}, pivot caches in {{feature_pivots}}, external links in
+{{feature_external_links}}, comments in {{feature_comments}}, and drawings in {{feature_drawings}}. A seed-stratified
+{{feature_sample}}-file comparison applied one numeric rewrite through xlq, openpyxl, and a LibreOffice
+re-save proxy. On completed comparisons, byte-identical zip members were
+**{{feature_xlq_pct}}** ({{feature_xlq_parts}}) for xlq versus {{feature_openpyxl_pct}}
+({{feature_openpyxl_parts}}) for openpyxl and {{feature_soffice_pct}} ({{feature_soffice_parts}}) for the proxy.
+Tool failures and fail-closed refusals remain in the per-file artifact and are not credited as
+preservation. These corpora are `.xls` to `.xlsx` conversions; no sampled workbook had VBA, and Excel itself was
+not available as an arbiter.
+
+Second, the agent study's scoring path was widened from one operation to four:
+{{v3_operation_mix}}, with {{v3_tasks}} tasks selected deterministically from {{v3_candidates}} qualifying candidates.
+Two deterministic synthetic arms validate the expanded truth/guard harness rather than model behavior. The perfect
+arm made {{v3_perfect_errors}} task errors; the sloppy arm made {{v3_sloppy_errors}} by leaving 10% of truth-visible
+shifts unchanged. Unguarded shipping therefore sent {{v3_perfect_unguarded}} and {{v3_sloppy_unguarded}} corrupt artifacts,
+respectively. Guarded shipping produced **zero false certifications in both arms**, saved all
+{{v3_combined_saves}} incorrect artifacts, and refused {{v3_combined_cost}} correct artifacts. This extends the prior
+harness check across row/column insert/delete on real workbooks; it is explicitly **not** a new live-model result, and new live
+arms remain future work under separate authorization.
+
 ## 6. On finding our own defects
 
 Successive adversarial reviews of these artifacts each landed a real hole: the

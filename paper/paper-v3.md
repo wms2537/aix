@@ -740,6 +740,30 @@ partial.**
   so plainly (config-stripping, semantically inert for the dependency graph, is the
   disclosed future-work lever).
 
+### 5.11 Feature preservation and expanded-agent harness validation
+
+Two additional real-corpus checks close scope gaps without changing the headline.
+First, feature-rich preservation: an inventory of 5,447 converted EUSES/Enron
+workbooks found charts in 451, pivot caches in 35, external links in
+281, comments in 364, and drawings in 1,633. A seed-stratified
+50-file comparison applied one numeric rewrite through xlq, openpyxl, and a LibreOffice
+re-save proxy. On completed comparisons, byte-identical zip members were
+**91.9%** (656/714) for xlq versus 3.6%
+(45/1246) for openpyxl and 38.4% (466/1214) for the proxy.
+Tool failures and fail-closed refusals remain in the per-file artifact and are not credited as
+preservation. These corpora are `.xls` to `.xlsx` conversions; no sampled workbook had VBA, and Excel itself was
+not available as an arbiter.
+
+Second, the agent study's scoring path was widened from one operation to four:
+40 insert-row / 20 delete-row / 20 insert-column / 20 delete-column, with 100 tasks selected deterministically from 3,091 qualifying candidates.
+Two deterministic synthetic arms validate the expanded truth/guard harness rather than model behavior. The perfect
+arm made 3 task errors; the sloppy arm made 17 by leaving 10% of truth-visible
+shifts unchanged. Unguarded shipping therefore sent 3 and 17 corrupt artifacts,
+respectively. Guarded shipping produced **zero false certifications in both arms**, saved all
+20 incorrect artifacts, and refused 146 correct artifacts. This extends the prior
+harness check across row/column insert/delete on real workbooks; it is explicitly **not** a new live-model result, and new live
+arms remain future work under separate authorization.
+
 ## 6. On finding our own defects
 
 Successive adversarial reviews of these artifacts each landed a real hole: the

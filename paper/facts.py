@@ -134,6 +134,44 @@ def facts():
     F["smoke_prefix_refusals"] = str(sp5)                        # 5
     F["smoke_postfix_refusals"] = str(sp4)                       # 4
 
+    # ---- expanded agent-study harness (§5.11); synthetic validation only ----
+    vp = J("benchmarks/agent_study/results_v3_smoke_perfect.json")
+    vs = J("benchmarks/agent_study/results_v3_smoke_sloppy.json")
+    assert vp["tasks_scored"] == vs["tasks_scored"] == 100
+    assert vp["FALSE_CERT_must_be_0"] == vs["FALSE_CERT_must_be_0"] == 0
+    assert vp["GUARDED"]["refused_incorrect_SAVE"] == vp["UNGUARDED"]["shipped_CORRUPT"]
+    assert vs["GUARDED"]["refused_incorrect_SAVE"] == vs["UNGUARDED"]["shipped_CORRUPT"]
+    F["v3_candidates"] = n(J("benchmarks/agent_study/tasks_v3.json")["candidate_tasks"])
+    F["v3_tasks"] = str(vp["tasks_scored"])
+    F["v3_operation_mix"] = "40 insert-row / 20 delete-row / 20 insert-column / 20 delete-column"
+    F["v3_perfect_errors"] = str(vp["agent"]["tasks_incorrect"])
+    F["v3_perfect_unguarded"] = str(vp["UNGUARDED"]["shipped_CORRUPT"])
+    F["v3_perfect_saves"] = str(vp["GUARDED"]["refused_incorrect_SAVE"])
+    F["v3_perfect_cost"] = str(vp["GUARDED"]["refused_correct_COST"])
+    F["v3_sloppy_errors"] = str(vs["agent"]["tasks_incorrect"])
+    F["v3_sloppy_unguarded"] = str(vs["UNGUARDED"]["shipped_CORRUPT"])
+    F["v3_sloppy_saves"] = str(vs["GUARDED"]["refused_incorrect_SAVE"])
+    F["v3_sloppy_cost"] = str(vs["GUARDED"]["refused_correct_COST"])
+    F["v3_combined_saves"] = str(vp["GUARDED"]["refused_incorrect_SAVE"] + vs["GUARDED"]["refused_incorrect_SAVE"])
+    F["v3_combined_cost"] = str(vp["GUARDED"]["refused_correct_COST"] + vs["GUARDED"]["refused_correct_COST"])
+
+    # ---- feature-rich real-workbook preservation (§5.11) ----
+    fm = J("benchmarks/real_feature_manifest.summary.json")
+    ff = J("benchmarks/real_feature_fidelity.summary.json")
+    assert fm["sample_size"] == ff["sample_size"] == 50
+    F["feature_files_scanned"] = n(fm["files_scanned"])
+    F["feature_charts"] = n(fm["feature_file_counts"]["has_chart"])
+    F["feature_pivots"] = n(fm["feature_file_counts"]["has_pivot_cache"])
+    F["feature_external_links"] = n(fm["feature_file_counts"]["has_external_link"])
+    F["feature_comments"] = n(fm["feature_file_counts"]["has_comment"])
+    F["feature_drawings"] = n(fm["feature_file_counts"]["has_drawing"])
+    F["feature_sample"] = str(fm["sample_size"])
+    for tool in ("xlq", "openpyxl", "libreoffice"):
+        d = ff["aggregate_completed_files"][tool]
+        key = "feature_" + tool.replace("libreoffice", "soffice")
+        F[key + "_parts"] = f"{d['parts_identical']}/{d['parts_total']}"
+        F[key + "_pct"] = f"{d['fraction_byte_identical'] * 100:.1f}%"
+
     # ---- rounded/derived variants (round-8 polish: rounded restatements must be
     # derived too, or hand-rounded copies silently outlive artifact changes) ----
     F["dbt_mattermost_coverage_round"] = f"{dm['coverage']['parse_coverage'] * 100:.0f}%"   # 40%
