@@ -879,6 +879,18 @@ def _features():
     return got == want, f"{got}"
 
 
+ELC = "benchmarks/external_link_cost_reduction.json"
+expect("external-link-cost-probe", "§5.11",
+       "56/66 sole-cause files certify; Enron own-cost projection 34.3% -> 18.8%", ELC,
+       lambda: (J(ELC)["selected_sole_external_link_refusals"],
+                J(ELC)["statuses"],
+                J(ELC)["newly_certified"],
+                J(ELC)["projected_enron_own_cost_numerator"]["before"],
+                J(ELC)["projected_enron_own_cost_numerator"]["after"],
+                J(ELC)["projected_enron_own_cost_numerator"]["files_run"]),
+       (66, {"REFUSED": 9, "CERTIFIED": 56, "ERROR": 1}, 56, 124, 68, 362))
+
+
 
 # ---- Prose-consistency + source<->generated integrity (rounds 4-7 lessons) ----
 # Gated phrases live in ONE shared file (repro/gated_phrases.json) consumed by both

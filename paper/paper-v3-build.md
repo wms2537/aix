@@ -745,9 +745,9 @@ partial.**
   so plainly (config-stripping, semantically inert for the dependency graph, is the
   disclosed future-work lever).
 
-## 5.11 Feature preservation and expanded-agent harness validation
+## 5.11 Feature preservation, expanded-agent validation, and a measured cost lever
 
-Two additional real-corpus checks close scope gaps without changing the headline.
+Three additional checks close scope gaps without changing the soundness headline.
 First, feature-rich preservation: an inventory of 5,447 converted EUSES/Enron
 workbooks found charts in 451, pivot caches in 35, external links in
 281, comments in 364, and drawings in 1,633. A seed-stratified
@@ -768,6 +768,14 @@ respectively. Guarded shipping produced **zero false certifications in both arms
 20 incorrect artifacts, and refused 146 correct artifacts. This extends the prior
 harness check across row/column insert/delete on real workbooks; it is explicitly **not** a new live-model result, and new live
 arms remain future work under separate authorization.
+
+Third, the dominant identified refusal lever was implemented without weakening certification. The guard now compares every
+`xl/externalLinks` XML and relationship part exactly between xlq's expected transform and the foreign edit; only an unchanged
+subtree enters the known-safe allowlist. On a focused rerun of the 66 locked-v2 Enron refusals whose sole
+recorded denial class was an external link, 56 now certify — 84.9% of that subset.
+The remaining outcomes are eight unrelated restructure refusals, one unrelated timeout, and one other refusal. Holding all
+non-external-link causes fixed, this projects Enron own-path cost from 34.3% to
+**18.8%**; it is a focused post-change probe, not a fresh full locked-v2 run.
 
 # 6. On finding our own defects
 

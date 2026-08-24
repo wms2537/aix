@@ -172,6 +172,19 @@ def facts():
         F[key + "_parts"] = f"{d['parts_identical']}/{d['parts_total']}"
         F[key + "_pct"] = f"{d['fraction_byte_identical'] * 100:.1f}%"
 
+    # ---- shipped refusal-cost reduction (§5.11) ----
+    ec = J("benchmarks/external_link_cost_reduction.json")
+    assert ec["selected_sole_external_link_refusals"] == 66
+    assert ec["statuses"] == {"REFUSED": 9, "CERTIFIED": 56, "ERROR": 1}
+    assert ec["newly_certified"] == 56
+    cost = ec["projected_enron_own_cost_numerator"]
+    assert (cost["before"], cost["after"], cost["files_run"]) == (124, 68, 362)
+    F["extlink_probe_selected"] = str(ec["selected_sole_external_link_refusals"])
+    F["extlink_probe_certified"] = str(ec["newly_certified"])
+    F["extlink_probe_subset_pct"] = f"{ec['own_cost_reduction_on_subset'] * 100:.1f}%"
+    F["extlink_cost_before_pct"] = f"{cost['before_pct']:.1f}%"
+    F["extlink_cost_after_pct"] = f"{cost['after_pct']:.1f}%"
+
     # ---- rounded/derived variants (round-8 polish: rounded restatements must be
     # derived too, or hand-rounded copies silently outlive artifact changes) ----
     F["dbt_mattermost_coverage_round"] = f"{dm['coverage']['parse_coverage'] * 100:.0f}%"   # 40%

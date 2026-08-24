@@ -739,9 +739,9 @@ partial.**
   so plainly (config-stripping, semantically inert for the dependency graph, is the
   disclosed future-work lever).
 
-### 5.11 Feature preservation and expanded-agent harness validation
+### 5.11 Feature preservation, expanded-agent validation, and a measured cost lever
 
-Two additional real-corpus checks close scope gaps without changing the headline.
+Three additional checks close scope gaps without changing the soundness headline.
 First, feature-rich preservation: an inventory of {{feature_files_scanned}} converted EUSES/Enron
 workbooks found charts in {{feature_charts}}, pivot caches in {{feature_pivots}}, external links in
 {{feature_external_links}}, comments in {{feature_comments}}, and drawings in {{feature_drawings}}. A seed-stratified
@@ -762,6 +762,14 @@ respectively. Guarded shipping produced **zero false certifications in both arms
 {{v3_combined_saves}} incorrect artifacts, and refused {{v3_combined_cost}} correct artifacts. This extends the prior
 harness check across row/column insert/delete on real workbooks; it is explicitly **not** a new live-model result, and new live
 arms remain future work under separate authorization.
+
+Third, the dominant identified refusal lever was implemented without weakening certification. The guard now compares every
+`xl/externalLinks` XML and relationship part exactly between xlq's expected transform and the foreign edit; only an unchanged
+subtree enters the known-safe allowlist. On a focused rerun of the {{extlink_probe_selected}} locked-v2 Enron refusals whose sole
+recorded denial class was an external link, {{extlink_probe_certified}} now certify — {{extlink_probe_subset_pct}} of that subset.
+The remaining outcomes are eight unrelated restructure refusals, one unrelated timeout, and one other refusal. Holding all
+non-external-link causes fixed, this projects Enron own-path cost from {{extlink_cost_before_pct}} to
+**{{extlink_cost_after_pct}}**; it is a focused post-change probe, not a fresh full locked-v2 run.
 
 ## 6. On finding our own defects
 

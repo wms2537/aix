@@ -718,10 +718,37 @@ fn verify_noncell_refs_named(
                        the cell diff cannot see",
         }));
     }
+    // External-link caches are copied verbatim: their coordinates belong to the external
+    // workbook, not the edited sheet. They were formerly blanket-refused, which made them the
+    // dominant real-corpus refusal lever. Compare the complete subtree exactly, then allow it;
+    // an unchanged cache is therefore verified rather than trusted.
+    match (
+        external_link_snapshot(expected),
+        external_link_snapshot(edited),
+    ) {
+        (Ok(expected_links), Ok(edited_links)) => {
+            if expected_links != edited_links {
+                return Some(json!({
+                    "status": "REFUSED",
+                    "reason": "external_link_mismatch",
+                    "detail": "an external-link cache or relationship was added, removed, or \
+                               changed — xlq copies this subtree verbatim",
+                }));
+            }
+        }
+        (Err(e), _) | (_, Err(e)) => {
+            return Some(json!({
+                "status": "REFUSED",
+                "reason": "external_link_read_failed",
+                "detail": format!("external-link subtree could not be inspected fail-closed: {e}"),
+            }));
+        }
+    }
+
     // Fail-closed ALLOWLIST over PARTS. certify positionally compares only worksheet cells
     // (diff::snapshot), defined names, and the mergeCell/hyperlink/autoFilter refs above.
     // Any OTHER part can carry a cell reference that comparison never sees — charts,
-    // drawings, tables, pivots, external links, comments, form controls, but also the
+    // drawings, tables, pivots, comments, form controls, but also the
     // long tail (queryTables, metadata/richData, slicerCaches, timelineCaches,
     // connections, customXml, volatileDependencies, …). Rather than enumerate that open-ended
     // DENYLIST (its incompleteness was a real false-certification), we enumerate the
@@ -796,6 +823,10 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
                                                      // coordinate, but its CONTENT (Power Query
                                                      // DataMashup source URLs) is compared by
                                                      // opaque_target_signature, not security-inert
+        || (low.starts_with("xl/externallinks/")
+            && (low.ends_with(".xml") || low.ends_with(".rels")))
+        // external-link caches/rels: coordinates belong to the EXTERNAL workbook; every
+        // XML/relationship byte is compared above before this allowlist is reached.
 
         || low.starts_with("xl/media/")              // embedded images
         || low.starts_with("xl/printersettings/")    // opaque binary print settings
@@ -812,6 +843,28 @@ fn part_is_certify_safe(name: &str, sheet_parts: &BTreeSet<String>) -> bool {
         || low.starts_with("xl/timelines/")          // the pivot parts). Their filter effect
                                                      // surfaces in the pivot's cached output cells.
         || low.starts_with("xl/vbaproject") // macro binary — byte-compared for a swap
+}
+
+/// Exact byte snapshots of all external-link XML and relationship parts, keyed by the
+/// lowercase OPC part name. The transform preserves this subtree verbatim, so exact equality is
+/// both the strongest comparison and tolerant enough for faithful foreign edits that leave those
+/// parts untouched. Unsupported binary children remain outside `part_is_certify_safe`.
+fn external_link_snapshot(bytes: &[u8]) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+    let names = structural::archive_names(bytes)?;
+    let mut out = Vec::new();
+    for name in names {
+        let low = name.to_ascii_lowercase();
+        if !low.starts_with("xl/externallinks/")
+            || !(low.ends_with(".xml") || low.ends_with(".rels"))
+        {
+            continue;
+        }
+        let data = crate::ooxml::read_part(bytes, &name)
+            .with_context(|| format!("read external-link part `{name}`"))?;
+        out.push((low, data));
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out)
 }
 
 /// The reference/value surface of every Excel Table across `xl/tables/*.xml`, as a sorted
@@ -10076,9 +10129,10 @@ mod tests {
         ] {
             assert!(part_is_certify_safe(p, &empty), "{p} must be allowlisted");
         }
-        // But a genuinely unknown reference-bearing part still fails closed.
+        // But a genuinely unknown reference-bearing part still fails closed. External links are
+        // no longer in that bucket: they are exact-compared by `external_link_snapshot`.
         assert!(!part_is_certify_safe(
-            "xl/externalLinks/externalLink1.xml",
+            "xl/unknownReferences/reference1.xml",
             &empty
         ));
     }
@@ -10091,6 +10145,53 @@ mod tests {
         let empty = BTreeSet::new();
         assert!(part_is_certify_safe("xl/volatileDependencies.xml", &empty));
         assert!(part_is_certify_safe("xl/calcChain.xml", &empty));
+    }
+
+    #[test]
+    fn external_links_are_compared_then_certify_safe() {
+        let link = r#"<externalLink xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><externalBook><sheetDataSet><sheetData sheetId="0"><row r="1"><cell r="A1"><v>99</v></cell></row></sheetData></sheetDataSet></externalBook></externalLink>"#;
+        let rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath" Target="file:///trusted.xlsx" TargetMode="External"/></Relationships>"#;
+        let parts = [
+            ("xl/externalLinks/externalLink1.xml", link),
+            ("xl/externalLinks/_rels/externalLink1.xml.rels", rels),
+        ];
+        let empty = BTreeSet::new();
+        assert!(part_is_certify_safe(parts[0].0, &empty));
+        assert!(part_is_certify_safe(parts[1].0, &empty));
+
+        let good = wb("", &parts);
+        assert!(
+            verify_noncell_refs(&good, &good).is_none(),
+            "an identical external-link subtree must certify"
+        );
+
+        let tampered_value = link.replace("<v>99</v>", "<v>999</v>");
+        let evil = wb(
+            "",
+            &[
+                (
+                    "xl/externalLinks/externalLink1.xml",
+                    tampered_value.as_str(),
+                ),
+                (parts[1].0, rels),
+            ],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &evil)
+                .expect("a cached external-link value tamper must refuse")["reason"],
+            "external_link_mismatch"
+        );
+
+        let internalized = rels.replace(" TargetMode=\"External\"", "");
+        let evil_rel = wb(
+            "",
+            &[(parts[0].0, link), (parts[1].0, internalized.as_str())],
+        );
+        assert_eq!(
+            verify_noncell_refs(&good, &evil_rel)
+                .expect("an external-link relationship change must refuse")["reason"],
+            "external_relationship_mismatch"
+        );
     }
 
     #[test]

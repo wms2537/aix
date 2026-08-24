@@ -33,6 +33,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`ironcalc_base::ENGINE_PROVENANCE`) so it can never drift from the linked build.
 - The receipt journal recovers a single crash-torn trailing line and fails loudly
   on interior corruption (previously a torn tail wedged every future write).
+- **Cost:** `certify` now exact-compares every XML and relationship part under
+  `xl/externalLinks/` before allowlisting that subtree. Unchanged external-workbook caches no
+  longer trigger the generic unknown-part refusal; any added, removed, changed, unreadable, or
+  unsupported external-link part still fails closed.
 
 ### Reference-completeness (fail-closed hardening)
 Adversarial review found the structural edit and `certify` under-covered several
