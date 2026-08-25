@@ -18,6 +18,15 @@ LibreOffice bugs, so the method is not tuned to flatter either engine. Raw data
 The coverage-gaps item collects several functions that error on valid input
 into one checklist. The final item is a contribution offer rather than a bug.
 
+## Filing status
+
+The current reports were filed against `ironcalc/IronCalc` on 2026-08-26:
+
+- CHISQ.TEST/CHITEST: [#1395](https://github.com/ironcalc/IronCalc/issues/1395)
+- XNPV: [#1396](https://github.com/ironcalc/IronCalc/issues/1396)
+- Coverage gaps: [#1397](https://github.com/ironcalc/IronCalc/issues/1397)
+- Function implementation offer: [#1398](https://github.com/ironcalc/IronCalc/issues/1398)
+
 ---
 
 ## 1. CONVERT(68,"F","C") returns 19.65 instead of 20 — offset/scale ordering in the temperature path
