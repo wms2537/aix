@@ -30,6 +30,22 @@ study design; the arms are paired conditions, not independent models.
 - Authorization: operator-approved on 2026-08-25 for this benchmark lane only.
 - Reported provider cost at smoke time: `$0`; the runner records returned usage.
 
+### Amendment A (2026-08-25, before further scored calls)
+
+- Every HTTP request attempt is recorded in `<output>.attempts.json`; the
+  per-arm ceiling applies to attempts, not only successful responses.
+- A malformed or failed response receives at most five total attempts. If all
+  fail, that primary task remains unanswered and is excluded from the scored
+  denominator; it is not imputed or retried in a separate lane.
+- The first retry delay is 5 seconds, followed by doubling (10, 20, 40
+  seconds). This replaces the initially written uniform 45-second start and
+  matches the committed runner.
+- Before this amendment, careful-arm task 5 consumed its five attempts on
+  deterministic malformed JSON and remained unanswered. Four earlier tasks
+  succeeded once each; the interrupted first retry slept 45 seconds before the
+  backoff correction. These nine requests are retained in the audit ledger
+  against the 200-attempt budget.
+
 The prompt contains only task metadata, public-corpus formula text, cached error
 or value strings, and the fixed instruction. No repository paths, workbook bytes,
 private files, or credentials are sent.

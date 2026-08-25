@@ -78,7 +78,7 @@ def response_text(payload):
     return result
 
 
-def call_model(instructions, user_input):
+def call_model(instructions, user_input, record_attempt):
     body = {
         "model": MODEL,
         "instructions": instructions,
@@ -91,19 +91,26 @@ def call_model(instructions, user_input):
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"},
     )
-    delay = 45
+    delay = 5
     last_error = None
+    attempts = []
     for attempt in range(RETRIES):
         try:
             with urllib.request.urlopen(request, timeout=300) as response:
                 payload = json.load(response)
-            return response_text(payload), {
+            result = response_text(payload)
+            meta = {
                 "status": payload.get("status"),
                 "usage": payload.get("usage"),
             }
+            event = {"attempt": attempt + 1, "status": "completed", **meta}
+            attempts.append(event);record_attempt(event)
+            return result, meta, attempts
         except (urllib.error.HTTPError, urllib.error.URLError, ValueError,
                 TimeoutError, json.JSONDecodeError) as exc:
             last_error = f"{type(exc).__name__}: {exc}"
+            event = {"attempt": attempt + 1, "status": "failed", "error": last_error}
+            attempts.append(event);record_attempt(event)
             if attempt < RETRIES - 1:
                 time.sleep(delay)
                 delay *= 2
@@ -117,15 +124,33 @@ def run_arm(arm, tasks_path, out_path, limit=None):
     outputs = json.loads(out_path.read_text()) if out_path.exists() else {}
     calls_path = Path(str(out_path) + ".calls.json")
     calls = json.loads(calls_path.read_text()) if calls_path.exists() else []
+    attempts_path = Path(str(out_path) + ".attempts.json")
+    if attempts_path.exists():
+        attempts = json.loads(attempts_path.read_text())
+    else:
+        attempts = [{"task": c["task"], "attempt": 1, **c} for c in calls]
+        failed_key = "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5"
+        attempts.extend(
+            {"task": failed_key, "attempt": number, "status": "failed", "error": "JSONDecodeError"}
+            for number in range(1, 6)
+        )
+        attempts_path.write_text(json.dumps(attempts, indent=2) + "\n")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     for index, task in enumerate(tasks):
         key = f"{task['file']}#{task['operation']}@{task['at']}"
         if key in outputs:
             print(f"[{index + 1}/{len(tasks)}] {arm} {key} resume", flush=True)
             continue
-        if len(calls) >= MAX_CALLS_PER_ARM:
+        if len(attempts) >= MAX_CALLS_PER_ARM:
             raise RuntimeError(f"{arm} exhausted its {MAX_CALLS_PER_ARM}-call budget")
-        answer, meta = call_model(ARMS[arm], prompt_for(task))
+        def record_attempt(event):
+            attempts.append({"task": key, **event})
+            attempts_path.write_text(json.dumps(attempts, indent=2) + "\n")
+        try:
+            answer, meta, _ = call_model(ARMS[arm], prompt_for(task), record_attempt)
+        except RuntimeError as exc:
+            print(f"FAILED {key}: {exc}", flush=True)
+            continue
         outputs[key] = answer
         calls.append({"task": key, **meta})
         print(f"[{index + 1}/{len(tasks)}] {arm} {key}", flush=True)

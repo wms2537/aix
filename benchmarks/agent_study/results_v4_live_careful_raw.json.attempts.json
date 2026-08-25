@@ -1,0 +1,116 @@
+[
+  {
+    "task": "data/inthewild/euses/converted_v2/database/processed/Projected%20Cost%20Format.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 614,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 64,
+        "text_tokens": null
+      },
+      "output_tokens": 971,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 1585,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/financial/processed/73102%20Analysis%20of#A7EDA.xlsx#insert-rows@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 426,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 256,
+        "text_tokens": null
+      },
+      "output_tokens": 625,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 1051,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/financial/processed/finrpt00.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 535,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 256,
+        "text_tokens": null
+      },
+      "output_tokens": 631,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 1166,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 300,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 256,
+        "text_tokens": null
+      },
+      "output_tokens": 186,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 486,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "failed",
+    "error": "JSONDecodeError"
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 2,
+    "status": "failed",
+    "error": "JSONDecodeError"
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 3,
+    "status": "failed",
+    "error": "JSONDecodeError"
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 4,
+    "status": "failed",
+    "error": "JSONDecodeError"
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 5,
+    "status": "failed",
+    "error": "JSONDecodeError"
+  }
+]
