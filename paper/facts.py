@@ -155,6 +155,30 @@ def facts():
     F["v3_combined_saves"] = str(vp["GUARDED"]["refused_incorrect_SAVE"] + vs["GUARDED"]["refused_incorrect_SAVE"])
     F["v3_combined_cost"] = str(vp["GUARDED"]["refused_correct_COST"] + vs["GUARDED"]["refused_correct_COST"])
 
+    # ---- live multi-operation agent study (§5.11) ----
+    lc = J("benchmarks/agent_study/results_v4_live_careful.json")
+    lh = J("benchmarks/agent_study/results_v4_live_hasty.json")
+    assert lc["tasks_scored"] == lh["tasks_scored"] == 97
+    assert lc["FALSE_CERT_must_be_0"] == lh["FALSE_CERT_must_be_0"] == 0
+    assert lc["GUARDED"]["refused_incorrect_SAVE"] == lc["UNGUARDED"]["shipped_CORRUPT"]
+    assert lh["GUARDED"]["refused_incorrect_SAVE"] == lh["UNGUARDED"]["shipped_CORRUPT"]
+    F["v4_tasks"] = str(lc["tasks_scored"])
+    F["v4_careful_errors"] = str(lc["agent"]["tasks_incorrect"])
+    F["v4_careful_saves"] = str(lc["GUARDED"]["refused_incorrect_SAVE"])
+    F["v4_careful_cost"] = str(lc["GUARDED"]["refused_correct_COST"])
+    F["v4_hasty_errors"] = str(lh["agent"]["tasks_incorrect"])
+    F["v4_hasty_saves"] = str(lh["GUARDED"]["refused_incorrect_SAVE"])
+    F["v4_hasty_cost"] = str(lh["GUARDED"]["refused_correct_COST"])
+    F["v4_combined_errors"] = str(
+        lc["agent"]["tasks_incorrect"] + lh["agent"]["tasks_incorrect"]
+    )
+    F["v4_combined_saves"] = str(
+        lc["GUARDED"]["refused_incorrect_SAVE"] + lh["GUARDED"]["refused_incorrect_SAVE"]
+    )
+    F["v4_combined_cost"] = str(
+        lc["GUARDED"]["refused_correct_COST"] + lh["GUARDED"]["refused_correct_COST"]
+    )
+
     # ---- feature-rich real-workbook preservation (§5.11) ----
     fm = J("benchmarks/real_feature_manifest.summary.json")
     ff = J("benchmarks/real_feature_fidelity.summary.json")

@@ -1,310 +1,43 @@
 [
   {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "failed",
+    "error": "JSONDecodeError"
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 2,
+    "status": "failed",
+    "error": "JSONDecodeError"
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 3,
+    "status": "failed",
+    "error": "JSONDecodeError"
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 4,
+    "status": "failed",
+    "error": "JSONDecodeError"
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 5,
+    "status": "failed",
+    "error": "JSONDecodeError"
+  },
+  {
     "task": "data/inthewild/euses/converted_v2/database/processed/Projected%20Cost%20Format.xlsx#delete-rows@5",
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 614,
+      "input_tokens": 587,
       "input_tokens_details": {
         "audio_tokens": 0,
         "cached_tokens": 64,
-        "text_tokens": null
-      },
-      "output_tokens": 971,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 1585,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/financial/processed/73102%20Analysis%20of#A7EDA.xlsx#insert-rows@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 426,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 625,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 1051,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/financial/processed/finrpt00.xlsx#delete-rows@5",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 535,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 631,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 1166,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 300,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 186,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 486,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
-    "attempt": 1,
-    "status": "failed",
-    "error": "JSONDecodeError"
-  },
-  {
-    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
-    "attempt": 2,
-    "status": "failed",
-    "error": "JSONDecodeError"
-  },
-  {
-    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
-    "attempt": 3,
-    "status": "failed",
-    "error": "JSONDecodeError"
-  },
-  {
-    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
-    "attempt": 4,
-    "status": "failed",
-    "error": "JSONDecodeError"
-  },
-  {
-    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
-    "attempt": 5,
-    "status": "failed",
-    "error": "JSONDecodeError"
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/homework/processed/formulasAndFunctions.xlsx#insert-cols@2",
-    "attempt": 1,
-    "status": "failed",
-    "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 46 (char 45)"
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/homework/processed/formulasAndFunctions.xlsx#insert-cols@2",
-    "attempt": 2,
-    "status": "failed",
-    "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 46 (char 45)"
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/homework/processed/formulasAndFunctions.xlsx#insert-cols@2",
-    "attempt": 3,
-    "status": "failed",
-    "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 46 (char 45)"
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/homework/processed/formulasAndFunctions.xlsx#insert-cols@2",
-    "attempt": 4,
-    "status": "failed",
-    "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 46 (char 45)"
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/homework/processed/formulasAndFunctions.xlsx#insert-cols@2",
-    "attempt": 5,
-    "status": "failed",
-    "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 46 (char 45)"
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/modeling/processed/Research_Team_Tokuhir#A7C9A.xlsx#delete-rows@5",
-    "attempt": 1,
-    "status": "failed",
-    "error": "HTTPError: HTTP Error 429: Too Many Requests"
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/modeling/processed/Research_Team_Tokuhir#A7C9A.xlsx#delete-rows@5",
-    "attempt": 2,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 545,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 64,
-        "text_tokens": null
-      },
-      "output_tokens": 1258,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 1803,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/database/duplicates/accessiblearchives.xlsx#insert-cols@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 336,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 333,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 669,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/grades/processed/table1.xlsx#delete-cols@4",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 672,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 1929,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 2601,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/database/processed/BH_CE%20Structure.xlsx#insert-rows@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 406,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 565,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 971,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.509236.AUJPFY43JE4CRA1GZUFAGQHPHZ4XOXFNB.1.xlsx#delete-cols@4",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 342,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 299,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 641,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/homework/processed/Evns4-5.xlsx#insert-cols@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 401,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 490,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 891,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.473721.J0IXYSKZEQCUHFN0XWYG33OGDTB331SBA.1.xlsx#delete-cols@4",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 462,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 681,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 1143,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/homework/processed/grade_calculator_1a.xlsx#delete-cols@4",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 614,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
         "text_tokens": null
       },
       "output_tokens": 1019,
@@ -313,7 +46,268 @@
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1633,
+      "total_tokens": 1606,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/financial/processed/73102%20Analysis%20of#A7EDA.xlsx#insert-rows@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 399,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 64,
+        "text_tokens": null
+      },
+      "output_tokens": 447,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 846,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/financial/processed/finrpt00.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 508,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 488,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 996,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.548757.NIHYSE40U2KXPCI31RZUJR1O1ZASHYDYB.1.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 273,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 146,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 419,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/homework/processed/formulasAndFunctions.xlsx#insert-cols@2",
+    "attempt": 1,
+    "status": "failed",
+    "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 46 (char 45)"
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/homework/processed/formulasAndFunctions.xlsx#insert-cols@2",
+    "attempt": 2,
+    "status": "failed",
+    "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 46 (char 45)"
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/homework/processed/formulasAndFunctions.xlsx#insert-cols@2",
+    "attempt": 3,
+    "status": "failed",
+    "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 46 (char 45)"
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/homework/processed/formulasAndFunctions.xlsx#insert-cols@2",
+    "attempt": 4,
+    "status": "failed",
+    "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 46 (char 45)"
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/homework/processed/formulasAndFunctions.xlsx#insert-cols@2",
+    "attempt": 5,
+    "status": "failed",
+    "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 46 (char 45)"
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/modeling/processed/Research_Team_Tokuhir#A7C9A.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 518,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 1191,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 1709,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/database/duplicates/accessiblearchives.xlsx#insert-cols@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 309,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 194,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 503,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/grades/processed/table1.xlsx#delete-cols@4",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 645,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 860,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 1505,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/database/processed/BH_CE%20Structure.xlsx#insert-rows@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 379,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 469,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 848,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.509236.AUJPFY43JE4CRA1GZUFAGQHPHZ4XOXFNB.1.xlsx#delete-cols@4",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 315,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 220,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 535,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/homework/processed/Evns4-5.xlsx#insert-cols@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 374,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 429,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 803,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.473721.J0IXYSKZEQCUHFN0XWYG33OGDTB331SBA.1.xlsx#delete-cols@4",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 435,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 577,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 1012,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/homework/processed/grade_calculator_1a.xlsx#delete-cols@4",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 587,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 1262,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 1849,
       "cost": 0
     }
   },
@@ -322,19 +316,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 578,
+      "input_tokens": 551,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 812,
+      "output_tokens": 412,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1390,
+      "total_tokens": 963,
       "cost": 0
     }
   },
@@ -343,19 +337,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 470,
+      "input_tokens": 443,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 644,
+      "output_tokens": 348,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1114,
+      "total_tokens": 791,
       "cost": 0
     }
   },
@@ -364,19 +358,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 310,
+      "input_tokens": 283,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 243,
+      "output_tokens": 158,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 553,
+      "total_tokens": 441,
       "cost": 0
     }
   },
@@ -385,19 +379,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 393,
+      "input_tokens": 366,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 545,
+      "output_tokens": 339,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 938,
+      "total_tokens": 705,
       "cost": 0
     }
   },
@@ -406,19 +400,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 372,
+      "input_tokens": 345,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 342,
+      "output_tokens": 291,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 714,
+      "total_tokens": 636,
       "cost": 0
     }
   },
@@ -427,19 +421,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 596,
+      "input_tokens": 569,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1225,
+      "output_tokens": 898,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1821,
+      "total_tokens": 1467,
       "cost": 0
     }
   },
@@ -448,19 +442,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 672,
+      "input_tokens": 645,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1796,
+      "output_tokens": 905,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 2468,
+      "total_tokens": 1550,
       "cost": 0
     }
   },
@@ -469,52 +463,10 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 358,
+      "input_tokens": 331,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 64,
-        "text_tokens": null
-      },
-      "output_tokens": 309,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 667,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/database/processed/project.xlsx#delete-rows@5",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 391,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 363,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 754,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/financial/processed/maytermcalc.xlsx#insert-cols@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 295,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
       "output_tokens": 190,
@@ -523,7 +475,49 @@
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 485,
+      "total_tokens": 521,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/database/processed/project.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 364,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 261,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 625,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/financial/processed/maytermcalc.xlsx#insert-cols@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 268,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 162,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 430,
       "cost": 0
     }
   },
@@ -532,19 +526,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 484,
+      "input_tokens": 457,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1942,
+      "output_tokens": 1107,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 2426,
+      "total_tokens": 1564,
       "cost": 0
     }
   },
@@ -553,19 +547,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 607,
+      "input_tokens": 580,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 64,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1168,
+      "output_tokens": 1038,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1775,
+      "total_tokens": 1618,
       "cost": 0
     }
   },
@@ -574,19 +568,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 611,
+      "input_tokens": 584,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 479,
+      "output_tokens": 399,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1090,
+      "total_tokens": 983,
       "cost": 0
     }
   },
@@ -595,19 +589,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 476,
+      "input_tokens": 449,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 568,
+      "output_tokens": 481,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1044,
+      "total_tokens": 930,
       "cost": 0
     }
   },
@@ -616,19 +610,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 322,
+      "input_tokens": 295,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 243,
+      "output_tokens": 175,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 565,
+      "total_tokens": 470,
       "cost": 0
     }
   },
@@ -637,19 +631,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 814,
+      "input_tokens": 787,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 2270,
+      "output_tokens": 1789,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 3084,
+      "total_tokens": 2576,
       "cost": 0
     }
   },
@@ -658,19 +652,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 335,
+      "input_tokens": 308,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 64,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 367,
+      "output_tokens": 310,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 702,
+      "total_tokens": 618,
       "cost": 0
     }
   },
@@ -679,19 +673,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 312,
+      "input_tokens": 285,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 250,
+      "output_tokens": 144,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 562,
+      "total_tokens": 429,
       "cost": 0
     }
   },
@@ -700,19 +694,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 337,
+      "input_tokens": 310,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 255,
+      "output_tokens": 158,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 592,
+      "total_tokens": 468,
       "cost": 0
     }
   },
@@ -721,19 +715,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 304,
+      "input_tokens": 277,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 252,
+      "output_tokens": 102,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 556,
+      "total_tokens": 379,
       "cost": 0
     }
   },
@@ -742,19 +736,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 325,
+      "input_tokens": 298,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 742,
+      "output_tokens": 356,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1067,
+      "total_tokens": 654,
       "cost": 0
     }
   },
@@ -763,19 +757,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 603,
+      "input_tokens": 576,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 938,
+      "output_tokens": 985,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1541,
+      "total_tokens": 1561,
       "cost": 0
     }
   },
@@ -784,19 +778,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 352,
+      "input_tokens": 325,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 629,
+      "output_tokens": 367,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 981,
+      "total_tokens": 692,
       "cost": 0
     }
   },
@@ -835,19 +829,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 882,
+      "input_tokens": 855,
       "input_tokens_details": {
         "audio_tokens": 0,
         "cached_tokens": 64,
         "text_tokens": null
       },
-      "output_tokens": 1434,
+      "output_tokens": 1001,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 2316,
+      "total_tokens": 1856,
       "cost": 0
     }
   },
@@ -856,19 +850,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 311,
+      "input_tokens": 284,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 225,
+      "output_tokens": 117,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 536,
+      "total_tokens": 401,
       "cost": 0
     }
   },
@@ -877,19 +871,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 412,
+      "input_tokens": 385,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 861,
+      "output_tokens": 425,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1273,
+      "total_tokens": 810,
       "cost": 0
     }
   },
@@ -898,19 +892,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 460,
+      "input_tokens": 433,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 783,
+      "output_tokens": 519,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1243,
+      "total_tokens": 952,
       "cost": 0
     }
   },
@@ -919,19 +913,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 327,
+      "input_tokens": 300,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 208,
+      "output_tokens": 155,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 535,
+      "total_tokens": 455,
       "cost": 0
     }
   },
@@ -940,19 +934,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 325,
+      "input_tokens": 298,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 240,
+      "output_tokens": 186,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 565,
+      "total_tokens": 484,
       "cost": 0
     }
   },
@@ -961,19 +955,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 296,
+      "input_tokens": 269,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 286,
+      "output_tokens": 80,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 582,
+      "total_tokens": 349,
       "cost": 0
     }
   },
@@ -982,19 +976,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 461,
+      "input_tokens": 434,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 359,
+      "output_tokens": 249,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 820,
+      "total_tokens": 683,
       "cost": 0
     }
   },
@@ -1003,19 +997,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 1337,
+      "input_tokens": 1310,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 3220,
+      "output_tokens": 1601,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 4557,
+      "total_tokens": 2911,
       "cost": 0
     }
   },
@@ -1024,19 +1018,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 515,
+      "input_tokens": 488,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 64,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1557,
+      "output_tokens": 1300,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 2072,
+      "total_tokens": 1788,
       "cost": 0
     }
   },
@@ -1045,19 +1039,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 330,
+      "input_tokens": 303,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 651,
+      "output_tokens": 226,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 981,
+      "total_tokens": 529,
       "cost": 0
     }
   },
@@ -1066,19 +1060,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 427,
+      "input_tokens": 400,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 694,
+      "output_tokens": 777,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1121,
+      "total_tokens": 1177,
       "cost": 0
     }
   },
@@ -1087,94 +1081,10 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 408,
+      "input_tokens": 381,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 1346,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 1754,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/cs101/processed/act3_23_bartholomew.xlsx#delete-rows@5",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 583,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 1372,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 1955,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/grades/processed/midterm2.xlsx#insert-cols@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 612,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 796,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 1408,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.261975.C3G3BWEOMAYIG4KGUVSXAFRKNV1EEXBSB.1.xlsx#delete-rows@5",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 460,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 570,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 1030,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/grades/processed/igapstudent.xlsx#insert-cols@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 372,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
       "output_tokens": 419,
@@ -1183,7 +1093,91 @@
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 791,
+      "total_tokens": 800,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/cs101/processed/act3_23_bartholomew.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 556,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 732,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 1288,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/grades/processed/midterm2.xlsx#insert-cols@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 585,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 516,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 1101,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/enron/converted_v2/edrm/native_000%2F3.261975.C3G3BWEOMAYIG4KGUVSXAFRKNV1EEXBSB.1.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 433,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 555,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 988,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/grades/processed/igapstudent.xlsx#insert-cols@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 345,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 309,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 654,
       "cost": 0
     }
   },
@@ -1192,19 +1186,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 317,
+      "input_tokens": 290,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 237,
+      "output_tokens": 160,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 554,
+      "total_tokens": 450,
       "cost": 0
     }
   },
@@ -1213,19 +1207,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 512,
+      "input_tokens": 485,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1100,
+      "output_tokens": 1826,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1612,
+      "total_tokens": 2311,
       "cost": 0
     }
   },
@@ -1234,19 +1228,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 441,
+      "input_tokens": 414,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 695,
+      "output_tokens": 592,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1136,
+      "total_tokens": 1006,
       "cost": 0
     }
   },
@@ -1285,19 +1279,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 605,
+      "input_tokens": 578,
       "input_tokens_details": {
         "audio_tokens": 0,
         "cached_tokens": 64,
         "text_tokens": null
       },
-      "output_tokens": 1544,
+      "output_tokens": 932,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 2149,
+      "total_tokens": 1510,
       "cost": 0
     }
   },
@@ -1306,19 +1300,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 498,
+      "input_tokens": 471,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1276,
+      "output_tokens": 613,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1774,
+      "total_tokens": 1084,
       "cost": 0
     }
   },
@@ -1327,19 +1321,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 574,
+      "input_tokens": 547,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 690,
+      "output_tokens": 566,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1264,
+      "total_tokens": 1113,
       "cost": 0
     }
   },
@@ -1348,19 +1342,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 572,
+      "input_tokens": 545,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1349,
+      "output_tokens": 1066,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1921,
+      "total_tokens": 1611,
       "cost": 0
     }
   },
@@ -1369,19 +1363,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 353,
+      "input_tokens": 326,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 317,
+      "output_tokens": 269,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 670,
+      "total_tokens": 595,
       "cost": 0
     }
   },
@@ -1390,19 +1384,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 410,
+      "input_tokens": 383,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 658,
+      "output_tokens": 688,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1068,
+      "total_tokens": 1071,
       "cost": 0
     }
   },
@@ -1411,19 +1405,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 322,
+      "input_tokens": 295,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 285,
+      "output_tokens": 166,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 607,
+      "total_tokens": 461,
       "cost": 0
     }
   },
@@ -1432,19 +1426,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 295,
+      "input_tokens": 268,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 475,
+      "output_tokens": 207,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 770,
+      "total_tokens": 475,
       "cost": 0
     }
   },
@@ -1453,19 +1447,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 322,
+      "input_tokens": 295,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 548,
+      "output_tokens": 210,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 870,
+      "total_tokens": 505,
       "cost": 0
     }
   },
@@ -1474,19 +1468,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 312,
+      "input_tokens": 285,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 267,
+      "output_tokens": 122,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 579,
+      "total_tokens": 407,
       "cost": 0
     }
   },
@@ -1495,19 +1489,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 631,
+      "input_tokens": 604,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1128,
+      "output_tokens": 1043,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1759,
+      "total_tokens": 1647,
       "cost": 0
     }
   },
@@ -1516,19 +1510,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 373,
+      "input_tokens": 346,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 900,
+      "output_tokens": 721,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1273,
+      "total_tokens": 1067,
       "cost": 0
     }
   },
@@ -1537,19 +1531,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 353,
+      "input_tokens": 326,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 954,
+      "output_tokens": 478,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1307,
+      "total_tokens": 804,
       "cost": 0
     }
   },
@@ -1558,178 +1552,10 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 326,
+      "input_tokens": 299,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 1133,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 1459,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/homework/duplicates/MA364Syllabus.xlsx#insert-rows@10",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 387,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 520,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 907,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/financial/processed/BNPParibas.xlsx#delete-rows@5",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 319,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 208,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 527,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/financial/duplicates/BOOKLIST.xlsx#insert-rows@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 325,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 251,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 576,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/jackson/processed/Equity1.xlsx#insert-cols@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 763,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 2107,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 2870,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/grades/processed/414GradeCalc.xlsx#delete-rows@5",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 751,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 1972,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 2723,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/modeling/processed/Proposed%20-%20July%202003.xlsx#insert-rows@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 408,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 64,
-        "text_tokens": null
-      },
-      "output_tokens": 501,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 909,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/database/processed/Electricity%20Meters%#A866E.xlsx#insert-cols@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 318,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
-        "text_tokens": null
-      },
-      "output_tokens": 354,
-      "output_tokens_details": {
-        "reasoning_tokens": 0,
-        "text_tokens": null,
-        "image_tokens": 0
-      },
-      "total_tokens": 672,
-      "cost": 0
-    }
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/financial/processed/MiniFactBook2.xlsx#insert-cols@2",
-    "attempt": 1,
-    "status": "completed",
-    "usage": {
-      "input_tokens": 371,
-      "input_tokens_details": {
-        "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
       "output_tokens": 414,
@@ -1738,64 +1564,127 @@
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 785,
+      "total_tokens": 713,
       "cost": 0
     }
   },
   {
-    "task": "data/inthewild/euses/converted_v2/grades/processed/t3.xlsx#insert-rows@10",
+    "task": "data/inthewild/euses/converted_v2/homework/duplicates/MA364Syllabus.xlsx#insert-rows@10",
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 480,
+      "input_tokens": 360,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 421,
+      "output_tokens": 353,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 901,
+      "total_tokens": 713,
       "cost": 0
     }
   },
   {
-    "task": "data/inthewild/euses/converted_v2/database/processed/Appx%20B%20-%20Reject#A83F4.xlsx#insert-cols@2",
+    "task": "data/inthewild/euses/converted_v2/financial/processed/BNPParibas.xlsx#delete-rows@5",
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 310,
+      "input_tokens": 292,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 302,
+      "output_tokens": 233,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 612,
+      "total_tokens": 525,
       "cost": 0
     }
   },
   {
-    "task": "data/inthewild/euses/converted_v2/homework/processed/Gradeprediction.xlsx#insert-cols@2",
+    "task": "data/inthewild/euses/converted_v2/financial/duplicates/BOOKLIST.xlsx#insert-rows@2",
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 368,
+      "input_tokens": 298,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 455,
+      "output_tokens": 197,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 495,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/jackson/processed/Equity1.xlsx#insert-cols@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 736,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 1039,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 1775,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/grades/processed/414GradeCalc.xlsx#delete-rows@5",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 724,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 1687,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 2411,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/modeling/processed/Proposed%20-%20July%202003.xlsx#insert-rows@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 381,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 64,
+        "text_tokens": null
+      },
+      "output_tokens": 442,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
@@ -1806,23 +1695,128 @@
     }
   },
   {
-    "task": "data/inthewild/euses/converted_v2/jackson/processed/Equity1.xlsx#insert-rows@2",
+    "task": "data/inthewild/euses/converted_v2/database/processed/Electricity%20Meters%#A866E.xlsx#insert-cols@2",
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 764,
+      "input_tokens": 291,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1447,
+      "output_tokens": 307,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 2211,
+      "total_tokens": 598,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/financial/processed/MiniFactBook2.xlsx#insert-cols@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 344,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 384,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 728,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/grades/processed/t3.xlsx#insert-rows@10",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 453,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 305,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 758,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/database/processed/Appx%20B%20-%20Reject#A83F4.xlsx#insert-cols@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 283,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 215,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 498,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/homework/processed/Gradeprediction.xlsx#insert-cols@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 341,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 476,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 817,
+      "cost": 0
+    }
+  },
+  {
+    "task": "data/inthewild/euses/converted_v2/jackson/processed/Equity1.xlsx#insert-rows@2",
+    "attempt": 1,
+    "status": "completed",
+    "usage": {
+      "input_tokens": 737,
+      "input_tokens_details": {
+        "audio_tokens": 0,
+        "cached_tokens": 192,
+        "text_tokens": null
+      },
+      "output_tokens": 1188,
+      "output_tokens_details": {
+        "reasoning_tokens": 0,
+        "text_tokens": null,
+        "image_tokens": 0
+      },
+      "total_tokens": 1925,
       "cost": 0
     }
   },
@@ -1831,19 +1825,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 338,
+      "input_tokens": 311,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 318,
+      "output_tokens": 463,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 656,
+      "total_tokens": 774,
       "cost": 0
     }
   },
@@ -1852,19 +1846,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 674,
+      "input_tokens": 647,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1456,
+      "output_tokens": 1432,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 2130,
+      "total_tokens": 2079,
       "cost": 0
     }
   },
@@ -1873,19 +1867,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 386,
+      "input_tokens": 359,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 64,
         "text_tokens": null
       },
-      "output_tokens": 267,
+      "output_tokens": 272,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 653,
+      "total_tokens": 631,
       "cost": 0
     }
   },
@@ -1894,19 +1888,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 559,
+      "input_tokens": 532,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 748,
+      "output_tokens": 308,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1307,
+      "total_tokens": 840,
       "cost": 0
     }
   },
@@ -1915,46 +1909,40 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 579,
+      "input_tokens": 552,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 788,
+      "output_tokens": 382,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1367,
+      "total_tokens": 934,
       "cost": 0
     }
   },
   {
     "task": "data/inthewild/euses/converted_v2/grades/processed/psyc311_0203_final_post.xlsx#insert-cols@2",
     "attempt": 1,
-    "status": "failed",
-    "error": "HTTPError: HTTP Error 429: Too Many Requests"
-  },
-  {
-    "task": "data/inthewild/euses/converted_v2/grades/processed/psyc311_0203_final_post.xlsx#insert-cols@2",
-    "attempt": 2,
     "status": "completed",
     "usage": {
-      "input_tokens": 410,
+      "input_tokens": 383,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 465,
+      "output_tokens": 251,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 875,
+      "total_tokens": 634,
       "cost": 0
     }
   },
@@ -1963,19 +1951,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 441,
+      "input_tokens": 414,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 563,
+      "output_tokens": 458,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1004,
+      "total_tokens": 872,
       "cost": 0
     }
   },
@@ -1984,19 +1972,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 387,
+      "input_tokens": 360,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 878,
+      "output_tokens": 404,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1265,
+      "total_tokens": 764,
       "cost": 0
     }
   },
@@ -2005,19 +1993,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 349,
+      "input_tokens": 322,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 547,
+      "output_tokens": 227,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 896,
+      "total_tokens": 549,
       "cost": 0
     }
   },
@@ -2026,19 +2014,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 347,
+      "input_tokens": 320,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 500,
+      "output_tokens": 326,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 847,
+      "total_tokens": 646,
       "cost": 0
     }
   },
@@ -2047,19 +2035,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 339,
+      "input_tokens": 312,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 464,
+      "output_tokens": 196,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 803,
+      "total_tokens": 508,
       "cost": 0
     }
   },
@@ -2068,19 +2056,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 322,
+      "input_tokens": 295,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 359,
+      "output_tokens": 145,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 681,
+      "total_tokens": 440,
       "cost": 0
     }
   },
@@ -2089,19 +2077,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 304,
+      "input_tokens": 277,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 220,
+      "output_tokens": 85,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 524,
+      "total_tokens": 362,
       "cost": 0
     }
   },
@@ -2110,19 +2098,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 434,
+      "input_tokens": 407,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 896,
+      "output_tokens": 723,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 1330,
+      "total_tokens": 1130,
       "cost": 0
     }
   },
@@ -2131,19 +2119,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 1038,
+      "input_tokens": 1011,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1028,
+      "output_tokens": 881,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 2066,
+      "total_tokens": 1892,
       "cost": 0
     }
   },
@@ -2152,19 +2140,19 @@
     "attempt": 1,
     "status": "completed",
     "usage": {
-      "input_tokens": 1228,
+      "input_tokens": 1201,
       "input_tokens_details": {
         "audio_tokens": 0,
-        "cached_tokens": 256,
+        "cached_tokens": 192,
         "text_tokens": null
       },
-      "output_tokens": 1734,
+      "output_tokens": 1123,
       "output_tokens_details": {
         "reasoning_tokens": 0,
         "text_tokens": null,
         "image_tokens": 0
       },
-      "total_tokens": 2962,
+      "total_tokens": 2324,
       "cost": 0
     }
   }

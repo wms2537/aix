@@ -760,10 +760,16 @@ arm made {{v3_perfect_errors}} task errors; the sloppy arm made {{v3_sloppy_erro
 shifts unchanged. Unguarded shipping therefore sent {{v3_perfect_unguarded}} and {{v3_sloppy_unguarded}} corrupt artifacts,
 respectively. Guarded shipping produced **zero false certifications in both arms**, saved all
 {{v3_combined_saves}} incorrect artifacts, and refused {{v3_combined_cost}} correct artifacts. This extends the prior
-harness check across row/column insert/delete on real workbooks; it is explicitly **not** a new live-model result, and new live
-arms remain future work under separate authorization.
+harness check across row/column insert/delete on real workbooks.
 
-Third, the dominant identified refusal lever was implemented without weakening certification. The guard now compares every
+Third, a fresh live-model study ran the same frozen task set in paired careful/hasty prompt conditions under separate authorization.
+Three malformed-response tasks were excluded identically from both arms under the pre-specified failure amendment, leaving
+{{v4_tasks}} paired tasks. The careful arm made {{v4_careful_errors}} task errors; hasty made {{v4_hasty_errors}}. Unguarded shipping
+therefore sent {{v4_combined_errors}} corrupt artifacts. Guarded shipping again produced **zero false certifications in both arms**, saved all
+{{v4_combined_saves}}, and refused {{v4_combined_cost}} correct work. The seven discordances do not support a prompt-condition effect;
+the load-bearing result is the soundness headline, not a superiority claim for either instruction style.
+
+Fourth, the dominant identified refusal lever was implemented without weakening certification. The guard now compares every
 `xl/externalLinks` XML and relationship part exactly between xlq's expected transform and the foreign edit; only an unchanged
 subtree enters the known-safe allowlist. On a focused rerun of the {{extlink_probe_selected}} locked-v2 Enron refusals whose sole
 recorded denial class was an external link, {{extlink_probe_certified}} now certify — {{extlink_probe_subset_pct}} of that subset.

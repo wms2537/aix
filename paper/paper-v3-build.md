@@ -762,14 +762,20 @@ not available as an arbiter.
 Second, the agent study's scoring path was widened from one operation to four:
 40 insert-row / 20 delete-row / 20 insert-column / 20 delete-column, with 100 tasks selected deterministically from 3,091 qualifying candidates.
 Two deterministic synthetic arms validate the expanded truth/guard harness rather than model behavior. The perfect
-arm made 3 task errors; the sloppy arm made 17 by leaving 10% of truth-visible
-shifts unchanged. Unguarded shipping therefore sent 3 and 17 corrupt artifacts,
+arm made 0 task errors; the sloppy arm made 67 by leaving 10% of truth-visible
+shifts unchanged. Unguarded shipping therefore sent 0 and 67 corrupt artifacts,
 respectively. Guarded shipping produced **zero false certifications in both arms**, saved all
-20 incorrect artifacts, and refused 146 correct artifacts. This extends the prior
-harness check across row/column insert/delete on real workbooks; it is explicitly **not** a new live-model result, and new live
-arms remain future work under separate authorization.
+67 incorrect artifacts, and refused 123 correct artifacts. This extends the prior
+harness check across row/column insert/delete on real workbooks.
 
-Third, the dominant identified refusal lever was implemented without weakening certification. The guard now compares every
+Third, a fresh live-model study ran the same frozen task set in paired careful/hasty prompt conditions under separate authorization.
+Three malformed-response tasks were excluded identically from both arms under the pre-specified failure amendment, leaving
+97 paired tasks. The careful arm made 4 task errors; hasty made 3. Unguarded shipping
+therefore sent 7 corrupt artifacts. Guarded shipping again produced **zero false certifications in both arms**, saved all
+7, and refused 171 correct work. The seven discordances do not support a prompt-condition effect;
+the load-bearing result is the soundness headline, not a superiority claim for either instruction style.
+
+Fourth, the dominant identified refusal lever was implemented without weakening certification. The guard now compares every
 `xl/externalLinks` XML and relationship part exactly between xlq's expected transform and the foreign edit; only an unchanged
 subtree enters the known-safe allowlist. On a focused rerun of the 66 locked-v2 Enron refusals whose sole
 recorded denial class was an external link, 56 now certify — 84.9% of that subset.

@@ -753,6 +753,8 @@ DBC = "benchmarks/inthewild_dbt_calitp.json"
 SPX = "benchmarks/agent_study/results_smoke_perfect_postfix.json"
 V3P = "benchmarks/agent_study/results_v3_smoke_perfect.json"
 V3S = "benchmarks/agent_study/results_v3_smoke_sloppy.json"
+V4C = "benchmarks/agent_study/results_v4_live_careful.json"
+V4H = "benchmarks/agent_study/results_v4_live_hasty.json"
 
 expect("v2-euses-cellchecks", "§5.10", "316,746 cell-checks", EV2,
        lambda: sum(v["cells_checked"] for v in J(EV2)["leg1_shift_correctness"].values()), 316746)
@@ -808,35 +810,35 @@ expect("v2-smoke-postfix", "§5.10 smoke 5->4", "refused_correct = 4", SPX,
 
 # ------------------------------------------------------- §5.11 v3 + features ----
 expect("v3-perfect-aggregates", "§5.11",
-       "100 tasks, 3 errors/corrupt, 0 false certs, 3 saves, 77 cost", V3P,
+       "100 tasks, 0 errors/corrupt, 0 false certs, 0 saves, 92 cost", V3P,
        lambda: (J(V3P)["tasks_scored"], J(V3P)["agent"]["tasks_incorrect"],
                 J(V3P)["UNGUARDED"]["shipped_CORRUPT"],
                 J(V3P)["FALSE_CERT_must_be_0"],
                 J(V3P)["GUARDED"]["refused_incorrect_SAVE"],
                 J(V3P)["GUARDED"]["refused_correct_COST"]),
-       (100, 3, 3, 0, 3, 77))
+       (100, 0, 0, 0, 0, 92))
 
 expect("v3-sloppy-aggregates", "§5.11",
-       "100 tasks, 17 errors/corrupt, 0 false certs, 17 saves, 69 cost", V3S,
+       "100 tasks, 67 errors/corrupt, 0 false certs, 67 saves, 31 cost", V3S,
        lambda: (J(V3S)["tasks_scored"], J(V3S)["agent"]["tasks_incorrect"],
                 J(V3S)["UNGUARDED"]["shipped_CORRUPT"],
                 J(V3S)["FALSE_CERT_must_be_0"],
                 J(V3S)["GUARDED"]["refused_incorrect_SAVE"],
                 J(V3S)["GUARDED"]["refused_correct_COST"]),
-       (100, 17, 17, 0, 17, 69))
+       (100, 67, 67, 0, 67, 31))
 
 
 @claim("v3-all-incorrect-refused", "§5.11",
-       "all 20 synthetic incorrect artifacts refused; operation mix 40/20/20/20",
+       "all 67 synthetic incorrect artifacts refused; operation mix 40/20/20/20",
        V3P)
 def _v3ops():
     perfect_expected = {
-        "insert-rows": (40, 0, 1, 29),
-        "delete-rows": (20, 0, 0, 17),
+        "insert-rows": (40, 0, 0, 36),
+        "delete-rows": (20, 0, 0, 19),
         "insert-cols": (20, 0, 0, 18),
-        "delete-cols": (20, 0, 2, 13),
+        "delete-cols": (20, 0, 0, 19),
     }
-    sloppy_saves = {"insert-rows": 8, "delete-rows": 4, "insert-cols": 1, "delete-cols": 4}
+    sloppy_saves = {"insert-rows": 28, "delete-rows": 15, "insert-cols": 12, "delete-cols": 12}
     checked = []
     for rel in (V3P, V3S):
         d = J(rel)
@@ -852,7 +854,7 @@ def _v3ops():
                 return False, f"{rel}:{op}: {got}"
             checked.append((rel, op))
     saves = sum(J(rel)["GUARDED"]["refused_incorrect_SAVE"] for rel in (V3P, V3S))
-    return saves == 20, f"saves={saves}; checked {len(checked)} arm/op cells"
+    return saves == 67, f"saves={saves}; checked {len(checked)} arm/op cells"
 
 
 FM = "benchmarks/real_feature_manifest.summary.json"
@@ -889,6 +891,53 @@ expect("external-link-cost-probe", "§5.11",
                 J(ELC)["projected_enron_own_cost_numerator"]["after"],
                 J(ELC)["projected_enron_own_cost_numerator"]["files_run"]),
        (66, {"REFUSED": 9, "CERTIFIED": 56, "ERROR": 1}, 56, 124, 68, 362))
+
+# ------------------------------------------------ §5.11 live multi-op agents ----
+expect("v4-careful-aggregates", "§5.11",
+       "97 tasks, 4 errors/corrupt, 0 false certs, 4 saves, 85 cost", V4C,
+       lambda: (J(V4C)["tasks_scored"], J(V4C)["agent"]["tasks_incorrect"],
+                J(V4C)["UNGUARDED"]["shipped_CORRUPT"],
+                J(V4C)["FALSE_CERT_must_be_0"],
+                J(V4C)["GUARDED"]["refused_incorrect_SAVE"],
+                J(V4C)["GUARDED"]["refused_correct_COST"]),
+       (97, 4, 4, 0, 4, 85))
+
+expect("v4-hasty-aggregates", "§5.11",
+       "97 tasks, 3 errors/corrupt, 0 false certs, 3 saves, 86 cost", V4H,
+       lambda: (J(V4H)["tasks_scored"], J(V4H)["agent"]["tasks_incorrect"],
+                J(V4H)["UNGUARDED"]["shipped_CORRUPT"],
+                J(V4H)["FALSE_CERT_must_be_0"],
+                J(V4H)["GUARDED"]["refused_incorrect_SAVE"],
+                J(V4H)["GUARDED"]["refused_correct_COST"]),
+       (97, 3, 3, 0, 3, 86))
+
+
+@claim("v4-paired-zero-false-certs", "§5.11",
+       "same 97 paired tasks; all 7 incorrect artifacts refused; operation mix 39/20/19/19",
+       V4C)
+def _v4paired():
+    def by_key(path):
+        return {
+            f"{r['file']}#{r['operation']}@{r['at']}": r for r in J(path)["per_task"]
+        }
+    c, h = by_key(V4C), by_key(V4H)
+    if set(c) != set(h):
+        return False, f"unpaired scored keys: {set(c) ^ set(h)}"
+    c_bad = {k for k, r in c.items() if not r["agent_correct"]}
+    h_bad = {k for k, r in h.items() if not r["agent_correct"]}
+    expected_ops = {"insert-rows": 39, "delete-rows": 20,
+                    "insert-cols": 19, "delete-cols": 19}
+    got_ops = {op: sum(r["operation"] == op for r in c.values())
+               for op in expected_ops}
+    ok = (got_ops == expected_ops and len(c_bad | h_bad) == 7)
+    for arm in (V4C, V4H):
+        d = J(arm)
+        ok = ok and d["FALSE_CERT_must_be_0"] == 0
+        for op in expected_ops:
+            o = d["per_operation"][op]
+            ok = ok and o["guarded_false_cert"] == 0
+            ok = ok and o["saved_incorrect"] == o["unguarded_corrupt"]
+    return ok, f"paired={len(c)}, careful_bad={len(c_bad)}, hasty_bad={len(h_bad)}"
 
 
 
