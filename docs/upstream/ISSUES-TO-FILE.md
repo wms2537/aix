@@ -11,7 +11,7 @@ against LibreOffice 24.8 over 1,634 formula cases / 484 functions from one
 shared workbook. We arbitrated disagreements against Excel's documented
 semantics and re-derived financial day-count and pricing verdicts independently
 in Python. We did not have a licensed desktop Excel executable in the loop.
-This surfaced **15 IronCalc issue clusters** below and, symmetrically, 41
+This surfaced **14 IronCalc issue clusters** below and, symmetrically, 41
 LibreOffice bugs, so the method is not tuned to flatter either engine. Raw data
 (both engines' values per case) lives in `benchmarks/agreement.json`.
 
