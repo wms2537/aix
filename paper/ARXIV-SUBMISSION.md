@@ -1,7 +1,9 @@
 # arXiv Submission Guide
 
-Everything needed to submit *An Enforcement Boundary for LLM Agents Operating
-on Spreadsheet Artifacts* to arXiv. What only you can do is marked **[YOU]**.
+Everything needed to submit *Certify-or-Refuse: A Machine-Checked Soundness
+Boundary for Untrusted Agent Edits to Opaque-Semantics Artifacts* to arXiv. What
+only you can do is marked **[YOU]**. This guide tracks the current generated
+`paper-v3` outputs; `paper-v2.*` is historical.
 
 ## What only you can do
 - **[YOU] arXiv account** — https://arxiv.org (log in / register with your
@@ -30,25 +32,32 @@ on Spreadsheet Artifacts* to arXiv. What only you can do is marked **[YOU]**.
   differential oracle, fixtures)."
 
 ## Abstract (paste into the arXiv abstract box — plain text, no markdown)
-Given the same one-cell edit on the same workbook, a status-quo LLM agent using the standard Python library produced a corrupt, non-reloadable file -- two charts and a pivot table stripped of their relationships, 13 of 50 package parts dropped, only 1 of 50 left byte-identical -- and reported success, having read the raw XML and confirmed its cell had landed; an agent confined to the boundary presented here made the identical edit with charts and pivot byte-identical, 48 of 50 parts untouched, the file reloadable, and a signed receipt. This is the corruption of Anthropic's own shipped spreadsheet skill (issue #22044), reproduced live under a real agent, and prevented. The boundary is xlq, and its core is a surgical write primitive with a fidelity property that holds by construction and is enforced on every write: after an edit, every OOXML part that does not contain a changed cell is byte-identical to the input, because the writer copies those parts verbatim and re-serializes only the sheet parts an operation touches -- and because every apply byte-diffs the un-edited parts before it commits and aborts on any change -- a property that openpyxl, LibreOffice, and even the engine's own whole-file writer all fail, each rewriting the entire container. The write is wrapped in a transactional envelope: a basehash precondition under an advisory lock, a --dry-run that predicts affected cells and new formula errors, a proof-carrying commit that re-loads its own output, verifies every predicted cell landed, and confirms every non-edited part survived byte-identical before it commits, a write-reliability gate that refuses to persist any engine-computed cache whose formula uses a function our own differential oracle found divergent from Excel, an atomic revision swap, and an append-only hash-chained receipt journal. We define the enforcement claim precisely -- an agent whose harness confines its workbook writes to xlq cannot reach the #22044 failure mode, while an agent handed a raw shell can, which is the harness's responsibility and not xlq's -- matching how the 2025–26 agent-enforcement literature scopes its own boundaries. Underneath, the boundary reads a workbook through a privacy-safe structural census (999 B versus a 7.24 MB full-cell dump on a ~100k-formula file), reports its own per-artifact evaluability as three honest numbers (522 of 522 catalog functions recognized, 505 locally evaluable, 17 policy-limited), and rests on a formula engine validated by a documentation-arbitered differential oracle over 1,659 cases; an independent financial cross-check confirms two of the oracle's Treasury-bill verdicts and downgrades a third, which we report as a strength of the method rather than hide. All artifacts are reproducible.
+
+An LLM agent that edits a spreadsheet or a dbt project produces an artifact that opens fine but may be silently wrong: a structural edit that fails to propagate references corrupts computed values with no visible symptom, and neither the agent nor a reviewer can see it without the defining engine. We ask which such edits can be certified engine-free — offline, against the artifact's own structure, trusting neither the editor nor a recomputation — and answer by machine-checking both sides of the boundary (Lean 4, no sorry, axioms propext/Quot.sound only). Relabeling edits are certifiable: their premise is decidable from syntax, and our executable decision procedure carries a soundness theorem quantifying over every possible engine. Edits introducing unwitnessed semantics are uncertifiable: indistinguishable engines disagree, so certify-or-refuse is the only sound shape. The middle ground — copies of witnessed formulas — is structured by an argument-value witnessing criterion with theorems on both of its sides.
+
+The theory is load-bearing in the running system. The deployed checker agrees with the Lean decider; the trusted byte-to-token layer carries a verified reference tokenizer held to the production tokenizer by a 1,810,796-comparison corpus differential with zero disagreements on its model surface; and a production certifier covers five structural operations. Two pre-registered, run-once locked tests on external corpora corroborate the theory: zero false certifications across 1,370 foreign-edit calls, zero mismatches across 1,006,997 cell-checks over five operations, and measured fail-closed cost of 19.6%–34.3%. A separate frozen live-agent study adds paired careful/hasty arms on 97 multi-operation spreadsheet tasks: all seven incorrect artifacts were refused and no certified artifact contained truth-visible corruption. The claims harness re-verifies the paper's headline numbers against committed artifacts and gates every build.
 ## Source to upload — two options
 arXiv accepts either. LaTeX source is preferred (arXiv rebuilds the PDF and
 it renders natively); PDF-only is accepted for papers not written in TeX.
 
-**Option A — LaTeX (preferred):** `paper/paper-v2.tex` (generated; see
-paper/README if present). Upload the .tex plus any `.bbl`/figures. If we could
-not generate clean LaTeX in this environment, use Option B and convert later.
+**Option A — LaTeX (preferred):** `paper/paper-v3.tex`. It is generated by the
+fail-closed build pipeline from `paper/paper.src.md` plus committed artifacts.
+Upload the `.tex`; if arXiv requests bibliography or figure files during preview,
+add exactly those missing dependencies.
 
-**Option B — PDF-only (fastest):** upload `paper/paper-v2.pdf`. To make the PDF:
-- Open `paper/paper-v2.md` in any browser → Print → Save as PDF (30 seconds,
-  works anywhere; the HTML carries the same publication CSS), OR
-- run `make-pdf` where a Chromium/browse daemon is available:
-  `pdf generate --cover --toc paper/paper.md paper/paper-v2.pdf`.
+**Option B — PDF-only:** upload `paper/paper-v3.pdf`. Prefer Option A when the
+LaTeX preview succeeds; PDF-only forfeits arXiv's native rebuild path.
+
+Before packaging either option, run `python3 paper/build.py` and
+`python3 repro/verify_claims.py`. Both must be green; do not submit a stale
+generated artifact.
 
 ## Pre-submission checklist
 - [ ] Author name(s) + affiliation filled in (replace "the xlq authors").
+- [ ] Current title matches `paper/paper-v3.md`.
 - [ ] Abstract pasted (plain text version above; no markdown/backticks).
-- [ ] PDF or .tex uploaded and previews correctly on arXiv.
+- [ ] `paper/paper-v3.tex` uploaded and previews correctly on arXiv, or
+      `paper/paper-v3.pdf` used as the disclosed PDF-only fallback.
 - [ ] Categories: cs.SE primary + cs.AI, cs.HC cross-list.
 - [ ] License chosen (CC BY 4.0 recommended).
 - [ ] Artifact URL in the Comments field.
