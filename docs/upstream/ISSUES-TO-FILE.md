@@ -1,23 +1,22 @@
 # IronCalc — ready-to-file issues
 
-These are draft GitHub issues for `ironcalc/IronCalc`, one section per bug.
-Copy the **Title** line into the issue title and the **Body** into the issue
-body. They are written as gifts to the maintainers, not complaints — each
-includes a minimal repro, the Excel-verified expected value, IronCalc's actual
-output, and a one-line hypothesis about the cause.
+These are draft GitHub issues for `ironcalc/IronCalc`, one section per bug or
+contribution offer. Copy the **Title** line into the issue title and the
+**Body** into the issue body. They are written as gifts to the maintainers,
+not complaints. Each report gives a minimal repro, the basis for expected
+behavior, IronCalc's observed output, and a testable hypothesis.
 
 **How these were found.** We differential-tested IronCalc master (`e50ccea8`)
 against LibreOffice 24.8 over 1,634 formula cases / 484 functions from one
-shared workbook, then arbitrated every value-vs-value disagreement against
-desktop Excel (M365 / documented behavior). Financial day-count and pricing
-verdicts were re-derived by reimplementing Excel's documented formulas in
-Python. This surfaced **~11 IronCalc issue clusters** (below) and, symmetrically,
-41 LibreOffice bugs — so the method is not tuned to flatter either engine. Raw
-data (both engines' values per case) lives in `benchmarks/agreement.json` in our
-tree if you want to check our work.
+shared workbook. We arbitrated disagreements against Excel's documented
+semantics and re-derived financial day-count and pricing verdicts independently
+in Python. We did not have a licensed desktop Excel executable in the loop.
+This surfaced **15 IronCalc issue clusters** below and, symmetrically, 41
+LibreOffice bugs, so the method is not tuned to flatter either engine. Raw data
+(both engines' values per case) lives in `benchmarks/agreement.json`.
 
-The last issue (**coverage gaps**) collects several functions that error on
-valid input into a single checklist rather than filing eleven micro-issues.
+The coverage-gaps item collects several functions that error on valid input
+into one checklist. The final item is a contribution offer rather than a bug.
 
 ---
 
@@ -268,3 +267,92 @@ Financial domain guards that are too strict:
   `=PRICEMAT(DATE(2026,1,1),DATE(2027,1,1),DATE(2026,1,1),0.04,0.05,1)` →
   IronCalc `#NUM!`, Excel `99.0476…`. A zero-length accrued-interest period
   (settlement on the issue date) is valid in Excel.
+
+---
+
+## 12. CHISQ.TEST and CHITEST underflow tiny p-values to exactly zero
+
+**Body:**
+
+Set up a worksheet:
+
+| Range | Values |
+|---|---|
+| `C1:C5` | `1`, `2`, `3`, `4`, `5` |
+| `D1:D5` | `10`, `20`, `30`, `40`, `50` |
+
+Evaluate:
+
+```excel
+=CHISQ.TEST(C1:C5,D1:D5)
+=CHITEST(C1:C5,D1:D5)
+```
+
+- **Observed IronCalc:** `0` for both functions.
+- **LibreOffice 24.8.7.2:** `2.55415463086148E-25` for both functions.
+- **Expected:** A small but representable positive p-value. We do not have a
+  licensed desktop Excel executable available, so we are not asserting an exact
+  Excel digit sequence. Returning exact zero for a positive result near
+  `2.55e-25` is still a numerical defect: IEEE-754 binary64 represents values
+  far below that threshold, and the relative error is 100%.
+
+Both names probably share one implementation path. Please check whether the
+p-value calculation uses an intermediate logarithm or complementary incomplete
+gamma form instead of multiplying probabilities until they underflow.
+
+Source row: `benchmarks/agreement.json`, rows 204 and 207.
+
+---
+
+## 13. XNPV rejects unordered date schedules accepted by Excel
+
+**Body:**
+
+```excel
+=XNPV(0.05,{-1000,500},{46204,46023})
+```
+
+The serial dates are 2026-07-01 and 2026-01-01. The first date is the start of
+the schedule; the second cash flow occurs earlier in calendar time.
+
+- **Observed IronCalc:** `#NUM!`
+- **LibreOffice 24.8.7.2:** `-487.755180940009`
+- **Expected:** Excel accepts schedules whose dates after the start are not in
+  ascending order. Microsoft's XNPV documentation describes a schedule of cash
+  flows that is not necessarily periodic; it does not require the remaining
+  dates to be sorted.
+
+The result suggests that XNPV validates ordering beyond Excel's first-date
+anchor requirement. If the current guard is intentional, documentation or a
+different error may make that choice clearer, but compatibility with Excel
+would require accepting this input.
+
+Source row: `benchmarks/agreement.json`, row 1633.
+
+---
+
+## 14. Offer: ENCODEURL, HYPERLINK, and AGGREGATE implementations with tests
+
+**Body:**
+
+While testing function coverage against IronCalc master at `e50ccea8`, we
+implemented three missing locally evaluable functions in a vendored tree:
+
+- `ENCODEURL(text)` percent-encodes UTF-8 bytes with Excel's unreserved set.
+  Unlike LibreOffice, Excel does not encode `.` and `~`.
+- `HYPERLINK(link_location, [friendly_name])` returns display-value semantics;
+  numeric and boolean friendly names retain their types.
+- `AGGREGATE(function_num, options, ref1, ...)` implements all 19 scalar
+  function numbers and options `0` through `7`, including hidden-row filtering
+  and nested `SUBTOTAL`/`AGGREGATE` handling.
+
+The work follows existing conventions for dispatch, static argument analysis,
+localized names, `_xlfn.` serialization, and tests. Our fork reported 2,129
+passing base-library tests, zero failures, clean `cargo fmt -- --check`, and
+clean runs with the repository's Clippy lint set at the time of the patch.
+
+We can rebase this onto current master and open a PR. We can also attach or
+push the focused diff on request. We deliberately exclude xlq-specific
+policy-limited stubs such as `CUBE*`, `WEBSERVICE`, `RTD`, and
+`STOCKHISTORY`; those intentionally return external-execution errors and are
+not suitable for upstream.
