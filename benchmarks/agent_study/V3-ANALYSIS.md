@@ -10,6 +10,10 @@ EUSES and Enron `converted_v2`, one structural operation per task. It does **not
 add a new live-model arm. The two agents below are deterministic synthetic probes of
 the scorer, truth grammar, and guard.
 
+The synthetic outputs and scores below were regenerated on 2026-08-25 against the
+committed task file. They replace earlier result artifacts that had been produced
+from a superseded task selection.
+
 The task protocol is recorded in [`tasks_v3.json`](tasks_v3.json) with seed
 `20260823`. Its rules exclude shared-formula followers, volatile functions, empty or
 uncertifiable formulas, and workbooks outside the 2-40 formula band. Duplicate source
@@ -43,13 +47,13 @@ The scorer never treats agreement with xlq as ground truth.
 | Metric | Perfect agent | Sloppy agent |
 |---|---:|---:|
 | Tasks scored | 100 | 100 |
-| Agent errors | 3 | 17 |
-| Unguarded corrupt shipments | 3 | 17 |
+| Agent errors | 0 | 67 |
+| Unguarded corrupt shipments | 0 | 67 |
 | Guarded false certifications | **0** | **0** |
-| Guarded incorrect saves | 3 | 17 |
-| Guarded refusals of correct work | 77 | 69 |
+| Guarded incorrect saves | 0 | 67 |
+| Guarded refusals of correct work | 92 | 31 |
 
-Across both 100-task arms, all 20 incorrect artifacts were refused and no certified
+Across both 100-task arms, all 67 incorrect artifacts were refused and no certified
 artifact contained a truth-visible corruption.
 
 ## Per-operation results
@@ -58,37 +62,24 @@ artifact contained a truth-visible corruption.
 
 | Operation | Tasks | Unguarded corrupt | False certs | Incorrect saves | Correct refusals |
 |---|---:|---:|---:|---:|---:|
-| Insert rows | 40 | 1 | 0 | 1 | 29 |
-| Delete rows | 20 | 0 | 0 | 0 | 17 |
+| Insert rows | 40 | 0 | 0 | 0 | 36 |
+| Delete rows | 20 | 0 | 0 | 0 | 19 |
 | Insert cols | 20 | 0 | 0 | 0 | 18 |
-| Delete cols | 20 | 2 | 0 | 2 | 13 |
+| Delete cols | 20 | 0 | 0 | 0 | 19 |
 
 ### Sloppy agent
 
 | Operation | Tasks | Unguarded corrupt | False certs | Incorrect saves | Correct refusals |
 |---|---:|---:|---:|---:|---:|
-| Insert rows | 40 | 8 | 0 | 8 | 25 |
-| Delete rows | 20 | 4 | 0 | 4 | 15 |
-| Insert cols | 20 | 1 | 0 | 1 | 17 |
-| Delete cols | 20 | 4 | 0 | 4 | 12 |
+| Insert rows | 40 | 28 | 0 | 28 | 11 |
+| Delete rows | 20 | 15 | 0 | 15 | 5 |
+| Insert cols | 20 | 12 | 0 | 12 | 7 |
+| Delete cols | 20 | 12 | 0 | 12 | 8 |
 
-The sloppy agent leaves 10% of truth-visible shifts unchanged using seed 42. Error
-counts therefore measure the harness response to known corruption, not a natural LLM
-error distribution.
-
-## Difficulty slices
-
-Agent-error counts by binary difficulty flag were:
-
-| Slice | Perfect errors / tasks | Sloppy errors / tasks |
-|---|---:|---:|
-| Absolute references present | 0 / 12 | 2 / 12 |
-| Ranges present | 3 / 73 | 9 / 73 |
-| EUSES | 2 / 89 | 13 / 89 |
-| Enron | 1 / 11 | 4 / 11 |
-
-These slices are observational. The sample was balanced by operation, not by corpus,
-absolute-reference use, or range use.
+The sloppy agent leaves 134 of 1,338 truth-visible shifts unchanged using seed 42.
+Because one missed reference fails its whole task, this produces 67 incorrect tasks.
+Error counts therefore measure the harness response to known corruption, not a natural
+LLM error distribution.
 
 ## Honest limits
 

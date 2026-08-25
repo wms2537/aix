@@ -57,7 +57,8 @@ def splice_formulas(path,sheet,by_a1):
  z=zipfile.ZipFile(path);part=sheet_part_by_name(z,sheet)
  if not part:return ['sheet_part_missing']
  names=z.namelist();data=z.read(part).decode('utf-8','replace');missed=[]
- for a1,f in by_a1.items():
+ ordered=sorted(by_a1.items(), key=lambda x: (coln(re.match(r"\$?([A-Za-z]+)",x[0]).group(1)), int(re.sub(r"\D","",x[0]))), reverse=True)
+ for a1,f in ordered:
   body=f[1:] if str(f).startswith('=') else str(f)
   pat=re.compile(r'(<c r="'+re.escape(a1)+r'"(?:(?!</c>).)*?<f[^>]*>)(.*?)(</f>)',re.S)
   data,n=pat.subn(lambda mm:mm.group(1)+escape(body)+mm.group(3),data,count=1)
@@ -100,18 +101,18 @@ def score_task(t,agent_cells,workdir):
  rel,sheet=t['file'],t['sheet'];src=ROOT/rel;agent_file=workdir/'agent.xlsx'
  try:openpyxl_edit(src,sheet,t,agent_file)
  except Exception as e:return {'file':rel,'operation':t['operation'],'skip':f'artifact_build_failed:{type(e).__name__}'}
- expected_hosts={}
- for c in t['cells']:
-  np_=new_pos(num2col(c['col']),c['row'],t['axis'],t['operation'],t['at'],t['count'])
-  if np_ is not None:expected_hosts[f'{np_[0]}{np_[1]}']=c
- normalized={};extra=0
+ task_cells={c['cell']:c for c in t['cells']}
+ normalized={};extra=0;answered_origins=set()
  for a1,f in (agent_cells or {}).items():
   key=str(a1).replace('$','').upper()
-  if key in expected_hosts:normalized[key]=f
+  if key in task_cells:
+   c=task_cells[key];np_=new_pos(num2col(c['col']),c['row'],t['axis'],t['operation'],t['at'],t['count'])
+   if np_ is not None:normalized[f'{np_[0]}{np_[1]}']=f
+   answered_origins.update((key,f'{np_[0]}{np_[1]}') if np_ is not None else (key,))
   else:extra+=1
  splice_missed=splice_formulas(agent_file,sheet,normalized)
  built=file_formulas(agent_file,sheet);evaluated=truth_skipped=truth_deleted=wrong=missing=0;wrong_cells=[]
- answered_hosts={str(a1).replace('$','').upper() for a1 in normalized}
+ answered_hosts=answered_origins
  for c in t['cells']:
   np_=new_pos(num2col(c['col']),c['row'],t['axis'],t['operation'],t['at'],t['count'])
   if np_ is None:truth_deleted+=1;continue
