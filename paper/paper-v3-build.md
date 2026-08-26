@@ -1,6 +1,6 @@
 ---
 title: "Certify-or-Refuse: A Machine-Checked Soundness Boundary for Untrusted Agent Edits to Opaque-Semantics Artifacts"
-date: 2026-07-10
+date: 2026-08-25
 geometry: margin=1in
 fontsize: 11pt
 colorlinks: true

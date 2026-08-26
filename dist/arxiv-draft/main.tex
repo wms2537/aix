@@ -18,11 +18,12 @@
   \usepackage{unicode-math} % this also loads fontspec
   \defaultfontfeatures{Scale=MatchLowercase}
   \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+  \setmainfont{DejaVu Serif}
+  \setmonofont{DejaVu Sans Mono}
+  \newfontfamily\cjkfont{Noto Serif CJK SC}
+  \setmathfont{DejaVu Math TeX Gyre}
 \fi
-\usepackage{lmodern}
-\ifPDFTeX\else
-  % xetex/luatex font selection
-\fi
+% arXiv draft: DejaVu fonts are set above for XeLaTeX/LuaLaTeX.
 % Use upquote if available, for straight quotes in verbatim environments
 \IfFileExists{upquote.sty}{\usepackage{upquote}}{}
 \IfFileExists{microtype.sty}{% use microtype if available
@@ -1118,7 +1119,7 @@ the defect was caught by the locked test's independent truth instrument,
 not by the guard. A granted post-test review round then found a
 \textbf{live sibling} by attacking the fix's boundary: the tokenizer's
 unquoted-sheet-qualifier grammar is ASCII-only, so a CJK-named sheet's
-unquoted qualifier (\texttt{集計01!CI3}) mis-tokenizes and the shift
+unquoted qualifier (\texttt{\cjkfont 集計01!CI3}) mis-tokenizes and the shift
 silently leaves the reference stale --- a class present thousands of
 times in the locked corpus yet structurally invisible to the locked
 harness, whose truth grammar skips all cross-sheet formulas. Rather than

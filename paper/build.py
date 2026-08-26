@@ -87,7 +87,7 @@ def derive_build_md(md):
         out.append(m.group(1)[1:] + m.group(2) if m else ln)
     yaml = ("---\n"
             f'title: "{title}"\n'
-            "date: 2026-07-10\n"
+            "date: 2026-08-25\n"
             "geometry: margin=1in\n"
             "fontsize: 11pt\n"
             "colorlinks: true\n"
@@ -116,6 +116,7 @@ def main():
         ["pandoc", "paper-v3-build.md", "-s", "-o", "paper-v3.tex"],
         ["pandoc", "paper-v3-build.md", "-s", "--pdf-engine=xelatex",
          "-V", "mainfont=DejaVu Serif", "-V", "monofont=DejaVu Sans Mono",
+         "-V", "mathfont=DejaVu Math TeX Gyre",
          "-V", "sansfont=DejaVu Sans", "-V", "CJKmainfont=Noto Serif CJK SC",
          "-o", "paper-v3.pdf"],
     ):
